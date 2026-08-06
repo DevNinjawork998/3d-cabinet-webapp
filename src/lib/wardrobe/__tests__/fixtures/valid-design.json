@@ -1,0 +1,42 @@
+{
+	"schemaVersion": 1,
+	"opening": {
+		"width": 1800,
+		"height": 2400,
+		"depth": 600,
+		"ceilingHeight": 2600
+	},
+	"bays": [
+		{ "id": "bay-1", "width": 900, "order": 0 },
+		{ "id": "bay-2", "width": 900, "order": 1 }
+	],
+	"interiors": [
+		{
+			"bayId": "bay-1",
+			"items": [
+				{ "kind": "shelf", "heightFromFloor": 1800 },
+				{ "kind": "rail", "heightFromFloor": 1600 }
+			],
+			"accessories": ["soft-close-hinge"]
+		},
+		{
+			"bayId": "bay-2",
+			"items": [{ "kind": "drawer", "heightFromFloor": 200, "count": 3 }],
+			"accessories": ["drawer-unit", "led-strip"]
+		}
+	],
+	"doors": [
+		{
+			"bayId": "bay-1",
+			"type": "hinged",
+			"finish": "laminate-standard",
+			"handle": "profile"
+		},
+		{
+			"bayId": "bay-2",
+			"type": "sliding",
+			"finish": "veneer",
+			"handle": "none"
+		}
+	]
+}

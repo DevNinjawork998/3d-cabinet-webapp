@@ -1,0 +1,19 @@
+{
+	"schemaVersion": 1,
+	"opening": {
+		"width": 1800,
+		"height": 2400,
+		"depth": 600,
+		"ceilingHeight": 2600
+	},
+	"bays": [{ "id": "bay-1", "width": 1800, "order": 0 }],
+	"interiors": [{ "bayId": "bay-1", "items": [], "accessories": [] }],
+	"doors": [
+		{
+			"bayId": "bay-1",
+			"type": "pocket",
+			"finish": "laminate-standard",
+			"handle": "profile"
+		}
+	]
+}
