@@ -9,6 +9,11 @@ import {
 	OPENING_CONSTRAINTS,
 } from "@/lib/wardrobe/catalogue";
 import {
+	backWallPlacement,
+	clampPlacement,
+	type Placement,
+} from "@/lib/wardrobe/placement";
+import {
 	buildDesign,
 	DEFAULT_DEPTH_MM,
 	type DesignOptions,
@@ -34,6 +39,21 @@ const Scene = dynamic(() => import("@/components/viewer/Scene"), {
 			Loading 3D view…
 		</div>
 	),
+});
+
+/**
+ * Preset cards are fixed — nothing about them depends on the current design or
+ * where the unit is standing. Built once at module scope rather than in render:
+ * dragging fires a state update per pointermove, and rebuilding and re-pricing
+ * six designs on each of those is real work between the pointer and the frame.
+ */
+const PRESET_CARDS = PRESETS.map((preset) => {
+	const design = buildDesign(preset);
+	return {
+		preset,
+		bays: design.bays.length,
+		price: computePrice(design).totalRm,
+	};
 });
 
 /** Finish ids bucketed by their catalogue group, for the swatch picker. */
@@ -106,6 +126,8 @@ export default function ViewerPage() {
 	const [doorsVisible, setDoorsVisible] = useState(true);
 	const [room, setRoom] = useState<RoomSize>(DEFAULT_ROOM);
 	const [roomOpen, setRoomOpen] = useState(false);
+	// null = never moved, so it tracks the back wall as the room is resized.
+	const [rawPlacement, setPlacement] = useState<Placement | null>(null);
 
 	const updateRoom = (next: Partial<RoomSize>) =>
 		setRoom((prev) => ({ ...prev, ...next }));
@@ -131,6 +153,15 @@ export default function ViewerPage() {
 	const validation = useMemo(() => validateDesign(design), [design]);
 	const price = useMemo(() => computePrice(design), [design]);
 
+	// Derived, not stored: shrinking the room re-seats the unit, and growing it
+	// back restores where the customer actually put it.
+	const placement = clampPlacement(
+		rawPlacement ?? backWallPlacement(room, DEFAULT_DEPTH_MM),
+		room,
+		widthMm,
+		DEFAULT_DEPTH_MM,
+	);
+
 	const set = <K extends keyof DesignOptions>(
 		key: K,
 		value: DesignOptions[K],
@@ -144,9 +175,11 @@ export default function ViewerPage() {
 				<Scene
 					design={design}
 					room={room}
+					placement={placement}
 					doorsVisible={doorsVisible}
 					showDimensions={roomOpen}
 					onRoomChangeAction={updateRoom}
+					onPlacementChangeAction={setPlacement}
 				/>
 
 				<div className="absolute left-4 top-4 rounded-lg bg-white/90 p-3 shadow-sm backdrop-blur">
@@ -154,13 +187,28 @@ export default function ViewerPage() {
 					<p className="text-xl font-semibold">RM {price.totalRm.toFixed(2)}</p>
 				</div>
 
-				<button
-					type="button"
-					className="absolute bottom-4 left-4 rounded-full bg-neutral-900 px-4 py-2 text-sm text-white shadow"
-					onClick={() => setDoorsVisible((visible) => !visible)}
-				>
-					{doorsVisible ? "Hide doors" : "Show doors"}
-				</button>
+				<div className="absolute bottom-4 left-4 flex gap-2">
+					<button
+						type="button"
+						className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white shadow"
+						onClick={() => setDoorsVisible((visible) => !visible)}
+					>
+						{doorsVisible ? "Hide doors" : "Show doors"}
+					</button>
+					{rawPlacement && (
+						<button
+							type="button"
+							className="rounded-full bg-white px-4 py-2 text-neutral-900 text-sm shadow"
+							onClick={() => setPlacement(null)}
+						>
+							Reset placement
+						</button>
+					)}
+				</div>
+
+				<p className="-translate-x-1/2 absolute bottom-4 left-1/2 hidden text-neutral-500 text-xs lg:block">
+					Drag the wardrobe to move it — use the dot in front to turn it
+				</p>
 			</section>
 
 			<aside className="flex w-full shrink-0 flex-col gap-5 overflow-y-auto border-neutral-200 border-t bg-white p-5 lg:h-full lg:w-96 lg:border-t-0 lg:border-l">
@@ -196,9 +244,7 @@ export default function ViewerPage() {
 				</div>
 
 				<div className="grid grid-cols-2 gap-3">
-					{PRESETS.map((preset) => {
-						const presetDesign = buildDesign(preset);
-						const presetPrice = computePrice(presetDesign);
+					{PRESET_CARDS.map(({ preset, bays, price: presetPrice }) => {
 						const selected =
 							preset.widthMm === options.widthMm &&
 							preset.heightMm === options.heightMm &&
@@ -216,10 +262,7 @@ export default function ViewerPage() {
 										: "border-neutral-200 hover:border-neutral-400"
 								}`}
 							>
-								<Elevation
-									bays={presetDesign.bays.length}
-									doorType={preset.doorType}
-								/>
+								<Elevation bays={bays} doorType={preset.doorType} />
 								<p className="mt-2 font-medium text-sm">{preset.label}</p>
 								<p className="text-neutral-500 text-xs">
 									{FINISHES[preset.finish].label}, {preset.widthMm}×
@@ -228,7 +271,7 @@ export default function ViewerPage() {
 								<p className="mt-1 text-sm">
 									<span className="text-neutral-500 text-xs">RM </span>
 									<span className="font-semibold">
-										{presetPrice.totalRm.toFixed(0)}
+										{presetPrice.toFixed(0)}
 									</span>
 								</p>
 							</button>

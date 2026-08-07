@@ -21,7 +21,9 @@ export const DEFAULT_ROOM: RoomSize = {
 	heightMm: 2700,
 };
 
-/** A wardrobe can never be wider than the wall it stands against. */
+/** A wardrobe can never be longer than the longest wall it could stand against.
+ * The unit is free to rotate, so either room axis is fair game; clampPlacement
+ * enforces the actual fit for whatever angle it is currently at. */
 export function maxRunWidthMm(room: RoomSize): number {
-	return room.widthMm;
+	return Math.max(room.widthMm, room.depthMm);
 }

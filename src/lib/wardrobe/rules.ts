@@ -1,4 +1,5 @@
 import { OPENING_CONSTRAINTS } from "./catalogue";
+import { ROOM_LIMITS } from "./room";
 import type { Bay, DesignDocument } from "./schema";
 
 export type BaySuggestion = Pick<Bay, "width" | "order">;
@@ -64,16 +65,16 @@ export function validateDesign(design: DesignDocument): ValidationResult {
 		});
 	}
 
-	if (opening.ceilingHeight < OPENING_CONSTRAINTS.minCeilingHeightMm) {
+	if (opening.ceilingHeight < ROOM_LIMITS.minHeightMm) {
 		issues.push({
 			path: "opening.ceilingHeight",
-			message: `Ceiling height must be at least ${OPENING_CONSTRAINTS.minCeilingHeightMm}mm`,
+			message: `Ceiling height must be at least ${ROOM_LIMITS.minHeightMm}mm`,
 		});
 	}
-	if (opening.ceilingHeight > OPENING_CONSTRAINTS.maxCeilingHeightMm) {
+	if (opening.ceilingHeight > ROOM_LIMITS.maxHeightMm) {
 		issues.push({
 			path: "opening.ceilingHeight",
-			message: `Ceiling height must be at most ${OPENING_CONSTRAINTS.maxCeilingHeightMm}mm`,
+			message: `Ceiling height must be at most ${ROOM_LIMITS.maxHeightMm}mm`,
 		});
 	}
 

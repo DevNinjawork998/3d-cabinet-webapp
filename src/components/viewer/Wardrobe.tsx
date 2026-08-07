@@ -1,7 +1,7 @@
 "use client";
 
 import { useTexture } from "@react-three/drei";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { RepeatWrapping, type Texture } from "three";
 import type {
 	Bay,
@@ -186,7 +186,12 @@ function DoorPanel({
 	);
 }
 
-export function Wardrobe({
+/**
+ * memo: dragging the unit re-renders Scene on every pointermove, but none of
+ * the carcass, shelves or doors depend on where it stands — only the parent
+ * group's transform does. Without this the whole fit-out reconciles per move.
+ */
+export const Wardrobe = memo(function Wardrobe({
 	design,
 	doorsVisible,
 }: {
@@ -264,4 +269,4 @@ export function Wardrobe({
 			})}
 		</group>
 	);
-}
+});

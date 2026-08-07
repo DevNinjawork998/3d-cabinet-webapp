@@ -5,8 +5,10 @@ import { Canvas, useThree } from "@react-three/fiber";
 import { Suspense, useEffect } from "react";
 import type { PerspectiveCamera, Vector3 as Vector3Type } from "three";
 import { Vector3 } from "three";
+import type { Placement } from "@/lib/wardrobe/placement";
 import type { RoomSize } from "@/lib/wardrobe/room";
 import type { DesignDocument } from "@/lib/wardrobe/schema";
+import { PlacementControls } from "./PlacementControls";
 import { Room } from "./Room";
 import { RoomDimensions } from "./RoomDimensions";
 import { Wardrobe } from "./Wardrobe";
@@ -62,15 +64,19 @@ function FitCamera({
 export default function Scene({
 	design,
 	room,
+	placement,
 	doorsVisible,
 	showDimensions,
 	onRoomChangeAction,
+	onPlacementChangeAction,
 }: {
 	design: DesignDocument;
 	room: RoomSize;
+	placement: Placement;
 	doorsVisible: boolean;
 	showDimensions: boolean;
 	onRoomChangeAction: (next: Partial<RoomSize>) => void;
+	onPlacementChangeAction: (next: Placement) => void;
 }) {
 	const runWidth =
 		design.bays.reduce((sum, bay) => sum + bay.width, 0) / 1000 || 1;
@@ -85,6 +91,8 @@ export default function Scene({
 			// Required to read the canvas back as an image for the quote screenshot.
 			gl={{ preserveDrawingBuffer: true }}
 			camera={{ fov: 45 }}
+			// Without this, dragging the unit scrolls the page on Android.
+			style={{ touchAction: "none" }}
 		>
 			<color attach="background" args={["#f4f2ee"]} />
 			<ambientLight intensity={1.5} />
@@ -95,8 +103,15 @@ export default function Scene({
 				<RoomDimensions room={room} onChange={onRoomChangeAction} />
 			)}
 
-			{/* Wardrobe stands against the back wall. */}
-			<group position={[0, 0, -roomDepth / 2 + unitDepth / 2]}>
+			{/* Drag the unit anywhere on the floor; it seats flush near a wall. */}
+			<PlacementControls
+				room={room}
+				placement={placement}
+				runWidthMm={runWidth * 1000}
+				depthMm={design.opening.depth}
+				heightMm={design.opening.height}
+				onChange={onPlacementChangeAction}
+			>
 				<Suspense fallback={null}>
 					<Wardrobe design={design} doorsVisible={doorsVisible} />
 				</Suspense>
@@ -108,7 +123,7 @@ export default function Scene({
 					opacity={0.4}
 					color="#22201d"
 				/>
-			</group>
+			</PlacementControls>
 
 			<OrbitControls
 				makeDefault

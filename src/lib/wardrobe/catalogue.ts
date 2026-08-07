@@ -13,8 +13,8 @@ export const OPENING_CONSTRAINTS = {
 	maxHeightMm: 3000,
 	/** Gap left between the top of the unit and the ceiling. */
 	ceilingClearanceMm: 50,
-	minCeilingHeightMm: 2200,
-	maxCeilingHeightMm: 3600,
+	// Ceiling height bounds live in ROOM_LIMITS (room.ts) — the ceiling belongs
+	// to the customer's room, not to our catalogue.
 	minBayWidthMm: 300,
 	maxBayWidthMm: 1200,
 } as const;

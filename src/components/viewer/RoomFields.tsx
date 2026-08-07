@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { ROOM_LIMITS, type RoomSize } from "@/lib/wardrobe/room";
 
 export function DimInput({
@@ -17,6 +18,18 @@ export function DimInput({
 	label: string;
 	showLabel?: boolean;
 }) {
+	// Held while the field is being edited, so a half-typed "5" isn't clamped
+	// up to the minimum before the user reaches "5000".
+	const [draft, setDraft] = useState<string | null>(null);
+
+	const commit = () => {
+		const next = Number(draft);
+		if (draft !== "" && Number.isFinite(next)) {
+			onCommit(Math.min(max, Math.max(min, next)));
+		}
+		setDraft(null);
+	};
+
 	return (
 		<label className="block">
 			{showLabel ? (
@@ -28,15 +41,27 @@ export function DimInput({
 				<input
 					type="number"
 					className="w-full min-w-0 bg-transparent text-right text-neutral-900 text-xs tabular-nums outline-none"
-					value={value}
+					value={draft ?? value}
 					min={min}
 					max={max}
 					step={50}
 					onChange={(e) => {
+						setDraft(e.target.value);
+						// Live-update the 3D view, but only once the typed value is
+						// already legal — no snapping while it's still incomplete.
 						const next = Number(e.target.value);
-						if (Number.isFinite(next)) {
-							onCommit(Math.min(max, Math.max(min, next)));
+						if (
+							e.target.value !== "" &&
+							Number.isFinite(next) &&
+							next >= min &&
+							next <= max
+						) {
+							onCommit(next);
 						}
+					}}
+					onBlur={commit}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") e.currentTarget.blur();
 					}}
 				/>
 				<span className="text-neutral-500 text-xs">mm</span>
