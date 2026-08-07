@@ -11,7 +11,6 @@ import {
 import {
 	buildDesign,
 	DEFAULT_DEPTH_MM,
-	DEFAULT_HEIGHT_MM,
 	type DesignOptions,
 	PRESETS,
 } from "@/lib/wardrobe/presets";
@@ -26,7 +25,6 @@ import {
 	DOOR_TYPE_IDS,
 	type DoorTypeId,
 	FINISH_IDS,
-	type FinishId,
 } from "@/lib/wardrobe/schema";
 
 const Scene = dynamic(() => import("@/components/viewer/Scene"), {
@@ -37,6 +35,12 @@ const Scene = dynamic(() => import("@/components/viewer/Scene"), {
 		</div>
 	),
 });
+
+/** Finish ids bucketed by their catalogue group, for the swatch picker. */
+const FINISH_GROUPS = (["Laminate", "Veneer"] as const).map(
+	(group) =>
+		[group, FINISH_IDS.filter((id) => FINISHES[id].group === group)] as const,
+);
 
 /** Flat elevation of the run — cheap stand-in for a rendered thumbnail. */
 function Elevation({ bays, doorType }: { bays: number; doorType: DoorTypeId }) {
@@ -95,7 +99,8 @@ function Elevation({ bays, doorType }: { bays: number; doorType: DoorTypeId }) {
 export default function ViewerPage() {
 	const [options, setOptions] = useState<DesignOptions>({
 		widthMm: 2400,
-		finish: "laminate-premium",
+		heightMm: 2400,
+		finish: "laminate-oak",
 		doorType: "hinged",
 	});
 	const [doorsVisible, setDoorsVisible] = useState(true);
@@ -112,9 +117,16 @@ export default function ViewerPage() {
 	);
 	const widthMm = Math.min(options.widthMm, maxWidthMm);
 
+	// The unit has to fit under the ceiling with clearance to install it.
+	const maxHeightMm = Math.min(
+		OPENING_CONSTRAINTS.maxHeightMm,
+		room.heightMm - OPENING_CONSTRAINTS.ceilingClearanceMm,
+	);
+	const heightMm = Math.min(options.heightMm, maxHeightMm);
+
 	const design = useMemo(
-		() => buildDesign({ ...options, widthMm }),
-		[options, widthMm],
+		() => buildDesign({ ...options, widthMm, heightMm }, room.heightMm),
+		[options, widthMm, heightMm, room.heightMm],
 	);
 	const validation = useMemo(() => validateDesign(design), [design]);
 	const price = useMemo(() => computePrice(design), [design]);
@@ -189,6 +201,7 @@ export default function ViewerPage() {
 						const presetPrice = computePrice(presetDesign);
 						const selected =
 							preset.widthMm === options.widthMm &&
+							preset.heightMm === options.heightMm &&
 							preset.finish === options.finish &&
 							preset.doorType === options.doorType;
 
@@ -210,7 +223,7 @@ export default function ViewerPage() {
 								<p className="mt-2 font-medium text-sm">{preset.label}</p>
 								<p className="text-neutral-500 text-xs">
 									{FINISHES[preset.finish].label}, {preset.widthMm}×
-									{DEFAULT_HEIGHT_MM}×{DEFAULT_DEPTH_MM} mm
+									{preset.heightMm}×{DEFAULT_DEPTH_MM} mm
 								</p>
 								<p className="mt-1 text-sm">
 									<span className="text-neutral-500 text-xs">RM </span>
@@ -242,19 +255,75 @@ export default function ViewerPage() {
 				</label>
 
 				<label className="block space-y-2">
-					<span className="font-medium text-sm">Finish</span>
-					<select
-						className="w-full rounded border border-neutral-300 bg-white p-2 text-sm"
-						value={options.finish}
-						onChange={(e) => set("finish", e.target.value as FinishId)}
-					>
-						{FINISH_IDS.map((id) => (
-							<option key={id} value={id}>
-								{FINISHES[id].label}
-							</option>
-						))}
-					</select>
+					<span className="font-medium text-sm">
+						Height — {heightMm}mm
+						{heightMm === maxHeightMm && (
+							<span className="ml-1 text-neutral-500 text-xs">
+								(max under a {room.heightMm}mm ceiling)
+							</span>
+						)}
+					</span>
+					<input
+						type="range"
+						className="w-full"
+						min={OPENING_CONSTRAINTS.minHeightMm}
+						max={maxHeightMm}
+						step={50}
+						value={heightMm}
+						onChange={(e) => set("heightMm", Number(e.target.value))}
+					/>
 				</label>
+
+				<fieldset className="space-y-2">
+					<legend className="font-medium text-sm">
+						Finish — {FINISHES[options.finish].label}
+						<span className="ml-1 font-normal text-neutral-500 text-xs">
+							{FINISHES[options.finish].group}
+						</span>
+					</legend>
+					{FINISH_GROUPS.map(([group, ids]) => (
+						<div key={group}>
+							<p className="mb-1 text-neutral-500 text-xs">{group}</p>
+							<div className="grid grid-cols-4 gap-2">
+								{ids.map((id) => {
+									const finish = FINISHES[id];
+									const selected = id === options.finish;
+									return (
+										<button
+											key={id}
+											type="button"
+											onClick={() => set("finish", id)}
+											aria-pressed={selected}
+											title={`${finish.label} — ${
+												finish.surchargeRmPerFt === 0
+													? "included"
+													: `+RM ${finish.surchargeRmPerFt}/ft`
+											}`}
+											className={`rounded-md border p-1 text-center ${
+												selected
+													? "border-neutral-900 ring-1 ring-neutral-900"
+													: "border-neutral-200 hover:border-neutral-400"
+											}`}
+										>
+											<span
+												className="block h-9 w-full rounded"
+												style={{ backgroundColor: finish.swatch }}
+											/>
+											<span className="mt-1 block truncate text-[11px] leading-tight">
+												{finish.label}
+											</span>
+											<span className="block text-[10px] text-neutral-500">
+												{finish.surchargeRmPerFt === 0
+													? "included"
+													: `+${finish.surchargeRmPerFt}/ft`}
+											</span>
+										</button>
+									);
+								})}
+							</div>
+						</div>
+					))}
+				</fieldset>
 
 				<label className="block space-y-2">
 					<span className="font-medium text-sm">Door type</span>

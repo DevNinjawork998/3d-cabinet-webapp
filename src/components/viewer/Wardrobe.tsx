@@ -12,7 +12,7 @@ import type {
 } from "@/lib/wardrobe/schema";
 import {
 	CARCASS_COLOR,
-	FINISH_APPEARANCE,
+	finishAppearance,
 	GRAIN_TEXTURE_URL,
 	RAIL_COLOR,
 } from "./finishMaterials";
@@ -168,7 +168,7 @@ function DoorPanel({
 	depthMm: number;
 	map: Texture;
 }) {
-	const appearance = FINISH_APPEARANCE[door.finish];
+	const appearance = finishAppearance(door.finish);
 	const t = m(PANEL_MM);
 	const d = m(depthMm);
 	// Sliding doors ride on a track in front of the carcass; hinged doors sit

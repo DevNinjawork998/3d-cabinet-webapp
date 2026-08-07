@@ -42,6 +42,28 @@ export function validateDesign(design: DesignDocument): ValidationResult {
 			message: `Opening width must be at most ${OPENING_CONSTRAINTS.maxTotalWidthMm}mm`,
 		});
 	}
+	if (opening.height < OPENING_CONSTRAINTS.minHeightMm) {
+		issues.push({
+			path: "opening.height",
+			message: `Wardrobe height must be at least ${OPENING_CONSTRAINTS.minHeightMm}mm`,
+		});
+	}
+	if (opening.height > OPENING_CONSTRAINTS.maxHeightMm) {
+		issues.push({
+			path: "opening.height",
+			message: `Wardrobe height must be at most ${OPENING_CONSTRAINTS.maxHeightMm}mm`,
+		});
+	}
+	if (
+		opening.height >
+		opening.ceilingHeight - OPENING_CONSTRAINTS.ceilingClearanceMm
+	) {
+		issues.push({
+			path: "opening.height",
+			message: `Wardrobe must leave ${OPENING_CONSTRAINTS.ceilingClearanceMm}mm below the ${opening.ceilingHeight}mm ceiling`,
+		});
+	}
+
 	if (opening.ceilingHeight < OPENING_CONSTRAINTS.minCeilingHeightMm) {
 		issues.push({
 			path: "opening.ceilingHeight",

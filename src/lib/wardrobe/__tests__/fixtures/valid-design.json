@@ -29,13 +29,13 @@
 		{
 			"bayId": "bay-1",
 			"type": "hinged",
-			"finish": "laminate-standard",
+			"finish": "laminate-white",
 			"handle": "profile"
 		},
 		{
 			"bayId": "bay-2",
 			"type": "sliding",
-			"finish": "veneer",
+			"finish": "veneer-walnut",
 			"handle": "none"
 		}
 	]

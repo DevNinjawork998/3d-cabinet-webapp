@@ -53,6 +53,23 @@ describe("validateDesign", () => {
 		expect(result.issues.some((i) => i.path === "opening.width")).toBe(true);
 	});
 
+	it("flags a wardrobe taller than the ceiling allows", () => {
+		const design = designDocumentSchema.parse(validDesign);
+		design.opening.ceilingHeight = 2500;
+		design.opening.height = 2500;
+		const result = validateDesign(design);
+		expect(result.valid).toBe(false);
+		expect(result.issues.some((i) => i.path === "opening.height")).toBe(true);
+	});
+
+	it("flags a wardrobe below the minimum height", () => {
+		const design = designDocumentSchema.parse(validDesign);
+		design.opening.height = 1200;
+		const result = validateDesign(design);
+		expect(result.valid).toBe(false);
+		expect(result.issues.some((i) => i.path === "opening.height")).toBe(true);
+	});
+
 	it("flags bay widths that don't sum to the opening width", () => {
 		const design = designDocumentSchema.parse(validDesign);
 		design.bays[0].width = 300;
