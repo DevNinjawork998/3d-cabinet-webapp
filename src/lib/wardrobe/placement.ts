@@ -109,6 +109,16 @@ function wrapDeg(deg: number): number {
 	return ((deg % 360) + 360) % 360;
 }
 
+/**
+ * Signed angle from `fromDeg` to `toDeg`, always the short way round: the
+ * result is in (-180, 180]. Animating on the raw difference makes the unit
+ * spin nearly all the way round whenever the rotation crosses 0°/360°.
+ */
+export function shortestAngleDeltaDeg(fromDeg: number, toDeg: number): number {
+	const delta = wrapDeg(toDeg - fromDeg);
+	return delta > 180 ? delta - 360 : delta;
+}
+
 export function snapAngleDeg(rotationDeg: number): number {
 	const wrapped = wrapDeg(rotationDeg);
 	const nearestSquare = Math.round(wrapped / 90) * 90;

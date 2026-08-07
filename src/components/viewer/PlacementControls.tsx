@@ -1,7 +1,7 @@
 "use client";
 
 import type { ThreeEvent } from "@react-three/fiber";
-import { useThree } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import {
 	useCallback,
 	useEffect,
@@ -13,9 +13,11 @@ import type { Group } from "three";
 import {
 	dragStep,
 	type Placement,
+	shortestAngleDeltaDeg,
 	snapPlacement,
 } from "@/lib/wardrobe/placement";
 import type { RoomSize } from "@/lib/wardrobe/room";
+import { smoothDamp } from "./smoothDamp";
 
 type Drag =
 	| { kind: "move"; grabXMm: number; grabZMm: number }
@@ -44,6 +46,21 @@ function floorPointMm(e: ThreeEvent<PointerEvent>): {
 		zMm: (origin.z + direction.z * t) * 1000,
 	};
 }
+
+/**
+ * Roughly how long the unit takes to reach the pointer, in seconds. Lower is
+ * tighter and more literal; higher is smoother and more floaty. This is the
+ * single dial for that trade — no value is both perfectly locked and perfectly
+ * smooth.
+ */
+const FOLLOW_SECONDS = 0.09;
+/** Rotation catches up a little quicker; a turn that lags reads as sloppy. */
+const TURN_SECONDS = 0.07;
+/** Below these, stop easing and land exactly. */
+const SETTLE_MM = 0.5;
+const SETTLE_DEG = 0.05;
+/** Below this the follower is effectively stopped, in mm/s and deg/s. */
+const SETTLE_SPEED = 1;
 
 /** Radius of the rotate puck, in metres. */
 const HANDLE_RADIUS = 0.09;
@@ -85,28 +102,99 @@ export function PlacementControls({
 	const [hovered, setHovered] = useState(false);
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 
-	// Where the unit actually is right now. A drag writes here and straight to
-	// the three.js transform, never through React state: pointermove outruns
-	// rendering, and once a render misses the frame budget the browser coalesces
-	// the queued moves, so the unit lurches between whichever positions survived
-	// instead of following the pointer. State is committed once, on release.
+	// Two positions, deliberately. `target` is where the pointer is asking for
+	// the unit to be; `live` is where it actually is, easing toward the target
+	// every rendered frame. Hard-locking the transform to the pointer ties the
+	// motion to the event rate, and the moment a frame runs long the browser
+	// coalesces the queued pointermoves and the unit lurches between whichever
+	// ones survived. Following a target instead means motion comes from the
+	// frame loop, so a dropped event costs smoothness rather than showing as a
+	// jump. It is how IKEA's planners feel the way they do.
 	const groupRef = useRef<Group>(null);
+	const targetRef = useRef<Placement>(placement);
 	const liveRef = useRef<Placement>(placement);
+	// Carried between frames. This is what makes turns smooth: the unit
+	// decelerates and accelerates through a direction change instead of
+	// adopting a new speed instantly, which is what made a figure-8 feel
+	// like it was ticking.
+	const speedRef = useRef({ x: 0, z: 0, r: 0 });
 
-	const apply = useCallback((next: Placement) => {
-		liveRef.current = next;
-		const group = groupRef.current;
-		if (!group) return;
-		group.position.set(next.xMm / 1000, 0, next.zMm / 1000);
-		group.rotation.set(0, (next.rotationDeg * Math.PI) / 180, 0);
+	/** Ask for a new position. The frame loop decides how fast to get there. */
+	const aim = useCallback((next: Placement) => {
+		targetRef.current = next;
 	}, []);
 
-	// Props drive the transform whenever a drag isn't. Covers mount, "reset
-	// placement", and the unit being re-seated when the room is resized.
+	const writeTransform = useCallback((at: Placement) => {
+		liveRef.current = at;
+		const group = groupRef.current;
+		if (!group) return;
+		group.position.set(at.xMm / 1000, 0, at.zMm / 1000);
+		group.rotation.set(0, (at.rotationDeg * Math.PI) / 180, 0);
+	}, []);
+
+	useFrame((_, dt) => {
+		const target = targetRef.current;
+		const live = liveRef.current;
+		const speed = speedRef.current;
+
+		const dx = target.xMm - live.xMm;
+		const dz = target.zMm - live.zMm;
+		// Along the shortest arc: 350° -> 10° must travel +20°, not unwind 340°.
+		const dr = shortestAngleDeltaDeg(live.rotationDeg, target.rotationDeg);
+
+		if (
+			Math.abs(dx) < SETTLE_MM &&
+			Math.abs(dz) < SETTLE_MM &&
+			Math.abs(dr) < SETTLE_DEG &&
+			Math.abs(speed.x) < SETTLE_SPEED &&
+			Math.abs(speed.z) < SETTLE_SPEED &&
+			Math.abs(speed.r) < SETTLE_SPEED
+		) {
+			// Arrived and stopped. Land exactly and go quiet, rather than
+			// asymptoting forever and dirtying the transform every frame.
+			if (dx || dz || dr) {
+				speed.x = 0;
+				speed.z = 0;
+				speed.r = 0;
+				writeTransform(target);
+			}
+			return;
+		}
+
+		const x = smoothDamp(live.xMm, target.xMm, speed.x, FOLLOW_SECONDS, dt);
+		const z = smoothDamp(live.zMm, target.zMm, speed.z, FOLLOW_SECONDS, dt);
+		// Chase the delta rather than the absolute angle, so the shortest arc
+		// above is what actually gets followed.
+		const r = smoothDamp(0, dr, speed.r, TURN_SECONDS, dt);
+
+		speed.x = x.velocity;
+		speed.z = z.velocity;
+		speed.r = r.velocity;
+
+		writeTransform({
+			xMm: x.value,
+			zMm: z.value,
+			rotationDeg: live.rotationDeg + r.value,
+		});
+	});
+
+	// Props aim the unit whenever a drag isn't. Covers mount, "reset placement",
+	// and re-seating when the room is resized — all of which now glide.
 	useLayoutEffect(() => {
 		if (dragRef.current) return;
-		apply(placement);
-	}, [placement, apply]);
+		aim(placement);
+	}, [placement, aim]);
+
+	// Seed the transform the moment the group exists. Needed because target and
+	// live start equal, so the frame loop settles immediately and never writes —
+	// without this the unit would sit at the origin instead of its start position.
+	const attachGroup = useCallback(
+		(group: Group | null) => {
+			groupRef.current = group;
+			if (group) writeTransform(liveRef.current);
+		},
+		[writeTransform],
+	);
 
 	// Latest values, so the pointer handlers don't need re-binding mid-drag.
 	const latest = useRef({ room, runWidthMm, depthMm });
@@ -142,8 +230,8 @@ export function PlacementControls({
 		const floor = floorPointMm(e);
 		begin({
 			kind: "move",
-			grabXMm: floor.xMm - liveRef.current.xMm,
-			grabZMm: floor.zMm - liveRef.current.zMm,
+			grabXMm: floor.xMm - targetRef.current.xMm,
+			grabZMm: floor.zMm - targetRef.current.zMm,
 		});
 	};
 
@@ -157,7 +245,10 @@ export function PlacementControls({
 		if (!drag) return;
 		e.stopPropagation();
 		const { room: r, runWidthMm: w, depthMm: d } = latest.current;
-		const p = liveRef.current;
+		// The target, never the eased position: re-anchoring the grab against a
+		// position that is still catching up would feed the easing back into the
+		// grab offset and the unit would drift away from the cursor.
+		const p = targetRef.current;
 		const { xMm: pointerXMm, zMm: pointerZMm } = floorPointMm(e);
 
 		if (drag.kind === "move") {
@@ -166,11 +257,11 @@ export function PlacementControls({
 			// into a wall doesn't leave a dead zone on the way back out.
 			drag.grabXMm = step.grab.grabXMm;
 			drag.grabZMm = step.grab.grabZMm;
-			apply(step.placement);
+			aim(step.placement);
 			return;
 		}
 
-		apply(
+		aim(
 			snapPlacement(
 				{
 					...p,
@@ -199,12 +290,12 @@ export function PlacementControls({
 		const { room: r, runWidthMm: w, depthMm: d } = latest.current;
 		// exact: nothing pulls the unit onto a wall mid-drag, so letting go
 		// within reach of one is what actually seats it flush.
-		const settled = snapPlacement(liveRef.current, r, w, d, true);
-		// Show it straight away, then hand the one and only state update of the
-		// whole drag to React.
-		apply(settled);
+		const settled = snapPlacement(targetRef.current, r, w, d, true);
+		// Aim, don't teleport — the unit eases into its final seat. Then hand
+		// React the one and only state update of the whole drag.
+		aim(settled);
 		onChange(settled);
-	}, [onChange, controls, apply]);
+	}, [onChange, controls, aim]);
 
 	// Releasing outside the canvas must still end the drag, or the unit keeps
 	// following the cursor after the button is up.
@@ -222,7 +313,7 @@ export function PlacementControls({
 			{/* Transform is driven imperatively via groupRef — deliberately no
 			    position/rotation props, or any unrelated re-render (hover, drag
 			    start) would snap the unit back to a stale prop mid-drag. */}
-			<group ref={groupRef}>
+			<group ref={attachGroup}>
 				{children}
 
 				{/*

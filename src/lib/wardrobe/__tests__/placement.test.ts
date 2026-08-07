@@ -4,6 +4,7 @@ import {
 	clampPlacement,
 	dragStep,
 	footprintAabbMm,
+	shortestAngleDeltaDeg,
 	snapAngleDeg,
 	snapPlacement,
 	WALL_SNAP_MM,
@@ -176,6 +177,37 @@ describe("dragStep", () => {
 		expect(xs[2]).toBeCloseTo(leftWallX, 6); // pinned at the wall
 		expect(xs[3]).toBeCloseTo(leftWallX + 1500, 6); // moves at once on reversal
 		expect(xs[4]).toBeCloseTo(1000, 6); // and on to the far limit
+	});
+});
+
+describe("shortestAngleDeltaDeg", () => {
+	it("takes the short way round the wrap point", () => {
+		// The whole reason this exists: naive subtraction gives -340 here and
+		// the unit spins almost a full turn to get 20° away.
+		expect(shortestAngleDeltaDeg(350, 10)).toBeCloseTo(20, 6);
+		expect(shortestAngleDeltaDeg(10, 350)).toBeCloseTo(-20, 6);
+	});
+
+	it("is signed and plain away from the wrap point", () => {
+		expect(shortestAngleDeltaDeg(0, 90)).toBeCloseTo(90, 6);
+		expect(shortestAngleDeltaDeg(90, 0)).toBeCloseTo(-90, 6);
+		expect(shortestAngleDeltaDeg(45, 45)).toBeCloseTo(0, 6);
+	});
+
+	it("never returns more than half a turn", () => {
+		for (let from = 0; from < 360; from += 7) {
+			for (let to = 0; to < 360; to += 11) {
+				const d = shortestAngleDeltaDeg(from, to);
+				expect(Math.abs(d)).toBeLessThanOrEqual(180);
+				// Applying the delta must actually land on the target.
+				expect((((from + d - to) % 360) + 360) % 360).toBeCloseTo(0, 6);
+			}
+		}
+	});
+
+	it("copes with unnormalised input from a rotate drag", () => {
+		expect(shortestAngleDeltaDeg(-10, 10)).toBeCloseTo(20, 6);
+		expect(shortestAngleDeltaDeg(710, 10)).toBeCloseTo(20, 6);
 	});
 });
 
