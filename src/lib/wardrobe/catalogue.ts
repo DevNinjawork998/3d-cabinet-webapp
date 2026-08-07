@@ -9,19 +9,74 @@ export const BAY_WIDTHS_MM = [300, 450, 600, 900, 1200] as const;
 export const OPENING_CONSTRAINTS = {
 	minTotalWidthMm: 600,
 	maxTotalWidthMm: 6000,
+	minHeightMm: 1800,
+	maxHeightMm: 3000,
+	/** Gap left between the top of the unit and the ceiling. */
+	ceilingClearanceMm: 50,
 	minCeilingHeightMm: 2200,
 	maxCeilingHeightMm: 3600,
 	minBayWidthMm: 300,
 	maxBayWidthMm: 1200,
 } as const;
 
+/** `swatch` is the base colour the shared grain map is tinted with. */
 export const FINISHES: Record<
 	FinishId,
-	{ label: string; surchargeRmPerFt: number }
+	{
+		label: string;
+		group: "Laminate" | "Veneer";
+		swatch: string;
+		surchargeRmPerFt: number;
+	}
 > = {
-	"laminate-standard": { label: "Laminate — standard", surchargeRmPerFt: 0 },
-	"laminate-premium": { label: "Laminate — premium", surchargeRmPerFt: 15 },
-	veneer: { label: "Veneer", surchargeRmPerFt: 45 },
+	"laminate-white": {
+		label: "White",
+		group: "Laminate",
+		swatch: "#ece7df",
+		surchargeRmPerFt: 0,
+	},
+	"laminate-oak": {
+		label: "Natural oak",
+		group: "Laminate",
+		swatch: "#c49a6a",
+		surchargeRmPerFt: 10,
+	},
+	"laminate-ash": {
+		label: "Grey ash",
+		group: "Laminate",
+		swatch: "#9c968d",
+		surchargeRmPerFt: 10,
+	},
+	"laminate-walnut": {
+		label: "Walnut",
+		group: "Laminate",
+		swatch: "#7b5233",
+		surchargeRmPerFt: 15,
+	},
+	"veneer-oak": {
+		label: "Oak",
+		group: "Veneer",
+		swatch: "#b88750",
+		surchargeRmPerFt: 40,
+	},
+	"veneer-teak": {
+		label: "Teak",
+		group: "Veneer",
+		swatch: "#9c6b3f",
+		surchargeRmPerFt: 45,
+	},
+	"veneer-walnut": {
+		label: "Walnut",
+		group: "Veneer",
+		swatch: "#5b3d28",
+		surchargeRmPerFt: 55,
+	},
+	"veneer-blackwood": {
+		label: "Blackwood",
+		group: "Veneer",
+		swatch: "#3b2a20",
+		surchargeRmPerFt: 65,
+	},
 };
 
 export const DOOR_TYPES: Record<

@@ -1,9 +1,14 @@
 import { z } from "zod";
 
 export const FINISH_IDS = [
-	"laminate-standard",
-	"laminate-premium",
-	"veneer",
+	"laminate-white",
+	"laminate-oak",
+	"laminate-ash",
+	"laminate-walnut",
+	"veneer-oak",
+	"veneer-teak",
+	"veneer-walnut",
+	"veneer-blackwood",
 ] as const;
 export const finishIdSchema = z.enum(FINISH_IDS);
 export type FinishId = z.infer<typeof finishIdSchema>;
