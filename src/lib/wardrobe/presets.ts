@@ -1,10 +1,6 @@
+import { defaultItems } from "./edits";
 import { splitIntoBays } from "./rules";
-import type {
-	DesignDocument,
-	DoorTypeId,
-	FinishId,
-	InteriorItem,
-} from "./schema";
+import type { DesignDocument, DoorTypeId, FinishId } from "./schema";
 
 export const DEFAULT_HEIGHT_MM = 2400;
 export const DEFAULT_DEPTH_MM = 600;
@@ -16,27 +12,6 @@ export type DesignOptions = {
 	finish: FinishId;
 	doorType: DoorTypeId;
 };
-
-const TOP_SHELF_DROP_MM = 550;
-const RAIL_DROP_MM = 650;
-const DRAWER_BASE_MM = 60;
-
-/**
- * Default fit-out for a bay, positioned relative to the carcass height so a
- * short unit doesn't leave its shelf and rail hanging outside the box.
- */
-function defaultItems(heightMm: number) {
-	const items: InteriorItem[] = [
-		{ kind: "shelf", heightFromFloor: heightMm - TOP_SHELF_DROP_MM },
-		{ kind: "rail", heightFromFloor: heightMm - RAIL_DROP_MM },
-	];
-	// Two drawers need roughly 400mm; below that the hanging space is worth
-	// more to the customer than the drawers.
-	if (heightMm - RAIL_DROP_MM > 900) {
-		items.push({ kind: "drawer", heightFromFloor: DRAWER_BASE_MM, count: 2 });
-	}
-	return items;
-}
 
 /** Single place both the scene and the catalogue cards build a design from. */
 export function buildDesign(

@@ -6,19 +6,24 @@ An end customer measures their space, designs a wardrobe in 3D, sees a price, an
 
 **This is a marketing surface, not a production tool.** It must be convincing and fast on mid-range Android in Malaysia. It does not need to be manufacturing-accurate. A human validates every design before it becomes a real order.
 
-Reference product: IKEA's PAX planner. Not the full IKEA room planner — we do wardrobes only, against one wall.
+Reference product: IKEA's PAX planner. A wardrobe is still one run against one wall — but it stands in a simple room box the customer sizes, and can be dragged and rotated within it, because the screenshot that closes the lead reads better with a room around it. See Room and placement.
 
 ## Status
 
-Greenfield. Phase 0 (catalogue spec with client) not yet complete — see Open questions.
+Phase 1 complete: schema, rules, pricing and the edit functions are done and tested headless. Phase 2 in progress: the five-step configurator and the 3D viewer are live at `/viewer`.
+
+Phase 0 is closing through `lib/skp`: the client's own Mozaik `.skp` exports are the source of the module standard. `catalogue.ts` still carries its PLACEHOLDER banner until a reviewed patch replaces the numbers — the rates in particular are not in the file and have to come from their price list.
+
+**Kitchens are coming.** The current design document is wardrobe-shaped (`opening` + `bays` + `doors`); base/wall/tall runs, worktops and appliances are a different schema and need their own planning round. Do not bend the wardrobe schema toward kitchens ad hoc. `lib/skp` is already product-agnostic for this reason.
 
 ## Stack
 
 - Next.js (App Router) + TypeScript
 - pnpm, Biome (lint + format)
 - Tailwind
-- Zustand for editor state, with an undo/redo command stack
+- Plain React state: the design document *is* the state, and every edit is a pure function in `lib/wardrobe/edits.ts`. No store, no undo/redo — a five-step wizard does not need either, and Zustand was removed as an unused dependency. Add one when prop-drilling actually hurts.
 - React Three Fiber + drei for the 3D viewer
+- `openskp` for reading SketchUp files — admin-only and dynamically imported, so it never lands in the public bundle
 - Prisma ORM + Prisma Postgres (Starter plan, provisioned via Vercel marketplace)
 - Vercel Blob for user-generated files
 - Zod for the design document schema
@@ -49,20 +54,43 @@ src/
     schema.ts            ← Zod schema for the design document
     catalogue.ts         ← bay widths, finishes, accessories, rates (see below)
     rules.ts             ← bay splitting, constraints, validation
+    edits.ts             ← (design, …) => design. Every mutation the UI can make
     pricing.ts           ← (design) => price breakdown
+    presets.ts           ← buildDesign + the shipped preset designs
+    room.ts              ← the customer's room. Not part of the design document
+    placement.ts         ← where the unit stands. Not part of the design document
     bom.ts               ← (design) => parts list (Phase 4)
     __tests__/           ← vitest, JSON fixtures
+  lib/skp/               ← PURE TypeScript. Reads client .skp jobs (see below)
+    read.ts              ← the only file that touches openskp
+    extract.ts           ← (model) => catalogue draft, product-agnostic
+    patch.ts             ← (draft) => TypeScript for a human to review
   components/configurator/   ← stepper UI
   components/viewer/         ← R3F scene
-  app/api/                   ← save, quote, lead endpoints
+  app/admin/import/          ← sales-side .skp import tool
+  app/api/                   ← save, quote, lead endpoints (Phase 3)
 ```
 
-`lib/wardrobe` must stay framework-free. Everything in it is `(design) => result`. This lets us:
+`lib/wardrobe` and `lib/skp` must stay framework-free. Everything in them is `(input) => result`. This lets us:
 - build and test the whole engine against JSON fixtures before any UI exists
 - run the same code client-side for instant feedback and server-side as the authority
 - lift the folder into Factory Tracker in Phase 4 without dragging UI along
 
 If a change to `lib/wardrobe` requires importing React or three.js, the change is wrong.
+
+### Room and placement
+
+`room.ts` and `placement.ts` are **presentation only**. The room is the box the customer says they have; the placement is where the unit stands in it, with drag, rotation snapping and wall seating.
+
+Neither is part of the design document, neither is priced, and neither reaches the BOM. A wardrobe costs the same wherever it stands. Keeping them out of the document is what stops "where it sits in the render" from leaking into a quote or a cutting list — and the room only ever constrains the design through `fitToRoom`, which shrinks the unit to fit and is a normal edit function like any other.
+
+### Catalogue provenance
+
+Infinite Cabinet designs in **Mozaik** and exports SketchUp `.skp` files (`C:\Mozaik\Jobs\…`, units inches). That file is the real module standard: named modules (`Base Cabinet`, `Tall Cabinet 2 Doors`), a full per-panel cut list, the 16mm board, the hardware (Häfele leg levellers, knobs) and the finish names hidden in Mozaik's texture paths (`Strata Noir`, `Rhone Oak`).
+
+`lib/skp` reads one and proposes a catalogue draft; `/admin/import` runs it **in the browser**, so a 3 MB job file is never uploaded and nothing is persisted. A human reviews the draft and commits it. The catalogue stays a git commit — the extractor never writes to the database, and it never invents a price: rates are not in the file and come out as `0` with a TODO.
+
+`.skp` is a proprietary binary format. `openskp` handles the modern VFF container; if it ever fails on a newer file, the fallback is a Ruby script run inside SketchUp on the client's machine that dumps the same JSON. There is no Linux build of Trimble's own SDK, so a server-side parser is not an option.
 
 ### Non-negotiables
 
@@ -90,8 +118,9 @@ Two features carry the sale: a **doors-open / doors-hidden toggle** so the custo
 
 | Kind | Home | Why |
 |---|---|---|
-| Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN |
-| Bay-picker thumbnails | `/public` | Pre-rendered headlessly from the same procedural code, committed as PNGs. Never boot a WebGL context per thumbnail. |
+| Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN. `/public/textures/grain-1k.png` is generated by `scripts/generate-grain-texture.mjs` (`pnpm generate:grain`) |
+| Bay-picker thumbnails | Nowhere — they're inline SVG | `components/configurator/Elevation.tsx` draws the elevation from the bay count. No WebGL context per thumbnail, and no PNG pipeline to keep in sync with the catalogue |
+| Client `.skp` job files | `src/lib/skp/__fixtures__` | Test fixtures. Committed, never deployed |
 | Canvas screenshots | Vercel Blob | User-generated at runtime, one per lead |
 | Quote PDFs | Vercel Blob | Same |
 | Design JSON, leads, Blob URLs | Postgres | |
@@ -115,6 +144,8 @@ Five steps, each with a sensible default so an impatient user can hit Next four 
 Save writes the design to Postgres under a `nanoid` slug, returns a short URL, creates the lead record, and attaches the screenshot. Then a `wa.me` deep link with the design URL prefilled.
 
 Ship 8–10 **preset designs** as their own indexable routes ("2.4m 3-door sliding wardrobe", etc). Each is an SEO landing page and an entry point into the configurator — solves the blank-canvas problem and the traffic problem together.
+
+Six presets currently live in `presets.ts` and appear on the bay-split step; **their routes are still outstanding**. Note that applying a preset mid-flow carries the *look* (bay count, finish, door type) and deliberately keeps the width the customer measured — never silently undo their measurement.
 
 ## Auth
 
@@ -140,12 +171,15 @@ Separate Prisma Postgres database from Factory Tracker, same plan.
 
 Do not start Phase 2 before Phase 1 passes its tests. The engine is the product; the UI is a skin over it.
 
-## Open questions — resolve before writing pricing.ts
+Running alongside: the **kitchen planner** (`/kitchen`), a drag-and-drop mock built on the client's own extracted module standard, for demoing to Infinite Cabinet. It is a demo surface — its layout engine is real and tested, but it is not wired to pricing, leads or the wardrobe design document until the kitchen schema question above is settled.
 
-- **How does Infinite Cabinet actually price wardrobes?** Malaysian cabinet makers typically quote per foot run (RM/ft) with adders for finishes and accessories, rather than per-module BOM. If so, `pricing.ts` is trivial. Confirm before building.
-- **Does the public tool show a firm price or an indicative range?** Sales teams often resist public exact pricing. This is a business decision and it changes the UI.
-- **Their real module standard**: carcass widths, heights, depths, door types, finishes, accessory range.
+## Open questions
+
+- **How does Infinite Cabinet actually price wardrobes?** `pricing.ts` currently assumes the Malaysian norm: per foot run (RM/ft) with adders for finishes, door types and accessories. Still unconfirmed, and no rate in `catalogue.ts` is theirs.
+- **Does the public tool show a firm price or an indicative range?** Sales teams often resist public exact pricing. Business decision, and it changes the UI. The viewer currently says "indicative".
+- ~~Their real module standard~~ — **answered by the `.skp` import**: 16mm board, 900/800/400mm carcasses, 880mm base height, 2380mm tall units, wall units hung at 1500mm, 600mm base depth / 397mm wall depth. Kitchen figures; get a wardrobe job from them to confirm the wardrobe equivalents.
 - Does Prisma Postgres offer an ap-southeast region? If not, quote submission eats a transpacific round trip.
+- **How far do kitchens go?** Whether this tool sells kitchens or only wardrobes decides whether the design document needs a `productType` discriminant and a `schemaVersion` bump.
 
 ## Conventions
 

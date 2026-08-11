@@ -25,12 +25,20 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 
 	const bayWidthById = new Map(design.bays.map((bay) => [bay.id, bay.width]));
 
+	// Customers count bays from the left; `bay-1` is our id, not their language.
+	const bayNumberById = new Map(
+		[...design.bays]
+			.sort((a, b) => a.order - b.order)
+			.map((bay, i) => [bay.id, i + 1]),
+	);
+	const bayLabel = (bayId: string) => `bay ${bayNumberById.get(bayId) ?? "?"}`;
+
 	const finishSurcharges: PriceLineItem[] = design.doors.map((door) => {
 		const bayWidthMm = bayWidthById.get(door.bayId) ?? 0;
 		const bayFt = mmToFt(bayWidthMm);
 		const finish = FINISHES[door.finish];
 		return {
-			label: `${finish.label} (bay ${door.bayId})`,
+			label: `${finish.label} (${bayLabel(door.bayId)})`,
 			amountRm: finish.surchargeRmPerFt * bayFt,
 		};
 	});
@@ -40,7 +48,7 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 		const bayFt = mmToFt(bayWidthMm);
 		const doorType = DOOR_TYPES[door.type];
 		return {
-			label: `${doorType.label} door (bay ${door.bayId})`,
+			label: `${doorType.label} door (${bayLabel(door.bayId)})`,
 			amountRm: doorType.surchargeRmPerFt * bayFt,
 		};
 	});
@@ -49,7 +57,7 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 		interior.accessories.map((accessoryId) => {
 			const accessory = ACCESSORIES[accessoryId];
 			return {
-				label: `${accessory.label} (bay ${interior.bayId})`,
+				label: `${accessory.label} (${bayLabel(interior.bayId)})`,
 				amountRm: accessory.rateRm,
 			};
 		}),
