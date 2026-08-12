@@ -472,6 +472,39 @@ export function setHangingHeight(
 }
 
 /**
+ * How long a wall the planner will accept. Wide enough for a real kitchen wall,
+ * narrow enough that a mistyped figure does not produce a room you cannot see.
+ */
+export const WALL_LIMITS = { minMm: 1000, maxMm: 12000 } as const;
+
+/**
+ * Set the wall to what the customer measured.
+ *
+ * Cabinets are left exactly where they are, even if the new wall is shorter
+ * than the run: someone typing their real wall length is telling us a fact
+ * about their house, not asking us to throw away the cabinets they placed. The
+ * UI shows what overhangs, and `closeGaps` usually recovers it.
+ */
+export function setWallWidth(
+	layout: KitchenLayout,
+	wallWidthMm: number,
+): KitchenLayout {
+	const clamped = Math.min(
+		WALL_LIMITS.maxMm,
+		Math.max(WALL_LIMITS.minMm, Math.round(wallWidthMm)),
+	);
+	return clamped === layout.wallWidthMm
+		? layout
+		: { ...layout, wallWidthMm: clamped };
+}
+
+/** How far the run overhangs the wall, if at all. */
+export function overhangMm(layout: KitchenLayout): number {
+	const end = Math.max(rowEndMm(layout, "floor"), rowEndMm(layout, "wall"));
+	return Math.max(0, end - layout.wallWidthMm);
+}
+
+/**
  * Pack both rows left, edge to edge, keeping the order the customer arranged.
  * This is the old always-on behaviour, demoted to one deliberate action: the
  * customer arranges freely and tidies up when they want a clean elevation.

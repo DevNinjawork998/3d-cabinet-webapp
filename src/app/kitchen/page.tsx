@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DimInput } from "@/components/viewer/RoomFields";
 import {
 	KITCHEN_FINISHES,
 	type KitchenFinishId,
@@ -15,10 +16,13 @@ import {
 	fits,
 	freeSpans,
 	type KitchenLayout,
+	overhangMm,
 	removeModules,
 	rowEndMm,
 	setHangingHeight,
+	setWallWidth,
 	starterKitchen,
+	WALL_LIMITS,
 } from "@/lib/kitchen/layout";
 
 const KitchenScene = dynamic(
@@ -32,8 +36,6 @@ const KitchenScene = dynamic(
 		),
 	},
 );
-
-const WALL_WIDTHS_MM = [3000, 3600, 4200, 4800, 6000];
 
 const KIND_LABELS: Record<ModuleType["kind"], string> = {
 	base: "Base units",
@@ -52,8 +54,8 @@ export default function KitchenPage() {
 	const pickerRef = useRef<((x: number, y: number) => number) | null>(null);
 	const [dragTypeId, setDragTypeId] = useState<string | null>(null);
 
-	const setWallWidth = (wallWidthMm: number) =>
-		setLayout((prev) => ({ ...prev, wallWidthMm }));
+	const changeWallWidth = (wallWidthMm: number) =>
+		setLayout((prev) => setWallWidth(prev, wallWidthMm));
 
 	const drop = (typeId: string, clientX: number, clientY: number) => {
 		// If the scene has not registered its picker yet, the cabinet still lands
@@ -103,7 +105,7 @@ export default function KitchenPage() {
 	const selected = selection.length === 1 ? selection[0] : undefined;
 
 	const floorEnd = rowEndMm(layout, "floor");
-	const wallEnd = rowEndMm(layout, "wall");
+	const overhang = overhangMm(layout);
 
 	// Gaps *inside* the run — the stretch of bare wall past the last cabinet is
 	// not a gap, it is just the rest of the wall.
@@ -205,28 +207,37 @@ export default function KitchenPage() {
 				</div>
 
 				<fieldset className="block space-y-2">
-					<legend className="font-medium text-sm">Wall length</legend>
-					<div className="flex flex-wrap gap-2">
-						{WALL_WIDTHS_MM.map((width) => (
-							<button
-								key={width}
-								type="button"
-								onClick={() => setWallWidth(width)}
-								aria-pressed={layout.wallWidthMm === width}
-								className={`rounded-full px-3 py-1 text-xs transition ${
-									layout.wallWidthMm === width
-										? "bg-neutral-900 text-white"
-										: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-								}`}
-							>
-								{(width / 1000).toFixed(1)}m
-							</button>
-						))}
+					<legend className="font-medium text-sm">Your wall</legend>
+					<div className="flex items-center gap-3">
+						<div className="w-32">
+							<DimInput
+								showLabel
+								label="Wall length"
+								value={layout.wallWidthMm}
+								min={WALL_LIMITS.minMm}
+								max={WALL_LIMITS.maxMm}
+								onCommit={changeWallWidth}
+							/>
+						</div>
+						<span className="pt-4 text-neutral-500 text-xs">
+							{(layout.wallWidthMm / 1000).toFixed(2)}m — measure the wall the
+							kitchen goes against
+						</span>
 					</div>
-					{(floorEnd > layout.wallWidthMm || wallEnd > layout.wallWidthMm) && (
+					<input
+						type="range"
+						className="w-full"
+						aria-label="Wall length"
+						min={WALL_LIMITS.minMm}
+						max={WALL_LIMITS.maxMm}
+						step={50}
+						value={layout.wallWidthMm}
+						onChange={(e) => changeWallWidth(Number(e.target.value))}
+					/>
+					{overhang > 0 && (
 						<p className="text-amber-700 text-xs">
-							The run is longer than this wall — remove a cabinet or pick a
-							longer wall.
+							The run overhangs this wall by {overhang}mm — close the gaps
+							below, or remove a cabinet.
 						</p>
 					)}
 				</fieldset>

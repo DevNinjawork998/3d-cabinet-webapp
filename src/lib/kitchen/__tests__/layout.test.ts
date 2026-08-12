@@ -11,6 +11,7 @@ import {
 	type KitchenLayout,
 	moveModule,
 	occupiedSpans,
+	overhangMm,
 	positionsOf,
 	type Row,
 	removeModule,
@@ -19,7 +20,9 @@ import {
 	rowFor,
 	SNAP_MM,
 	setHangingHeight,
+	setWallWidth,
 	starterKitchen,
+	WALL_LIMITS,
 } from "../layout";
 
 const WALL_MM = 4000;
@@ -304,6 +307,37 @@ describe("removeModule", () => {
 		const gone = removeModule(next, "b");
 		expect(at(gone, "a")).toBe(0);
 		expect(at(gone, "c")).toBe(1500);
+	});
+});
+
+describe("wall length", () => {
+	it("takes any measured length inside the limits", () => {
+		expect(setWallWidth(layout, 3750).wallWidthMm).toBe(3750);
+		expect(setWallWidth(layout, 5280).wallWidthMm).toBe(5280);
+	});
+
+	it("clamps a mistyped figure rather than making an unusable room", () => {
+		expect(setWallWidth(layout, 10).wallWidthMm).toBe(WALL_LIMITS.minMm);
+		expect(setWallWidth(layout, 999999).wallWidthMm).toBe(WALL_LIMITS.maxMm);
+	});
+
+	it("keeps the cabinets where they are when the wall shrinks, and says how much overhangs", () => {
+		let next = addModule(layout, "base-900", 0, "a");
+		next = addModule(next, "base-900", 900, "b");
+		expect(overhangMm(next)).toBe(0);
+
+		const shorter = setWallWidth(next, 1500);
+		expect(shorter.floor).toHaveLength(2);
+		expect(at(shorter, "b")).toBe(900);
+		expect(overhangMm(shorter)).toBe(300);
+	});
+
+	it("closing the gaps can recover a run that overhangs", () => {
+		let next = addModule(layout, "base-900", 0, "a");
+		next = addModule(next, "base-600", 2000, "b");
+		const shorter = setWallWidth(next, 1600);
+		expect(overhangMm(shorter)).toBeGreaterThan(0);
+		expect(overhangMm(closeGaps(shorter))).toBe(0);
 	});
 });
 
