@@ -2,15 +2,22 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { MODULE_TYPES, moduleType } from "../catalogue";
 import {
 	addModule,
+	closeGaps,
+	dropModule,
 	emptyLayout,
+	firstFreeXMm,
 	fits,
-	indexAt,
+	freeSpans,
 	type KitchenLayout,
 	moveModule,
+	occupiedSpans,
 	positionsOf,
+	type Row,
 	removeModule,
 	rowEndMm,
 	rowFor,
+	SNAP_MM,
+	setHangingHeight,
 	starterKitchen,
 } from "../layout";
 
@@ -21,142 +28,272 @@ beforeEach(() => {
 	layout = emptyLayout(WALL_MM);
 });
 
-const ids = (l: KitchenLayout, row: "floor" | "wall") =>
-	l[row].map((placed) => placed.typeId);
+const xs = (l: KitchenLayout, row: Row) =>
+	positionsOf(l, row).map((position) => position.xMm);
 
-describe("rowFor", () => {
-	it("hangs wall units and stands everything else on the floor", () => {
-		expect(rowFor("wall")).toBe("wall");
-		expect(rowFor("base")).toBe("floor");
-		expect(rowFor("tall")).toBe("floor");
+const at = (l: KitchenLayout, id: string) => {
+	const all = [...l.floor, ...l.wall].find((placed) => placed.id === id);
+	if (!all) throw new Error(`no module ${id}`);
+	return all.xMm;
+};
+
+/** The invariant the whole engine exists to protect. */
+function expectNoOverlaps(l: KitchenLayout) {
+	for (const row of ["floor", "wall"] as const) {
+		const spans = occupiedSpans(l, row);
+		for (let i = 1; i < spans.length; i++) {
+			expect(spans[i].startMm).toBeGreaterThanOrEqual(spans[i - 1].endMm);
+		}
+		for (const position of positionsOf(l, row)) {
+			expect(position.xMm).toBeGreaterThanOrEqual(0);
+			expect(position.xMm + position.type.widthMm).toBeLessThanOrEqual(
+				l.wallWidthMm,
+			);
+		}
+	}
+}
+
+describe("placing a cabinet", () => {
+	it("puts it where it was dropped", () => {
+		const next = addModule(layout, "base-900", 1500, "a");
+		expect(at(next, "a")).toBe(1500);
+		expectNoOverlaps(next);
 	});
-});
 
-describe("addModule", () => {
-	it("packs the floor row edge to edge with no gaps", () => {
-		let next = addModule(layout, "base-900", 0);
-		next = addModule(next, "base-600", 9999);
-		next = addModule(next, "base-400", 9999);
-
-		const positions = positionsOf(next, "floor");
-		expect(positions.map((p) => p.xMm)).toEqual([0, 900, 1500]);
-		expect(rowEndMm(next, "floor")).toBe(1900);
+	it("keeps a gap the customer left on purpose", () => {
+		let next = addModule(layout, "base-900", 0, "a");
+		next = addModule(next, "base-600", 2000, "b");
+		// Nothing slides back to close the space between them.
+		expect(xs(next, "floor")).toEqual([0, 2000]);
 	});
 
-	it("drops a cabinet where the pointer is, not just at the end", () => {
-		let next = addModule(layout, "base-900", 0);
-		next = addModule(next, "base-600", 9999);
-		// Dropped left of the first cabinet's midpoint: it goes first.
-		next = addModule(next, "base-400", 100);
-		expect(ids(next, "floor")).toEqual(["base-400", "base-900", "base-600"]);
+	it("slides to the nearest free space when dropped on an occupant", () => {
+		// A 900 sits across 1000–1900, so a 600 dropped on it has to go either
+		// side. It goes to whichever side the pointer was nearest.
+		const occupied = addModule(layout, "base-900", 1000, "a");
+
+		const right = addModule(occupied, "base-600", 1800, "b");
+		expect(at(right, "b")).toBe(1900);
+		expectNoOverlaps(right);
+
+		const left = addModule(occupied, "base-600", 1050, "c");
+		expect(at(left, "c")).toBe(400);
+		expectNoOverlaps(left);
 	});
 
-	it("refuses a cabinet that will not fit the wall", () => {
-		let next = emptyLayout(1000);
-		next = addModule(next, "base-900", 0);
-		const full = addModule(next, "base-600", 9999);
-		expect(full).toBe(next);
-		expect(ids(full, "floor")).toEqual(["base-900"]);
+	it("refuses only when the wall is genuinely full", () => {
+		let small = emptyLayout(1000);
+		small = addModule(small, "base-900", 0, "a");
+		expect(fits(small, "base-600")).toBe(false);
+		expect(addModule(small, "base-600", 0)).toBe(small);
+		// A 400 does not fit the 100mm left either.
+		expect(firstFreeXMm(small, "floor", 400)).toBeNull();
 	});
 
 	it("keeps the two rows independent", () => {
-		let next = addModule(layout, "base-900", 0);
-		next = addModule(next, "wall-400", 0);
-		expect(ids(next, "floor")).toEqual(["base-900"]);
-		expect(ids(next, "wall")).toEqual(["wall-400"]);
+		let next = addModule(layout, "base-900", 0, "a");
+		next = addModule(next, "wall-400", 2000, "b");
+		expect(xs(next, "floor")).toEqual([0]);
+		expect(xs(next, "wall")).toEqual([2000]);
+	});
+});
+
+describe("the bug this fixes: a wall cabinet in the gap over the base run", () => {
+	/**
+	 * The layout from the client demo: a tall unit in the run, base cabinets
+	 * beside it, and a stretch of wall above the base run with nothing on it.
+	 * The old engine derived wall positions by packing, so a wall cabinet could
+	 * not be put in that stretch — it was pushed past the tall unit instead.
+	 */
+	const demoRun = () => {
+		let next = emptyLayout(WALL_MM);
+		next = addModule(next, "base-900", 0, "base1");
+		next = addModule(next, "base-900", 900, "base2");
+		next = addModule(next, "tall-600", 1800, "tall");
+		next = addModule(next, "wall-900", 2400, "hung");
+		return next;
+	};
+
+	it("drops a wall cabinet into the gap and leaves it there", () => {
+		const next = addModule(demoRun(), "wall-800", 600, "infill");
+		expect(at(next, "infill")).toBe(600);
+		expectNoOverlaps(next);
+	});
+
+	it("lets that cabinet be dragged along the gap afterwards", () => {
+		let next = addModule(demoRun(), "wall-800", 600, "infill");
+		next = moveModule(next, "infill", 200);
+		expect(at(next, "infill")).toBe(200);
+		next = moveModule(next, "infill", 900);
+		expect(at(next, "infill")).toBe(900);
+		expectNoOverlaps(next);
+	});
+
+	it("stops it at the tall unit rather than hanging it in front", () => {
+		let next = addModule(demoRun(), "wall-800", 600, "infill");
+		next = moveModule(next, "infill", 1700);
+		// The tall unit owns 1800–2400, so an 800 wall cabinet stops at 1000.
+		expect(at(next, "infill")).toBe(1000);
+		expectNoOverlaps(next);
+	});
+});
+
+describe("dragging into a neighbour", () => {
+	const pair = () => {
+		let next = emptyLayout(WALL_MM);
+		next = addModule(next, "base-900", 0, "left");
+		next = addModule(next, "base-900", 2000, "right");
+		return next;
+	};
+
+	it("butts up against it and stops", () => {
+		const next = moveModule(pair(), "left", 1800);
+		expect(at(next, "left")).toBe(1100);
+		expectNoOverlaps(next);
+	});
+
+	it("never overlaps, wherever the pointer goes", () => {
+		let next = pair();
+		for (let x = -500; x <= WALL_MM + 500; x += 37) {
+			next = moveModule(next, "left", x);
+			expectNoOverlaps(next);
+		}
+	});
+
+	it("moves again the instant the drag reverses", () => {
+		let next = moveModule(pair(), "left", 1800);
+		expect(at(next, "left")).toBe(1100);
+		next = moveModule(next, "left", 1000);
+		expect(at(next, "left")).toBe(1000);
+	});
+
+	it("stays on the wall at both ends", () => {
+		let next = moveModule(pair(), "left", -900);
+		expect(at(next, "left")).toBe(0);
+		next = moveModule(next, "right", 99999);
+		expect(at(next, "right")).toBe(WALL_MM - 900);
+	});
+});
+
+describe("snapping on release", () => {
+	const withNeighbour = () =>
+		addModule(emptyLayout(WALL_MM), "base-900", 0, "a");
+
+	it("lands flush against a neighbour when released close to it", () => {
+		let next = addModule(withNeighbour(), "base-600", 2000, "b");
+		next = dropModule(next, "b", 900 + SNAP_MM - 10);
+		expect(at(next, "b")).toBe(900);
+	});
+
+	it("leaves a deliberate gap alone", () => {
+		let next = addModule(withNeighbour(), "base-600", 2000, "b");
+		const far = 900 + SNAP_MM + 100;
+		next = dropModule(next, "b", far);
+		expect(at(next, "b")).toBe(far);
+	});
+
+	it("lands flush on the end of the wall", () => {
+		let next = addModule(emptyLayout(WALL_MM), "base-600", 2000, "b");
+		next = dropModule(next, "b", WALL_MM - 600 - 20);
+		expect(at(next, "b")).toBe(WALL_MM - 600);
+	});
+
+	it("lines a wall unit up with the base cabinet below it", () => {
+		let next = addModule(emptyLayout(WALL_MM), "base-900", 900, "base");
+		next = addModule(next, "wall-800", 2500, "hung");
+		// Released a few centimetres off the base cabinet's left edge.
+		next = dropModule(next, "hung", 900 + 25);
+		expect(at(next, "hung")).toBe(900);
+		expectNoOverlaps(next);
 	});
 });
 
 describe("tall units", () => {
-	it("stops a wall cabinet being hung in front of one", () => {
-		let next = addModule(layout, "tall-600", 0);
-		next = addModule(next, "base-900", 9999);
-		next = addModule(next, "wall-400", 0);
+	it("block the hung row across their own span only", () => {
+		let next = addModule(layout, "base-900", 0, "base");
+		next = addModule(next, "tall-600", 900, "tall");
 
-		// The tall unit owns 0–600, so the wall cabinet starts after it.
-		const [hung] = positionsOf(next, "wall");
-		expect(hung.xMm).toBe(600);
+		const spans = occupiedSpans(next, "wall");
+		expect(spans).toEqual([{ startMm: 900, endMm: 1500 }]);
+		// A wall cabinet fits either side of it.
+		expect(firstFreeXMm(next, "wall", 800)).toBe(0);
 	});
 
-	it("only steps over the span the tall unit actually occupies", () => {
-		let next = addModule(layout, "base-900", 0);
-		next = addModule(next, "tall-600", 9999);
-		next = addModule(next, "wall-800", 0);
+	it("push wall cabinets clear when dropped underneath them", () => {
+		let next = addModule(layout, "wall-900", 0, "hung");
+		next = addModule(next, "tall-600", 300, "tall");
 
-		// The tall unit is at 900–1500, and an 800 wall cabinet fits before it.
-		const [hung] = positionsOf(next, "wall");
-		expect(hung.xMm).toBe(0);
-	});
-
-	it("counts the blocked span against the wall's capacity", () => {
-		let next = emptyLayout(1400);
-		next = addModule(next, "tall-600", 0);
-		next = addModule(next, "wall-900", 0);
-		// 600 blocked + 900 hung = 1500, past the 1400 wall.
-		expect(ids(next, "wall")).toEqual([]);
-		expect(fits(next, "wall-800")).toBe(true);
+		expectNoOverlaps(next);
+		// The wall unit moved out of the tall unit's span rather than vanishing.
+		expect(next.wall).toHaveLength(1);
+		expect(at(next, "hung")).toBeGreaterThanOrEqual(900);
 	});
 });
 
-describe("moveModule", () => {
-	it("reorders within a row", () => {
+describe("freeSpans", () => {
+	it("reports the clear stretches in order", () => {
 		let next = addModule(layout, "base-900", 0, "a");
-		next = addModule(next, "base-600", 9999, "b");
-		next = addModule(next, "base-400", 9999, "c");
+		next = addModule(next, "base-900", 2000, "b");
+		expect(freeSpans(next, "floor")).toEqual([
+			{ startMm: 900, endMm: 2000 },
+			{ startMm: 2900, endMm: WALL_MM },
+		]);
+	});
+});
 
-		// Drag the last one to the very start.
-		const moved = moveModule(next, "c", 0);
-		expect(ids(moved, "floor")).toEqual(["base-400", "base-900", "base-600"]);
+describe("closeGaps", () => {
+	it("packs both rows left and keeps the order", () => {
+		let next = addModule(layout, "base-900", 1500, "a");
+		next = addModule(next, "base-600", 3000, "b");
+		next = addModule(next, "wall-800", 2200, "c");
+
+		const packed = closeGaps(next);
+		expect(xs(packed, "floor")).toEqual([0, 900]);
+		expect(at(packed, "a")).toBe(0);
+		expect(at(packed, "b")).toBe(900);
+		expect(at(packed, "c")).toBe(0);
+		expectNoOverlaps(packed);
 	});
 
-	it("leaves the run alone when dropped back where it was", () => {
-		let next = addModule(layout, "base-900", 0, "a");
-		next = addModule(next, "base-600", 9999, "b");
-		const moved = moveModule(next, "b", 1200);
-		expect(ids(moved, "floor")).toEqual(["base-900", "base-600"]);
-	});
+	it("steps the hung row over a tall unit", () => {
+		let next = addModule(layout, "base-900", 0, "base");
+		next = addModule(next, "tall-600", 900, "tall");
+		next = addModule(next, "wall-800", 2500, "hung");
 
-	it("never loses a cabinet", () => {
-		let next = addModule(layout, "base-900", 0, "a");
-		next = addModule(next, "base-600", 9999, "b");
-		for (const x of [0, 500, 1500, 9999, -500]) {
-			const moved = moveModule(next, "a", x);
-			expect(moved.floor).toHaveLength(2);
-		}
+		const packed = closeGaps(next);
+		// Base at 0–900, tall at 900–1500: an 800 wall unit fits at 0.
+		expect(at(packed, "hung")).toBe(0);
+		expectNoOverlaps(packed);
 	});
 });
 
 describe("removeModule", () => {
-	it("takes a cabinet out and closes the gap", () => {
+	it("takes one out and leaves the others where they are", () => {
 		let next = addModule(layout, "base-900", 0, "a");
-		next = addModule(next, "base-600", 9999, "b");
-		next = addModule(next, "base-400", 9999, "c");
+		next = addModule(next, "base-600", 900, "b");
+		next = addModule(next, "base-400", 1500, "c");
 
 		const gone = removeModule(next, "b");
-		expect(ids(gone, "floor")).toEqual(["base-900", "base-400"]);
-		expect(positionsOf(gone, "floor").map((p) => p.xMm)).toEqual([0, 900]);
+		expect(at(gone, "a")).toBe(0);
+		expect(at(gone, "c")).toBe(1500);
 	});
 });
 
-describe("indexAt", () => {
-	it("puts the drop before or after a cabinet by its midpoint", () => {
-		let next = addModule(layout, "base-900", 0, "a");
-		next = addModule(next, "base-600", 9999, "b");
-
-		expect(indexAt(next, "floor", 0)).toBe(0);
-		expect(indexAt(next, "floor", 449)).toBe(0);
-		expect(indexAt(next, "floor", 451)).toBe(1);
-		expect(indexAt(next, "floor", 9999)).toBe(2);
+describe("hanging height", () => {
+	it("starts at the height the client hangs them and can be changed", () => {
+		expect(layout.hangingHeightMm).toBe(1500);
+		expect(setHangingHeight(layout, 1400).hangingHeightMm).toBe(1400);
 	});
 });
 
 describe("starterKitchen", () => {
-	it("opens on a kitchen that already fits the wall", () => {
+	it("opens on a packed run that fits the wall", () => {
 		const next = starterKitchen(WALL_MM);
 		expect(next.floor.length).toBeGreaterThan(0);
 		expect(next.wall.length).toBeGreaterThan(0);
+		expect(xs(next, "floor")[0]).toBe(0);
 		expect(rowEndMm(next, "floor")).toBeLessThanOrEqual(WALL_MM);
-		expect(rowEndMm(next, "wall")).toBeLessThanOrEqual(WALL_MM);
+		expectNoOverlaps(next);
 	});
 
 	it("uses only real catalogue modules", () => {
@@ -172,5 +309,11 @@ describe("catalogue integrity", () => {
 		const ids = MODULE_TYPES.map((type) => type.id);
 		expect(new Set(ids).size).toBe(ids.length);
 		for (const id of ids) expect(moduleType(id)?.id).toBe(id);
+	});
+
+	it("hangs wall units and stands everything else on the floor", () => {
+		expect(rowFor("wall")).toBe("wall");
+		expect(rowFor("base")).toBe("floor");
+		expect(rowFor("tall")).toBe("floor");
 	});
 });

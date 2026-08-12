@@ -25,6 +25,7 @@ export function Cabinet({
 	type,
 	xMm,
 	runWidthMm,
+	floorHeightMm,
 	finishHex,
 	selected,
 	onPointerDown,
@@ -33,6 +34,9 @@ export function Cabinet({
 	/** Left edge along the run. */
 	xMm: number;
 	runWidthMm: number;
+	/** Underside above the floor. Passed in rather than read off the type, so
+	 * the whole wall row can be raised or lowered together. */
+	floorHeightMm: number;
 	finishHex: string;
 	selected: boolean;
 	onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
@@ -40,19 +44,27 @@ export function Cabinet({
 	// The run is centred on the origin, so a cabinet's world x is its centre
 	// measured from the middle of the wall.
 	const centreX = m(xMm + type.widthMm / 2 - runWidthMm / 2);
+	// Cabinets hang by their backs. The parent group sits on the wall plane and
+	// each cabinet steps forward by half its own depth, so a 397-deep wall unit
+	// and a 607-deep base unit share a back rather than a centre line — which is
+	// what makes a run look fitted instead of floating in front of the wall.
+	const backToCentre = m(type.depthMm) / 2;
 	const w = m(type.widthMm);
 	const d = m(type.depthMm);
 	const h = m(type.heightMm);
 	const t = m(PANEL_THICKNESS_MM);
 	const plinth = type.kind === "wall" ? 0 : m(PLINTH_HEIGHT_MM);
 	const carcassH = h - plinth;
-	const base = m(type.floorHeightMm);
+	const base = m(floorHeightMm);
 
 	const frontZ = d / 2 + m(FRONT_THICKNESS_MM) / 2;
 	const emphasis = selected ? 0.35 : 0;
 
 	return (
-		<group position={[centreX, base, 0]} onPointerDown={onPointerDown}>
+		<group
+			position={[centreX, base, backToCentre]}
+			onPointerDown={onPointerDown}
+		>
 			{/* Plinth: the recessed kick under a floor-standing unit. */}
 			{plinth > 0 && (
 				<mesh position={[0, plinth / 2, -m(30)]}>

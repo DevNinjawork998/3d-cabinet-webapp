@@ -11,10 +11,13 @@ import {
 import {
 	addModule,
 	allPositions,
+	closeGaps,
 	fits,
+	freeSpans,
 	type KitchenLayout,
 	removeModule,
 	rowEndMm,
+	setHangingHeight,
 	starterKitchen,
 } from "@/lib/kitchen/layout";
 
@@ -53,9 +56,8 @@ export default function KitchenPage() {
 
 	const drop = (typeId: string, clientX: number, clientY: number) => {
 		// If the scene has not registered its picker yet, the cabinet still lands
-		// — just at the end of the run rather than under the cursor.
-		const runXMm =
-			pickerRef.current?.(clientX, clientY) ?? Number.MAX_SAFE_INTEGER;
+		// — just in the first free space rather than under the cursor.
+		const runXMm = pickerRef.current?.(clientX, clientY) ?? 0;
 		setLayout((prev) => addModule(prev, typeId, runXMm));
 	};
 
@@ -65,6 +67,17 @@ export default function KitchenPage() {
 
 	const floorEnd = rowEndMm(layout, "floor");
 	const wallEnd = rowEndMm(layout, "wall");
+
+	// Gaps *inside* the run — the stretch of bare wall past the last cabinet is
+	// not a gap, it is just the rest of the wall.
+	const gapCount = (["floor", "wall"] as const).reduce(
+		(total, row) =>
+			total +
+			freeSpans(layout, row).filter(
+				(gap) => gap.endMm < rowEndMm(layout, row) && gap.startMm > 0,
+			).length,
+		0,
+	);
 
 	return (
 		<main className="flex h-screen flex-col bg-neutral-100 text-neutral-900 lg:flex-row">
@@ -165,6 +178,28 @@ export default function KitchenPage() {
 					)}
 				</fieldset>
 
+				<label className="block space-y-1">
+					<span className="font-medium text-sm">
+						Wall units hang at {layout.hangingHeightMm}mm
+					</span>
+					<input
+						type="range"
+						className="w-full"
+						min={1200}
+						max={1800}
+						step={10}
+						value={layout.hangingHeightMm}
+						onChange={(e) =>
+							setLayout((prev) =>
+								setHangingHeight(prev, Number(e.target.value)),
+							)
+						}
+					/>
+					<span className="text-neutral-500 text-xs">
+						They move together — a fitted kitchen lines its wall units up.
+					</span>
+				</label>
+
 				<div className="space-y-3">
 					<h2 className="font-medium text-sm">Cabinets</h2>
 					{(["base", "wall", "tall"] as const).map((kind) => (
@@ -188,9 +223,7 @@ export default function KitchenPage() {
 												// Click adds at the end of the run: the keyboard and
 												// touch path to the same result as a drag.
 												onClick={() =>
-													setLayout((prev) =>
-														addModule(prev, type.id, Number.MAX_SAFE_INTEGER),
-													)
+													setLayout((prev) => addModule(prev, type.id, 0))
 												}
 												disabled={!room}
 												className={`rounded-lg border p-2 text-left transition ${
@@ -281,13 +314,26 @@ export default function KitchenPage() {
 							Nothing placed yet — drag a cabinet onto the wall.
 						</p>
 					)}
-					<button
-						type="button"
-						onClick={() => setLayout(starterKitchen(layout.wallWidthMm))}
-						className="text-neutral-500 text-xs underline hover:text-neutral-900"
-					>
-						Reset to the example kitchen
-					</button>
+					<div className="flex flex-wrap items-center gap-3 pt-1">
+						<button
+							type="button"
+							onClick={() => setLayout(closeGaps(layout))}
+							disabled={gapCount === 0}
+							className="rounded-full border border-neutral-300 px-3 py-1 text-xs hover:border-neutral-500 disabled:opacity-40"
+						>
+							Close gaps
+							{gapCount > 0 && (
+								<span className="ml-1 text-neutral-500">({gapCount})</span>
+							)}
+						</button>
+						<button
+							type="button"
+							onClick={() => setLayout(starterKitchen(layout.wallWidthMm))}
+							className="text-neutral-500 text-xs underline hover:text-neutral-900"
+						>
+							Reset to the example kitchen
+						</button>
+					</div>
 				</div>
 
 				<p className="text-neutral-500 text-xs">

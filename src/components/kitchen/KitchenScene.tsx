@@ -14,6 +14,7 @@ import {
 } from "@/lib/kitchen/catalogue";
 import {
 	allPositions,
+	dropModule,
 	type KitchenLayout,
 	moveModule,
 	positionsOf,
@@ -24,26 +25,37 @@ import { Cabinet } from "./Cabinet";
 const m = (mm: number) => mm / 1000;
 const ROOM_DEPTH_MM = 3600;
 const ROOM_HEIGHT_MM = 2700;
+/** Scribe gap between the carcass backs and the wall, as a real fit has. */
+const WALL_GAP_MM = 5;
 
 /** Looking into the corner, the angle a kitchen elevation is usually sold at. */
 const VIEW_DIRECTION = new Vector3(0.25, 0.42, 1).normalize();
 
 /**
- * Where this pointer ray crosses a horizontal plane, in run millimetres.
- * Read off the ray rather than the hit point: `e.point` is wherever the ray
- * struck the mesh, which on a tall door face is most of a metre from the floor
- * and drags the cabinet by that offset.
+ * Where this pointer ray crosses the vertical plane the cabinet stands in, in
+ * run millimetres.
+ *
+ * The plane has to be the cabinet's own, not the floor. A wall unit hangs a
+ * metre and a half up against the back wall, and the same ray reaches the floor
+ * a long way in front of it — dragging against the floor plane therefore moves
+ * the cabinet at a different rate from the cursor, and the further the camera
+ * tilts the worse it gets.
+ *
+ * Read off the ray rather than `e.point`, which is wherever the ray happened to
+ * strike a mesh and would offset the grab by the height of the door it hit.
  */
 function runXFromRay(
 	e: ThreeEvent<PointerEvent>,
-	planeY: number,
+	planeZ: number,
 	runWidthMm: number,
 ): number {
 	const { origin, direction } = e.ray;
+	// Looking straight along the wall there is no crossing to find; the last
+	// known x is better than a divide by zero.
 	const worldX =
-		Math.abs(direction.y) < 1e-6
+		Math.abs(direction.z) < 1e-6
 			? origin.x
-			: origin.x + direction.x * ((planeY - origin.y) / direction.y);
+			: origin.x + direction.x * ((planeZ - origin.z) / direction.z);
 	return worldX * 1000 + runWidthMm / 2;
 }
 
@@ -149,7 +161,22 @@ function Run({
 	onSelect: (id: string | null) => void;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
-	const dragRef = useRef<string | null>(null);
+	/**
+	 * The live drag: which cabinet, and where on it the pointer took hold.
+	 *
+	 * The grab offset is what stops the cabinet snapping its left edge to the
+	 * cursor the moment you touch it. It is re-anchored on every settled move
+	 * for the reason written up in `lib/wardrobe/placement.ts` — push a cabinet
+	 * into its neighbour and keep dragging, and without re-anchoring the pointer
+	 * has to retrace every millimetre of that overshoot before the cabinet moves
+	 * again, which reads as the cabinet sticking.
+	 */
+	const dragRef = useRef<{
+		id: string;
+		grabMm: number;
+		/** World z of the plane this cabinet lives in — see runXFromRay. */
+		planeZ: number;
+	} | null>(null);
 	const [dragging, setDragging] = useState(false);
 	// Pointer moves outpace re-renders, so the handler reads the live layout
 	// through a ref rather than a closed-over prop.
@@ -158,11 +185,20 @@ function Run({
 	const runWidthMm = layout.wallWidthMm;
 
 	const endDrag = useCallback(() => {
-		if (!dragRef.current) return;
+		const drag = dragRef.current;
+		if (!drag) return;
 		dragRef.current = null;
 		setDragging(false);
 		if (controls) controls.enabled = true;
-	}, [controls]);
+		// Settle it: flush against a neighbour, a wall end, or the cabinet below.
+		const current = [
+			...layoutRef.current.floor,
+			...layoutRef.current.wall,
+		].find((placed) => placed.id === drag.id);
+		if (!current) return;
+		const next = dropModule(layoutRef.current, drag.id, current.xMm);
+		if (next !== layoutRef.current) onLayoutChange(next);
+	}, [controls, onLayoutChange]);
 
 	// A drag can end anywhere — off the plane, outside the canvas, or with this
 	// unmounting mid-gesture. All of them have to give orbiting back.
@@ -183,27 +219,45 @@ function Run({
 		};
 	}, [dragging]);
 
+	// The group sits on the wall plane itself: everything in the run is placed
+	// by its back face from here, with a scribe gap so the carcasses do not
+	// z-fight with the wall they stand against.
 	return (
-		<group position={[0, 0, -m(ROOM_DEPTH_MM) / 2 + m(700)]}>
+		<group position={[0, 0, -m(ROOM_DEPTH_MM) / 2 + m(WALL_GAP_MM)]}>
 			{/* Always mounted: it catches the moves during a drag, and a press on
-			    bare floor clears the selection. */}
+			    bare wall clears the selection.
+
+			    It stands upright in the wall plane rather than lying on the floor.
+			    A ray aimed at a wall cabinet is travelling downwards steeply, and
+			    crosses the floor metres behind the room — a floor-level catcher is
+			    simply not in its path, so the drag received no moves at all and the
+			    cabinet sat still while the pointer went on without it. */}
 			<mesh
-				rotation={[-Math.PI / 2, 0, 0]}
-				position={[0, 0.001, 0]}
+				position={[0, m(ROOM_HEIGHT_MM) / 2, 0]}
 				onPointerDown={() => onSelect(null)}
 				onPointerMove={(e) => {
-					const id = dragRef.current;
-					if (!id) return;
+					const drag = dragRef.current;
+					if (!drag) return;
 					e.stopPropagation();
+
+					const pointerMm = runXFromRay(e, drag.planeZ, runWidthMm);
 					const next = moveModule(
 						layoutRef.current,
-						id,
-						runXFromRay(e, 0, runWidthMm),
+						drag.id,
+						pointerMm - drag.grabMm,
 					);
-					if (next !== layoutRef.current) onLayoutChange(next);
+					if (next === layoutRef.current) return;
+
+					// Re-anchor to where the cabinet actually ended up, so a cabinet
+					// held against its neighbour starts moving the instant you reverse.
+					const settled = [...next.floor, ...next.wall].find(
+						(placed) => placed.id === drag.id,
+					);
+					if (settled) drag.grabMm = pointerMm - settled.xMm;
+					onLayoutChange(next);
 				}}
 			>
-				<planeGeometry args={[m(runWidthMm) * 3, m(ROOM_DEPTH_MM) * 2]} />
+				<planeGeometry args={[m(runWidthMm) * 4, m(ROOM_HEIGHT_MM) * 3]} />
 				<meshBasicMaterial transparent opacity={0} depthWrite={false} />
 			</mesh>
 
@@ -215,12 +269,27 @@ function Run({
 					type={position.type}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
+					floorHeightMm={
+						position.type.kind === "wall"
+							? layout.hangingHeightMm
+							: position.type.floorHeightMm
+					}
 					finishHex={finishHex}
 					selected={position.placed.id === selectedId}
 					onPointerDown={(e) => {
 						e.stopPropagation();
 						onSelect(position.placed.id);
-						dragRef.current = position.placed.id;
+						// The group is on the wall plane, so the cabinet's own centre
+						// plane is half its depth in front of it.
+						const planeZ =
+							-m(ROOM_DEPTH_MM) / 2 +
+							m(WALL_GAP_MM) +
+							m(position.type.depthMm) / 2;
+						dragRef.current = {
+							id: position.placed.id,
+							grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
+							planeZ,
+						};
 						setDragging(true);
 						if (controls) controls.enabled = false;
 					}}
@@ -237,14 +306,16 @@ function Worktop({
 	layout: KitchenLayout;
 	runWidthMm: number;
 }) {
-	// One slab over the base run, stopping at any tall unit — a worktop is cut
-	// to the cabinets under it, not to the wall.
+	// One slab per unbroken stretch of base units — a worktop is cut to the
+	// cabinets under it, not to the wall, so a tall unit or a deliberate gap
+	// splits it. Contiguity is decided by where the cabinets actually are, not
+	// by their order in the list.
 	const spans: Array<{ startMm: number; endMm: number; depthMm: number }> = [];
 	for (const position of positionsOf(layout, "floor")) {
 		if (position.type.kind === "tall") continue;
 		const previous = spans[spans.length - 1];
-		if (previous && previous.endMm === position.xMm) {
-			previous.endMm += position.type.widthMm;
+		if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
+			previous.endMm = position.xMm + position.type.widthMm;
 			previous.depthMm = Math.max(previous.depthMm, position.type.depthMm);
 		} else {
 			spans.push({
@@ -266,7 +337,7 @@ function Worktop({
 						position={[
 							m(span.startMm + widthMm / 2 - runWidthMm / 2),
 							m(880 + WORKTOP_THICKNESS_MM / 2),
-							m(overhangMm / 2),
+							m((span.depthMm + overhangMm) / 2),
 						]}
 					>
 						<boxGeometry
