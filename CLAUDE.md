@@ -171,7 +171,7 @@ Separate Prisma Postgres database from Factory Tracker, same plan.
 
 Do not start Phase 2 before Phase 1 passes its tests. The engine is the product; the UI is a skin over it.
 
-Running alongside: the **kitchen planner** (`/kitchen`), a drag-and-drop mock built on the client's own extracted module standard, for demoing to Infinite Cabinet. It is a demo surface — its layout engine is real and tested, but it is not wired to pricing, leads or the wardrobe design document until the kitchen schema question above is settled.
+Running alongside: the **kitchen planner** (`/kitchen`), a drag-and-drop mock built on the client's own extracted module standard, for demoing to Infinite Cabinet. Its layout engine is real and tested, and `lib/kitchen/pricing.ts` gives an indicative RM figure — but **every rate in it is invented**, clearly labelled as such on screen, and must be replaced from the client's price list before anyone quotes from it. The planner is not wired to leads or the wardrobe design document until the kitchen schema question above is settled, and its pricing runs client-side: the "price is computed server-side" rule applies the moment it feeds a quote.
 
 ## Open questions
 

@@ -24,6 +24,7 @@ import {
 	starterKitchen,
 	WALL_LIMITS,
 } from "@/lib/kitchen/layout";
+import { computeKitchenPrice } from "@/lib/kitchen/pricing";
 
 const KitchenScene = dynamic(
 	() => import("@/components/kitchen/KitchenScene"),
@@ -106,6 +107,7 @@ export default function KitchenPage() {
 
 	const floorEnd = rowEndMm(layout, "floor");
 	const overhang = overhangMm(layout);
+	const price = computeKitchenPrice(layout, finish);
 
 	// Gaps *inside* the run — the stretch of bare wall past the last cabinet is
 	// not a gap, it is just the rest of the wall.
@@ -147,13 +149,20 @@ export default function KitchenPage() {
 				/>
 
 				<div className="absolute top-4 left-4 rounded-lg bg-white/90 p-3 shadow-sm backdrop-blur">
-					<p className="text-neutral-500 text-xs">Run along the wall</p>
+					<p className="text-neutral-500 text-xs">Estimated price</p>
 					<p className="font-semibold text-xl">
-						{(floorEnd / 1000).toFixed(2)} m
+						RM{" "}
+						{price.totalRm.toLocaleString("en-MY", {
+							maximumFractionDigits: 0,
+						})}
 					</p>
 					<p className="text-neutral-500 text-xs">
-						{layout.floor.length} floor · {layout.wall.length} wall{" "}
+						{(floorEnd / 1000).toFixed(2)}m run · {layout.floor.length} floor ·{" "}
+						{layout.wall.length} wall{" "}
 						{layout.wall.length === 1 ? "unit" : "units"}
+					</p>
+					<p className="mt-1 text-[10px] text-amber-700">
+						Indicative only — not a quote
 					</p>
 				</div>
 
@@ -432,9 +441,80 @@ export default function KitchenPage() {
 					</div>
 				</div>
 
+				<div className="space-y-2 rounded-lg border border-neutral-200 p-3">
+					<div className="flex items-baseline justify-between">
+						<h2 className="font-medium text-sm">Estimated price</h2>
+						<span className="font-semibold">
+							RM{" "}
+							{price.totalRm.toLocaleString("en-MY", {
+								minimumFractionDigits: 2,
+								maximumFractionDigits: 2,
+							})}
+						</span>
+					</div>
+
+					{price.categories
+						.filter((line) => line.amountRm > 0)
+						.map((line) => (
+							<div
+								key={line.label}
+								className="flex items-baseline justify-between gap-2 text-sm"
+							>
+								<span className="text-neutral-700">
+									{line.label}
+									<span className="ml-1 text-neutral-500 text-xs">
+										{line.detail}
+									</span>
+								</span>
+								<span className="tabular-nums">
+									{line.amountRm.toLocaleString("en-MY", {
+										minimumFractionDigits: 2,
+										maximumFractionDigits: 2,
+									})}
+								</span>
+							</div>
+						))}
+
+					{price.totalRm === 0 && (
+						<p className="text-neutral-500 text-xs">
+							Add a cabinet to see a price.
+						</p>
+					)}
+
+					<details className="pt-1">
+						<summary className="cursor-pointer text-neutral-500 text-xs">
+							Itemised by cabinet
+						</summary>
+						<ul className="mt-1 space-y-1">
+							{price.cabinets.map((line) => (
+								<li
+									key={line.id}
+									className="flex items-baseline justify-between gap-2 text-xs"
+								>
+									<span className="text-neutral-600">
+										{line.label}
+										<span className="ml-1 text-neutral-400">{line.detail}</span>
+									</span>
+									<span className="tabular-nums text-neutral-600">
+										{line.amountRm.toFixed(2)}
+									</span>
+								</li>
+							))}
+						</ul>
+					</details>
+
+					<p className="border-neutral-200 border-t pt-2 text-amber-700 text-xs">
+						<strong>Indicative only, not a quote.</strong> Rates are placeholder
+						figures for this demo — Infinite Cabinet's own price list has not
+						been loaded yet. Installation, appliances, sinks and taps are not
+						included.
+					</p>
+				</div>
+
 				<p className="text-neutral-500 text-xs">
-					Demo — module sizes are Infinite Cabinet's own (16mm board, 880mm base
-					carcasses, wall units hung at 1500mm). Pricing is not wired up.
+					Demo — module sizes are Infinite Cabinet's own, read from their
+					SketchUp job (16mm board, 880mm base carcasses, wall units hung at
+					1500mm). The prices are not theirs.
 				</p>
 			</aside>
 		</main>
