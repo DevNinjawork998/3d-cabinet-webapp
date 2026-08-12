@@ -1,3 +1,4 @@
+import { Edges } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import {
 	CARCASS_COLOR,
@@ -14,6 +15,17 @@ import {
  */
 
 const m = (mm: number) => mm / 1000;
+
+/**
+ * A thin dark line along every carcass and front edge.
+ *
+ * Without it a White or Tapestry Beige door on a near-white wall has no
+ * silhouette at all — the run dissolves into the room, which is exactly the
+ * complaint this answers. An outline costs a few line segments and, unlike a
+ * shadow map, holds up whatever finish and wall colour it lands between.
+ */
+const EDGE_COLOR = "#3f3b36";
+const EDGE_OPACITY = 0.55;
 
 /** Gap around each door so the run reads as separate fronts, not one slab. */
 const DOOR_GAP_MM = 4;
@@ -82,6 +94,12 @@ export function Cabinet({
 					emissive="#2b6cb0"
 					emissiveIntensity={emphasis}
 				/>
+				<Edges
+					threshold={15}
+					color={EDGE_COLOR}
+					transparent
+					opacity={EDGE_OPACITY}
+				/>
 			</mesh>
 
 			{type.drawers > 0 ? (
@@ -130,6 +148,12 @@ function Front({
 				roughness={0.5}
 				emissive="#2b6cb0"
 				emissiveIntensity={emphasis}
+			/>
+			<Edges
+				threshold={15}
+				color={EDGE_COLOR}
+				transparent
+				opacity={EDGE_OPACITY}
 			/>
 		</mesh>
 	);

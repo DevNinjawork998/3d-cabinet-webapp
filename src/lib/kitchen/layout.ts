@@ -442,12 +442,26 @@ function evictBlockedWallUnits(
 	return next;
 }
 
-export function removeModule(layout: KitchenLayout, id: string): KitchenLayout {
+/**
+ * Take several cabinets out at once. Everything left stays exactly where it
+ * is — clearing a stretch of wall is usually the first step in rearranging it,
+ * so closing the gap automatically would undo what the customer just asked for.
+ */
+export function removeModules(
+	layout: KitchenLayout,
+	ids: Iterable<string>,
+): KitchenLayout {
+	const gone = new Set(ids);
+	if (gone.size === 0) return layout;
 	return {
 		...layout,
-		floor: layout.floor.filter((placed) => placed.id !== id),
-		wall: layout.wall.filter((placed) => placed.id !== id),
+		floor: layout.floor.filter((placed) => !gone.has(placed.id)),
+		wall: layout.wall.filter((placed) => !gone.has(placed.id)),
 	};
+}
+
+export function removeModule(layout: KitchenLayout, id: string): KitchenLayout {
+	return removeModules(layout, [id]);
 }
 
 export function setHangingHeight(

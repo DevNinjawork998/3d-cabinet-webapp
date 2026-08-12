@@ -122,7 +122,10 @@ export const KITCHEN_FINISHES = [
 
 export type KitchenFinishId = (typeof KITCHEN_FINISHES)[number]["id"];
 
-export const CARCASS_COLOR = "#e8e3da";
+/** Deliberately a few shades off the room's wall (#edebe7): the 16mm carcass
+ * reveal around a light door is the only thing separating it from the wall
+ * behind, and at the old value the two were near enough identical. */
+export const CARCASS_COLOR = "#d5cec2";
 export const WORKTOP_COLOR = "#4a4744";
 export const HARDWARE_COLOR = "#9aa0a6";
 

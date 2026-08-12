@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	KITCHEN_FINISHES,
 	type KitchenFinishId,
@@ -15,7 +15,7 @@ import {
 	fits,
 	freeSpans,
 	type KitchenLayout,
-	removeModule,
+	removeModules,
 	rowEndMm,
 	setHangingHeight,
 	starterKitchen,
@@ -46,7 +46,8 @@ export default function KitchenPage() {
 		starterKitchen(4200),
 	);
 	const [finish, setFinish] = useState<KitchenFinishId>("strata-noir");
-	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+	const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 	// Filled in by the scene: turns a screen point into a position along the run.
 	const pickerRef = useRef<((x: number, y: number) => number) | null>(null);
 	const [dragTypeId, setDragTypeId] = useState<string | null>(null);
@@ -61,9 +62,45 @@ export default function KitchenPage() {
 		setLayout((prev) => addModule(prev, typeId, runXMm));
 	};
 
-	const selected = selectedId
-		? allPositions(layout).find((p) => p.placed.id === selectedId)
-		: undefined;
+	/**
+	 * Clicking picks one cabinet; shift, ctrl or cmd adds to the selection so a
+	 * customer can clear a whole stretch of wall in one go.
+	 */
+	const select = useCallback((id: string | null, additive: boolean) => {
+		setSelectedIds((prev) => {
+			if (id === null) return prev.length === 0 ? prev : [];
+			if (!additive) return [id];
+			return prev.includes(id)
+				? prev.filter((current) => current !== id)
+				: [...prev, id];
+		});
+	}, []);
+
+	const removeSelected = useCallback(() => {
+		setLayout((prev) => removeModules(prev, selectedIds));
+		setSelectedIds([]);
+	}, [selectedIds]);
+
+	// Delete clears the selection the way it does everywhere else. Ignored while
+	// a slider or a field has focus, so the range inputs keep their own keys.
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key !== "Delete" && e.key !== "Backspace") return;
+			const target = e.target as HTMLElement | null;
+			if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+			if (selectedIds.length === 0) return;
+			e.preventDefault();
+			removeSelected();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [selectedIds, removeSelected]);
+
+	const placed = allPositions(layout);
+	const selection = placed.filter((position) =>
+		selectedSet.has(position.placed.id),
+	);
+	const selected = selection.length === 1 ? selection[0] : undefined;
 
 	const floorEnd = rowEndMm(layout, "floor");
 	const wallEnd = rowEndMm(layout, "wall");
@@ -101,9 +138,9 @@ export default function KitchenPage() {
 				<KitchenScene
 					layout={layout}
 					finish={finish}
-					selectedId={selectedId}
+					selectedIds={selectedSet}
 					onLayoutChangeAction={setLayout}
-					onSelectAction={setSelectedId}
+					onSelectAction={select}
 					pickerRef={pickerRef}
 				/>
 
@@ -113,32 +150,48 @@ export default function KitchenPage() {
 						{(floorEnd / 1000).toFixed(2)} m
 					</p>
 					<p className="text-neutral-500 text-xs">
-						{layout.floor.length} floor · {layout.wall.length} wall units
+						{layout.floor.length} floor · {layout.wall.length} wall{" "}
+						{layout.wall.length === 1 ? "unit" : "units"}
 					</p>
 				</div>
 
-				{selected && (
+				{selection.length > 0 && (
 					<div className="-translate-x-1/2 absolute bottom-4 left-1/2 flex items-center gap-3 rounded-full bg-white px-4 py-2 shadow">
-						<span className="text-sm">{selected.type.label}</span>
-						<span className="text-neutral-500 text-xs">
-							{selected.type.widthMm} × {selected.type.depthMm} ×{" "}
-							{selected.type.heightMm} mm
-						</span>
+						{selected ? (
+							<>
+								<span className="text-sm">{selected.type.label}</span>
+								<span className="text-neutral-500 text-xs">
+									{selected.type.widthMm} × {selected.type.depthMm} ×{" "}
+									{selected.type.heightMm} mm
+								</span>
+							</>
+						) : (
+							<span className="text-sm">
+								{selection.length} cabinets selected
+							</span>
+						)}
 						<button
 							type="button"
-							onClick={() => {
-								setLayout((prev) => removeModule(prev, selected.placed.id));
-								setSelectedId(null);
-							}}
+							onClick={removeSelected}
 							className="rounded-full bg-neutral-900 px-3 py-1 text-white text-xs"
 						>
-							Remove
+							Remove{selection.length > 1 ? ` all ${selection.length}` : ""}
 						</button>
+						{selection.length > 1 && (
+							<button
+								type="button"
+								onClick={() => setSelectedIds([])}
+								className="text-neutral-500 text-xs hover:text-neutral-900"
+							>
+								Clear
+							</button>
+						)}
 					</div>
 				)}
 
 				<p className="absolute right-4 bottom-4 hidden text-neutral-500 text-xs lg:block">
-					Drag a cabinet in from the right — drag one in the room to move it
+					Drag a cabinet in from the right — drag one in the room to move it.
+					Shift-click to pick several, then remove them together.
 				</p>
 			</section>
 
@@ -278,36 +331,68 @@ export default function KitchenPage() {
 				</fieldset>
 
 				<div className="space-y-2">
-					<h2 className="font-medium text-sm">In this kitchen</h2>
-					<ul className="space-y-1">
-						{allPositions(layout).map((position) => (
-							<li
-								key={position.placed.id}
-								className="flex items-center justify-between gap-2 border-neutral-100 border-t py-1 text-sm"
+					<div className="flex items-baseline justify-between gap-2">
+						<h2 className="font-medium text-sm">In this kitchen</h2>
+						{selection.length > 0 && (
+							<button
+								type="button"
+								onClick={removeSelected}
+								className="text-neutral-500 text-xs underline hover:text-neutral-900"
 							>
-								<button
-									type="button"
-									onClick={() => setSelectedId(position.placed.id)}
-									className={`flex-1 text-left ${
-										position.placed.id === selectedId ? "font-medium" : ""
+								Remove {selection.length} selected
+							</button>
+						)}
+					</div>
+					<ul className="space-y-1">
+						{placed.map((position) => {
+							const isSelected = selectedSet.has(position.placed.id);
+							return (
+								<li
+									key={position.placed.id}
+									className={`flex items-center justify-between gap-2 border-neutral-100 border-t py-1 text-sm ${
+										isSelected ? "bg-neutral-100" : ""
 									}`}
 								>
-									{position.type.label}
-									<span className="ml-2 text-neutral-500 text-xs">
-										at {(position.xMm / 1000).toFixed(2)}m
-									</span>
-								</button>
-								<button
-									type="button"
-									onClick={() =>
-										setLayout((prev) => removeModule(prev, position.placed.id))
-									}
-									className="text-neutral-500 text-xs hover:text-neutral-900"
-								>
-									Remove
-								</button>
-							</li>
-						))}
+									{/* The checkbox is the multi-select path that needs no
+									    modifier key — the same thing shift-clicking in the room
+									    does, for anyone who does not think to try it. */}
+									<input
+										type="checkbox"
+										checked={isSelected}
+										aria-label={`Select ${position.type.label}`}
+										onChange={() => select(position.placed.id, true)}
+									/>
+									<button
+										type="button"
+										onClick={(e) =>
+											select(
+												position.placed.id,
+												e.shiftKey || e.metaKey || e.ctrlKey,
+											)
+										}
+										className={`flex-1 text-left ${
+											isSelected ? "font-medium" : ""
+										}`}
+									>
+										{position.type.label}
+										<span className="ml-2 text-neutral-500 text-xs">
+											at {(position.xMm / 1000).toFixed(2)}m
+										</span>
+									</button>
+									<button
+										type="button"
+										onClick={() =>
+											setLayout((prev) =>
+												removeModules(prev, [position.placed.id]),
+											)
+										}
+										className="text-neutral-500 text-xs hover:text-neutral-900"
+									>
+										Remove
+									</button>
+								</li>
+							);
+						})}
 					</ul>
 					{allPositions(layout).length === 0 && (
 						<p className="text-neutral-500 text-xs">

@@ -1,6 +1,6 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Shadow } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PerspectiveCamera, Vector3 as Vector3Type } from "three";
@@ -150,15 +150,17 @@ function DropPicker({
 function Run({
 	layout,
 	finishHex,
-	selectedId,
+	selectedIds,
 	onLayoutChange,
 	onSelect,
 }: {
 	layout: KitchenLayout;
 	finishHex: string;
-	selectedId: string | null;
+	selectedIds: ReadonlySet<string>;
 	onLayoutChange: (next: KitchenLayout) => void;
-	onSelect: (id: string | null) => void;
+	/** `additive` comes from shift/ctrl/cmd: add to the selection rather than
+	 * replace it. `null` clears. */
+	onSelect: (id: string | null, additive: boolean) => void;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 	/**
@@ -234,7 +236,7 @@ function Run({
 			    cabinet sat still while the pointer went on without it. */}
 			<mesh
 				position={[0, m(ROOM_HEIGHT_MM) / 2, 0]}
-				onPointerDown={() => onSelect(null)}
+				onPointerDown={() => onSelect(null, false)}
 				onPointerMove={(e) => {
 					const drag = dragRef.current;
 					if (!drag) return;
@@ -261,6 +263,7 @@ function Run({
 				<meshBasicMaterial transparent opacity={0} depthWrite={false} />
 			</mesh>
 
+			<ContactShadows layout={layout} runWidthMm={runWidthMm} />
 			<Worktop layout={layout} runWidthMm={runWidthMm} />
 
 			{allPositions(layout).map((position) => (
@@ -275,10 +278,15 @@ function Run({
 							: position.type.floorHeightMm
 					}
 					finishHex={finishHex}
-					selected={position.placed.id === selectedId}
+					selected={selectedIds.has(position.placed.id)}
 					onPointerDown={(e) => {
 						e.stopPropagation();
-						onSelect(position.placed.id);
+						const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+						// Pressing one that is already selected keeps the selection, so a
+						// group stays picked while its members are still draggable.
+						if (additive || !selectedIds.has(position.placed.id)) {
+							onSelect(position.placed.id, additive);
+						}
 						// The group is on the wall plane, so the cabinet's own centre
 						// plane is half its depth in front of it.
 						const planeZ =
@@ -296,6 +304,67 @@ function Run({
 				/>
 			))}
 		</group>
+	);
+}
+
+/**
+ * Fake contact shadows. No shadow maps — the mobile budget in CLAUDE.md rules
+ * those out, and a cabinet only really needs to look *attached* to what it
+ * meets.
+ *
+ * The pool is deliberately wider and deeper than the cabinet standing on it: a
+ * blob the same size as the footprint is hidden underneath the very thing it is
+ * meant to ground, which is worth less than nothing.
+ */
+function ContactShadows({
+	layout,
+	runWidthMm,
+}: {
+	layout: KitchenLayout;
+	runWidthMm: number;
+}) {
+	return (
+		<>
+			{positionsOf(layout, "floor").map((position) => (
+				<Shadow
+					key={position.placed.id}
+					position={[
+						m(position.xMm + position.type.widthMm / 2 - runWidthMm / 2),
+						0.004,
+						m(position.type.depthMm * 0.62),
+					]}
+					rotation={[-Math.PI / 2, 0, 0]}
+					scale={[
+						m(position.type.widthMm) * 1.15,
+						m(position.type.depthMm) * 1.7,
+						1,
+					]}
+					opacity={0.5}
+					color="#151311"
+				/>
+			))}
+
+			{/* Wall units get a soft patch on the wall itself, offset down so it
+			    peeks out below the carcass — the cue that says "hung on that wall"
+			    rather than "floating in front of it". */}
+			{positionsOf(layout, "wall").map((position) => (
+				<Shadow
+					key={position.placed.id}
+					position={[
+						m(position.xMm + position.type.widthMm / 2 - runWidthMm / 2),
+						m(layout.hangingHeightMm + position.type.heightMm / 2) - 0.06,
+						0.002,
+					]}
+					scale={[
+						m(position.type.widthMm) * 1.2,
+						m(position.type.heightMm) * 1.15,
+						1,
+					]}
+					opacity={0.28}
+					color="#151311"
+				/>
+			))}
+		</>
 	);
 }
 
@@ -358,16 +427,16 @@ function Worktop({
 export default function KitchenScene({
 	layout,
 	finish,
-	selectedId,
+	selectedIds,
 	onLayoutChangeAction,
 	onSelectAction,
 	pickerRef,
 }: {
 	layout: KitchenLayout;
 	finish: KitchenFinishId;
-	selectedId: string | null;
+	selectedIds: ReadonlySet<string>;
 	onLayoutChangeAction: (next: KitchenLayout) => void;
-	onSelectAction: (id: string | null) => void;
+	onSelectAction: (id: string | null, additive: boolean) => void;
 	pickerRef: React.RefObject<
 		((clientX: number, clientY: number) => number) | null
 	>;
@@ -385,7 +454,7 @@ export default function KitchenScene({
 			camera={{ fov: 45 }}
 			// Without this, dragging a cabinet scrolls the page on Android.
 			style={{ touchAction: "none" }}
-			onPointerMissed={() => onSelectAction(null)}
+			onPointerMissed={() => onSelectAction(null, false)}
 		>
 			<color attach="background" args={["#f4f2ee"]} />
 			<ambientLight intensity={1.5} />
@@ -400,7 +469,7 @@ export default function KitchenScene({
 			<Run
 				layout={layout}
 				finishHex={finishHex}
-				selectedId={selectedId}
+				selectedIds={selectedIds}
 				onLayoutChange={onLayoutChangeAction}
 				onSelect={onSelectAction}
 			/>

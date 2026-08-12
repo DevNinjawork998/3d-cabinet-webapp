@@ -14,6 +14,7 @@ import {
 	positionsOf,
 	type Row,
 	removeModule,
+	removeModules,
 	rowEndMm,
 	rowFor,
 	SNAP_MM,
@@ -264,6 +265,33 @@ describe("closeGaps", () => {
 		// Base at 0–900, tall at 900–1500: an 800 wall unit fits at 0.
 		expect(at(packed, "hung")).toBe(0);
 		expectNoOverlaps(packed);
+	});
+});
+
+describe("removeModules", () => {
+	const three = () => {
+		let next = addModule(emptyLayout(WALL_MM), "base-900", 0, "a");
+		next = addModule(next, "base-600", 900, "b");
+		next = addModule(next, "wall-400", 1500, "c");
+		return next;
+	};
+
+	it("takes out several at once, across both rows", () => {
+		const gone = removeModules(three(), ["a", "c"]);
+		expect(gone.floor.map((placed) => placed.id)).toEqual(["b"]);
+		expect(gone.wall).toEqual([]);
+	});
+
+	it("leaves the survivors exactly where they were", () => {
+		const gone = removeModules(three(), ["a"]);
+		expect(at(gone, "b")).toBe(900);
+		expect(at(gone, "c")).toBe(1500);
+	});
+
+	it("ignores ids that are not there, and does nothing for none", () => {
+		const before = three();
+		expect(removeModules(before, [])).toBe(before);
+		expect(removeModules(before, ["nope"]).floor).toHaveLength(2);
 	});
 });
 
