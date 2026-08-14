@@ -53,6 +53,8 @@ export const PLINTH_HEIGHT_MM = 100;
 export const WORKTOP_THICKNESS_MM = 40;
 /** Underside of the wall cabinets — the sample job's own hanging height. */
 export const WALL_CABINET_FLOOR_MM = 1500;
+/** How far the hang slider lets the customer move that underside. */
+export const WALL_HANG_LIMITS = { minMm: 1200, maxMm: 1800 } as const;
 
 // ---------------------------------------------------------------- kitchen --
 // Real dimensions, invented prices.

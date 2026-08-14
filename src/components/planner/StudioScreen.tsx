@@ -17,6 +17,7 @@ import {
 	closeGaps,
 	duplicateModule,
 	fits,
+	flushWallToTallTops,
 	freeSpans,
 	overhangMm,
 	type PlannerLayout,
@@ -130,23 +131,6 @@ export function StudioScreen({
 				<span className="font-semibold text-sm">
 					Infinite Cabinet · {room.label} planner
 				</span>
-				<div className="flex items-center gap-1 rounded-full bg-neutral-100 p-0.5">
-					<span className="rounded-full bg-white px-3.5 py-1.5 font-medium text-neutral-900 text-xs shadow-sm">
-						3D
-					</span>
-					<span
-						title="Not part of this demo yet"
-						className="cursor-not-allowed px-3.5 py-1.5 text-neutral-400 text-xs"
-					>
-						Elevation
-					</span>
-					<span
-						title="Not part of this demo yet"
-						className="cursor-not-allowed px-3.5 py-1.5 text-neutral-400 text-xs"
-					>
-						Plan
-					</span>
-				</div>
 				<button
 					type="button"
 					onClick={onBackToStartAction}
@@ -232,6 +216,21 @@ export function StudioScreen({
 											)
 										}
 									/>
+									<button
+										type="button"
+										onClick={() =>
+											setLayoutAction((prev) => flushWallToTallTops(prev))
+										}
+										disabled={!placed.some((p) => p.family.kind === "tall")}
+										title={
+											placed.some((p) => p.family.kind === "tall")
+												? undefined
+												: "Add a tall cabinet or fridge housing first"
+										}
+										className="mt-2 rounded-full border border-neutral-300 px-3 py-1 text-[11px] transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+									>
+										Flush wall-unit tops to tall units
+									</button>
 								</div>
 							)}
 						</div>

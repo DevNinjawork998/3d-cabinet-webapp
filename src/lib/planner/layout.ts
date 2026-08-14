@@ -6,6 +6,7 @@ import {
 	type RoomTypeId,
 	roomType,
 	WALL_CABINET_FLOOR_MM,
+	WALL_HANG_LIMITS,
 } from "./catalogue";
 
 /**
@@ -523,6 +524,36 @@ export function setHangingHeight(
 	hangingHeightMm: number,
 ): PlannerLayout {
 	return { ...layout, hangingHeightMm };
+}
+
+/**
+ * Line the wall cabinets' tops up with the tallest floor unit next to them —
+ * a fridge housing or tall cabinet, whose top is fixed by its own height, not
+ * by the hang slider. Moving that slider off the catalogue's default breaks
+ * this alignment; this is the one-click way back. Does nothing if the room
+ * has no tall unit or no wall cabinet to line up against, and clamps to the
+ * same range the hang slider itself allows.
+ */
+export function flushWallToTallTops(layout: PlannerLayout): PlannerLayout {
+	const tallTopMm = Math.max(
+		0,
+		...positionsOf(layout, "floor")
+			.filter((p) => p.family.kind === "tall")
+			.map((p) => p.family.floorHeightMm + p.family.heightMm),
+	);
+	if (tallTopMm === 0) return layout;
+
+	const wallHeightMm = Math.max(
+		0,
+		...positionsOf(layout, "wall").map((p) => p.family.heightMm),
+	);
+	if (wallHeightMm === 0) return layout;
+
+	const hangingHeightMm = Math.min(
+		WALL_HANG_LIMITS.maxMm,
+		Math.max(WALL_HANG_LIMITS.minMm, tallTopMm - wallHeightMm),
+	);
+	return setHangingHeight(layout, hangingHeightMm);
 }
 
 /**

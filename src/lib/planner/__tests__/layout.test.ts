@@ -8,6 +8,7 @@ import {
 	emptyLayout,
 	firstFreeXMm,
 	fits,
+	flushWallToTallTops,
 	freeSpans,
 	moveModule,
 	occupiedSpans,
@@ -380,6 +381,32 @@ describe("hanging height", () => {
 	it("starts at the height the client hangs them and can be changed", () => {
 		expect(layout.hangingHeightMm).toBe(1500);
 		expect(setHangingHeight(layout, 1400).hangingHeightMm).toBe(1400);
+	});
+});
+
+describe("flushWallToTallTops", () => {
+	const withTallAndWall = (hangingHeightMm: number) => {
+		let next = addModule(layout, "tall-cabinet", 0, "t", 600);
+		next = addModule(next, "wall-cabinet", 0, "w", 900);
+		return setHangingHeight(next, hangingHeightMm);
+	};
+
+	it("moves the hang height so the wall cabinet's top meets the tall unit's top", () => {
+		// tall-cabinet is 2380mm; wall-cabinet is 880mm — flush is 1500mm,
+		// which happens to be the catalogue default.
+		const off = withTallAndWall(1700);
+		expect(off.hangingHeightMm).toBe(1700);
+		expect(flushWallToTallTops(off).hangingHeightMm).toBe(1500);
+	});
+
+	it("does nothing without a tall unit to line up against", () => {
+		const wallOnly = addModule(layout, "wall-cabinet", 0, "w", 900);
+		expect(flushWallToTallTops(wallOnly)).toBe(wallOnly);
+	});
+
+	it("does nothing without a wall cabinet to move", () => {
+		const tallOnly = addModule(layout, "tall-cabinet", 0, "t", 600);
+		expect(flushWallToTallTops(tallOnly)).toBe(tallOnly);
 	});
 });
 
