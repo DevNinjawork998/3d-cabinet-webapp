@@ -1,4 +1,5 @@
-import { OPENING_CONSTRAINTS } from "./catalogue";
+import { WARDROBE_CATALOGUE } from "./catalogue";
+import type { OpeningConstraints } from "./catalogueSchema";
 import { maxRunWidthMm, type RoomSize } from "./room";
 import { splitIntoBays } from "./rules";
 import type {
@@ -158,18 +159,18 @@ export function resizeOpening(
 }
 
 /** The widest run and tallest unit this room can actually hold. */
-export function roomLimits(room: RoomSize): {
+export function roomLimits(
+	room: RoomSize,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
+): {
 	maxWidthMm: number;
 	maxHeightMm: number;
 } {
 	return {
-		maxWidthMm: Math.min(
-			OPENING_CONSTRAINTS.maxTotalWidthMm,
-			maxRunWidthMm(room),
-		),
+		maxWidthMm: Math.min(constraints.maxTotalWidthMm, maxRunWidthMm(room)),
 		maxHeightMm: Math.min(
-			OPENING_CONSTRAINTS.maxHeightMm,
-			room.heightMm - OPENING_CONSTRAINTS.ceilingClearanceMm,
+			constraints.maxHeightMm,
+			room.heightMm - constraints.ceilingClearanceMm,
 		),
 	};
 }
@@ -183,8 +184,9 @@ export function roomLimits(room: RoomSize): {
 export function fitToRoom(
 	design: DesignDocument,
 	room: RoomSize,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
 ): DesignDocument {
-	const { maxWidthMm, maxHeightMm } = roomLimits(room);
+	const { maxWidthMm, maxHeightMm } = roomLimits(room, constraints);
 	const widthMm = Math.min(design.opening.width, maxWidthMm);
 	const heightMm = Math.min(design.opening.height, maxHeightMm);
 
@@ -208,14 +210,17 @@ export function fitToRoom(
  * and each bay is wider than the catalogue's widest carcass, too many and each
  * is narrower than the narrowest.
  */
-export function bayCountRange(openingWidthMm: number): [number, number] {
+export function bayCountRange(
+	openingWidthMm: number,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
+): [number, number] {
 	const min = Math.max(
 		1,
-		Math.ceil(openingWidthMm / OPENING_CONSTRAINTS.maxBayWidthMm),
+		Math.ceil(openingWidthMm / constraints.maxBayWidthMm),
 	);
 	const max = Math.max(
 		min,
-		Math.floor(openingWidthMm / OPENING_CONSTRAINTS.minBayWidthMm),
+		Math.floor(openingWidthMm / constraints.minBayWidthMm),
 	);
 	return [min, max];
 }
@@ -223,8 +228,9 @@ export function bayCountRange(openingWidthMm: number): [number, number] {
 export function setBayCount(
 	design: DesignDocument,
 	count: number,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
 ): DesignDocument {
-	const [min, max] = bayCountRange(design.opening.width);
+	const [min, max] = bayCountRange(design.opening.width, constraints);
 	const clamped = Math.min(max, Math.max(min, Math.round(count)));
 	return respan(design, design.opening.width, design.opening.height, clamped);
 }
@@ -238,12 +244,13 @@ export function resizeBay(
 	design: DesignDocument,
 	bayId: string,
 	widthMm: number,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
 ): DesignDocument {
 	const index = design.bays.findIndex((bay) => bay.id === bayId);
 	if (index === -1 || design.bays.length < 2) return design;
 
 	const neighbour = index === design.bays.length - 1 ? index - 1 : index + 1;
-	const { minBayWidthMm, maxBayWidthMm } = OPENING_CONSTRAINTS;
+	const { minBayWidthMm, maxBayWidthMm } = constraints;
 	const pair = design.bays[index].width + design.bays[neighbour].width;
 
 	const width = Math.min(

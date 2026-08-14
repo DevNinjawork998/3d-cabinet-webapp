@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Product {
+  WARDROBE
+  PLANNER
+}
+
+enum CatalogueStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+  DISCARDED
+}
+
+/// One `.skp` job file and the draft `lib/skp` extracted from it. Immutable —
+/// the draft is what the extractor said, never what a human later edited.
+model CatalogueImport {
+  id            String   @id @default(cuid())
+  filename      String
+  blobUrl       String
+  blobPathname  String
+  sizeBytes     Int
+  sha256        String   @unique
+  sourceVersion String
+  draft         Json
+  warnings      String[]
+  uploadedBy    String
+  createdAt     DateTime @default(now())
+
+  versions CatalogueVersion[]
+}
+
+/// An immutable-once-published snapshot of one product's catalogue. At most
+/// one row per product may have status PUBLISHED — enforced by a partial
+/// unique index added by hand in the migration SQL (see migration.sql).
+model CatalogueVersion {
+  id          String          @id @default(cuid())
+  product     Product
+  version     Int
+  status      CatalogueStatus @default(DRAFT)
+  data        Json
+  note        String?
+  importId    String?
+  import      CatalogueImport? @relation(fields: [importId], references: [id])
+  createdBy   String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  publishedBy String?
+  publishedAt DateTime?
+
+  @@unique([product, version])
+  @@index([product, status])
+}

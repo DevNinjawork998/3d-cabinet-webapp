@@ -38,6 +38,9 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# prisma — generated client, regenerate with `pnpm exec prisma generate`
+/src/generated/prisma
 next-env.d.ts
 
 graphify-out

@@ -18,7 +18,6 @@ import {
 	type Row,
 	removeModule,
 	removeModules,
-	rowEndMm,
 	rowFor,
 	SNAP_MM,
 	setDoor,

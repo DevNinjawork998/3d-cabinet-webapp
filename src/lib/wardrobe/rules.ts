@@ -1,4 +1,5 @@
-import { OPENING_CONSTRAINTS } from "./catalogue";
+import { WARDROBE_CATALOGUE } from "./catalogue";
+import type { OpeningConstraints } from "./catalogueSchema";
 import { ROOM_LIMITS } from "./room";
 import type { Bay, DesignDocument } from "./schema";
 
@@ -12,12 +13,15 @@ export type BaySuggestion = Pick<Bay, "width" | "order">;
  * to be dumped somewhere, which can push a bay past the max.
  * The customer can still fine-tune individual bays in step 2.
  */
-export function splitIntoBays(openingWidthMm: number): BaySuggestion[] {
+export function splitIntoBays(
+	openingWidthMm: number,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
+): BaySuggestion[] {
 	if (openingWidthMm <= 0) return [];
 
 	const count = Math.max(
 		1,
-		Math.ceil(openingWidthMm / OPENING_CONSTRAINTS.maxBayWidthMm),
+		Math.ceil(openingWidthMm / constraints.maxBayWidthMm),
 	);
 	const width = openingWidthMm / count;
 
@@ -27,41 +31,41 @@ export function splitIntoBays(openingWidthMm: number): BaySuggestion[] {
 export type ValidationIssue = { path: string; message: string };
 export type ValidationResult = { valid: boolean; issues: ValidationIssue[] };
 
-export function validateDesign(design: DesignDocument): ValidationResult {
+export function validateDesign(
+	design: DesignDocument,
+	constraints: OpeningConstraints = WARDROBE_CATALOGUE.openingConstraints,
+): ValidationResult {
 	const issues: ValidationIssue[] = [];
 	const { opening, bays } = design;
 
-	if (opening.width < OPENING_CONSTRAINTS.minTotalWidthMm) {
+	if (opening.width < constraints.minTotalWidthMm) {
 		issues.push({
 			path: "opening.width",
-			message: `Opening width must be at least ${OPENING_CONSTRAINTS.minTotalWidthMm}mm`,
+			message: `Opening width must be at least ${constraints.minTotalWidthMm}mm`,
 		});
 	}
-	if (opening.width > OPENING_CONSTRAINTS.maxTotalWidthMm) {
+	if (opening.width > constraints.maxTotalWidthMm) {
 		issues.push({
 			path: "opening.width",
-			message: `Opening width must be at most ${OPENING_CONSTRAINTS.maxTotalWidthMm}mm`,
+			message: `Opening width must be at most ${constraints.maxTotalWidthMm}mm`,
 		});
 	}
-	if (opening.height < OPENING_CONSTRAINTS.minHeightMm) {
+	if (opening.height < constraints.minHeightMm) {
 		issues.push({
 			path: "opening.height",
-			message: `Wardrobe height must be at least ${OPENING_CONSTRAINTS.minHeightMm}mm`,
+			message: `Wardrobe height must be at least ${constraints.minHeightMm}mm`,
 		});
 	}
-	if (opening.height > OPENING_CONSTRAINTS.maxHeightMm) {
+	if (opening.height > constraints.maxHeightMm) {
 		issues.push({
 			path: "opening.height",
-			message: `Wardrobe height must be at most ${OPENING_CONSTRAINTS.maxHeightMm}mm`,
+			message: `Wardrobe height must be at most ${constraints.maxHeightMm}mm`,
 		});
 	}
-	if (
-		opening.height >
-		opening.ceilingHeight - OPENING_CONSTRAINTS.ceilingClearanceMm
-	) {
+	if (opening.height > opening.ceilingHeight - constraints.ceilingClearanceMm) {
 		issues.push({
 			path: "opening.height",
-			message: `Wardrobe must leave ${OPENING_CONSTRAINTS.ceilingClearanceMm}mm below the ${opening.ceilingHeight}mm ceiling`,
+			message: `Wardrobe must leave ${constraints.ceilingClearanceMm}mm below the ${opening.ceilingHeight}mm ceiling`,
 		});
 	}
 
@@ -80,12 +84,12 @@ export function validateDesign(design: DesignDocument): ValidationResult {
 
 	bays.forEach((bay, i) => {
 		if (
-			bay.width < OPENING_CONSTRAINTS.minBayWidthMm ||
-			bay.width > OPENING_CONSTRAINTS.maxBayWidthMm
+			bay.width < constraints.minBayWidthMm ||
+			bay.width > constraints.maxBayWidthMm
 		) {
 			issues.push({
 				path: `bays[${i}].width`,
-				message: `Bay width must be between ${OPENING_CONSTRAINTS.minBayWidthMm} and ${OPENING_CONSTRAINTS.maxBayWidthMm}mm`,
+				message: `Bay width must be between ${constraints.minBayWidthMm} and ${constraints.maxBayWidthMm}mm`,
 			});
 		}
 	});

@@ -1,3 +1,4 @@
+import type { WardrobeCatalogue } from "./catalogueSchema";
 import type { AccessoryId, DoorTypeId, FinishId } from "./schema";
 
 // PLACEHOLDER — Phase 0 client catalogue/pricing spec not yet confirmed.
@@ -101,3 +102,19 @@ export const RATES = {
 	baseRmPerFt: 280,
 	mmPerFt: 304.8,
 } as const;
+
+/**
+ * The catalogue bundled into the shape `catalogueSchema.ts` describes, so
+ * engine functions can take it as a parameter instead of importing the
+ * individual constants above. This is today's — and, until the DB-backed
+ * catalogue lands, the only — catalogue; it doubles as every function's
+ * default so nothing currently calling them has to change.
+ */
+export const WARDROBE_CATALOGUE: WardrobeCatalogue = {
+	bayWidthsMm: [...BAY_WIDTHS_MM],
+	openingConstraints: OPENING_CONSTRAINTS,
+	finishes: FINISHES,
+	doorTypes: DOOR_TYPES,
+	accessories: ACCESSORIES,
+	rates: RATES,
+};

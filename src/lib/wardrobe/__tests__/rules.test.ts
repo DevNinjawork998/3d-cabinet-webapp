@@ -19,6 +19,15 @@ describe("splitIntoBays", () => {
 		expect(splitIntoBays(0)).toEqual([]);
 	});
 
+	it("takes an explicit constraints override instead of always reading the catalogue default", () => {
+		const narrow = { ...OPENING_CONSTRAINTS, maxBayWidthMm: 400 };
+		const bays = splitIntoBays(1800, narrow);
+		for (const bay of bays) expect(bay.width).toBeLessThanOrEqual(400);
+		// The default (1200mm max) would have split 1800mm into 2 bays; the
+		// override forces more, proving the parameter is what's read.
+		expect(bays.length).toBeGreaterThan(splitIntoBays(1800).length);
+	});
+
 	it("never produces a bay outside the catalogue's bay width limits", () => {
 		for (
 			let width = OPENING_CONSTRAINTS.minTotalWidthMm;

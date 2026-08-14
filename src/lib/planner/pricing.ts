@@ -1,11 +1,11 @@
 import {
-	doorPriceRm,
-	doorStyle,
 	type FinishId,
-	sizePriceRm,
+	PLANNER_CATALOGUE,
 	WORKTOP_THICKNESS_MM,
 } from "./catalogue";
+import type { PlannerCatalogue } from "./catalogueSchema";
 import { type PlannerLayout, type Positioned, positionsOf } from "./layout";
+import { doorPriceRm, doorStyle, sizePriceRm } from "./lookup";
 
 /**
  * Indicative planner pricing.
@@ -53,13 +53,16 @@ export type KitchenPrice = {
 const ftOf = (mm: number) => mm / MM_PER_FT;
 
 /** What one placed cabinet costs: its size, plus its door if it has one. */
-export function cabinetPriceRm(placed: Positioned): {
+export function cabinetPriceRm(
+	placed: Positioned,
+	catalogue: PlannerCatalogue = PLANNER_CATALOGUE,
+): {
 	carcassRm: number;
 	doorRm: number;
 } {
-	const carcassRm = sizePriceRm(placed.family.id, placed.widthMm);
+	const carcassRm = sizePriceRm(catalogue, placed.family.id, placed.widthMm);
 	const doorRm = placed.placed.doorStyleId
-		? doorPriceRm(placed.placed.doorStyleId, placed.widthMm)
+		? doorPriceRm(catalogue, placed.placed.doorStyleId, placed.widthMm)
 		: 0;
 	return { carcassRm, doorRm };
 }
@@ -79,6 +82,7 @@ export function worktopFt(layout: PlannerLayout): number {
 export function computePlannerPrice(
 	layout: PlannerLayout,
 	_finish: FinishId,
+	catalogue: PlannerCatalogue = PLANNER_CATALOGUE,
 ): KitchenPrice {
 	const placed: Positioned[] = [
 		...positionsOf(layout, "floor"),
@@ -86,9 +90,9 @@ export function computePlannerPrice(
 	];
 
 	const cabinets = placed.map((position) => {
-		const { carcassRm, doorRm } = cabinetPriceRm(position);
+		const { carcassRm, doorRm } = cabinetPriceRm(position, catalogue);
 		const door = position.placed.doorStyleId
-			? doorStyle(position.placed.doorStyleId)
+			? doorStyle(catalogue, position.placed.doorStyleId)
 			: undefined;
 		return {
 			id: position.placed.id,

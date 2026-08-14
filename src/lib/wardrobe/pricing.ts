@@ -1,4 +1,5 @@
-import { ACCESSORIES, DOOR_TYPES, FINISHES, RATES } from "./catalogue";
+import { WARDROBE_CATALOGUE } from "./catalogue";
+import type { WardrobeCatalogue } from "./catalogueSchema";
 import type { DesignDocument } from "./schema";
 
 export type PriceLineItem = { label: string; amountRm: number };
@@ -12,15 +13,17 @@ export type PriceBreakdown = {
 	totalRm: number;
 };
 
-function mmToFt(mm: number): number {
-	return mm / RATES.mmPerFt;
-}
+export function computePrice(
+	design: DesignDocument,
+	catalogue: WardrobeCatalogue = WARDROBE_CATALOGUE,
+): PriceBreakdown {
+	const { finishes, doorTypes, accessories: accessoryRates, rates } = catalogue;
+	const mmToFt = (mm: number) => mm / rates.mmPerFt;
 
-export function computePrice(design: DesignDocument): PriceBreakdown {
 	const runFt = mmToFt(design.opening.width);
 	const base: PriceLineItem = {
 		label: `Base (${runFt.toFixed(2)} ft run)`,
-		amountRm: RATES.baseRmPerFt * runFt,
+		amountRm: rates.baseRmPerFt * runFt,
 	};
 
 	const bayWidthById = new Map(design.bays.map((bay) => [bay.id, bay.width]));
@@ -36,7 +39,8 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 	const finishSurcharges: PriceLineItem[] = design.doors.map((door) => {
 		const bayWidthMm = bayWidthById.get(door.bayId) ?? 0;
 		const bayFt = mmToFt(bayWidthMm);
-		const finish = FINISHES[door.finish];
+		const finish = finishes[door.finish];
+		if (!finish) throw new Error(`unknown finish "${door.finish}"`);
 		return {
 			label: `${finish.label} (${bayLabel(door.bayId)})`,
 			amountRm: finish.surchargeRmPerFt * bayFt,
@@ -46,7 +50,8 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 	const doorTypeSurcharges: PriceLineItem[] = design.doors.map((door) => {
 		const bayWidthMm = bayWidthById.get(door.bayId) ?? 0;
 		const bayFt = mmToFt(bayWidthMm);
-		const doorType = DOOR_TYPES[door.type];
+		const doorType = doorTypes[door.type];
+		if (!doorType) throw new Error(`unknown door type "${door.type}"`);
 		return {
 			label: `${doorType.label} door (${bayLabel(door.bayId)})`,
 			amountRm: doorType.surchargeRmPerFt * bayFt,
@@ -55,7 +60,8 @@ export function computePrice(design: DesignDocument): PriceBreakdown {
 
 	const accessories: PriceLineItem[] = design.interiors.flatMap((interior) =>
 		interior.accessories.map((accessoryId) => {
-			const accessory = ACCESSORIES[accessoryId];
+			const accessory = accessoryRates[accessoryId];
+			if (!accessory) throw new Error(`unknown accessory "${accessoryId}"`);
 			return {
 				label: `${accessory.label} (${bayLabel(interior.bayId)})`,
 				amountRm: accessory.rateRm,

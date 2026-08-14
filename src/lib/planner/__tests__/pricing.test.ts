@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { doorPriceRm, ROOM_TYPES, sizePriceRm } from "../catalogue";
+import {
+	doorPriceRm,
+	PLANNER_CATALOGUE,
+	ROOM_TYPES,
+	sizePriceRm,
+} from "../catalogue";
+import { plannerCatalogueSchema } from "../catalogueSchema";
 import {
 	addModule,
 	emptyLayout,
@@ -8,6 +14,7 @@ import {
 	setWidth,
 	starterFor,
 } from "../layout";
+import { doorPriceRm as doorPriceRmIn } from "../lookup";
 import {
 	computePlannerPrice,
 	MM_PER_FT,
@@ -101,6 +108,40 @@ describe("worktop", () => {
 	it("is nothing in a room whose products have no worktop", () => {
 		const bedroom = starterFor("bedroom");
 		expect(worktopFt(bedroom)).toBe(0);
+	});
+});
+
+describe("catalogue is a real parameter, not just an import default", () => {
+	it("PLANNER_CATALOGUE satisfies its own schema", () => {
+		expect(() => plannerCatalogueSchema.parse(PLANNER_CATALOGUE)).not.toThrow();
+	});
+
+	it("prices off a catalogue passed in explicitly", () => {
+		const price = computePlannerPrice(run(), "white", PLANNER_CATALOGUE);
+		expect(price.totalRm).toBe(computePlannerPrice(run(), "white").totalRm);
+	});
+
+	it("a different catalogue produces a different price", () => {
+		const pricier = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.map((f) =>
+				f.id === "base-cabinet"
+					? {
+							...f,
+							sizes: f.sizes.map((s) => ({ ...s, priceRm: s.priceRm * 2 })),
+						}
+					: f,
+			),
+		};
+		expect(
+			computePlannerPrice(run(), "white", pricier).totalRm,
+		).toBeGreaterThan(computePlannerPrice(run(), "white").totalRm);
+	});
+
+	it("lookup.ts's doorPriceRm agrees with catalogue.ts's for the shipped catalogue", () => {
+		expect(doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900)).toBe(
+			doorPriceRm("shaker", 900),
+		);
 	});
 });
 

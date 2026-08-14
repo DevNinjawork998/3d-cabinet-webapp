@@ -1,3 +1,5 @@
+import type { PlannerCatalogue } from "./catalogueSchema";
+
 /**
  * The room planner's product catalogue.
  *
@@ -434,3 +436,24 @@ export const CARCASS_INTERIOR_COLOR = "#b3aa9c";
 export const WORKTOP_COLOR = "#4a4744";
 export const HARDWARE_COLOR = "#9aa0a6";
 export const GLASS_COLOR = "#dfe9ec";
+
+// -------------------------------------------------------- bundled shape --
+
+/**
+ * The catalogue bundled into the shape `catalogueSchema.ts` describes, so
+ * money-path functions (`pricing.ts`) can take it as a parameter instead of
+ * importing the individual constants above. This is today's — and, until
+ * the DB-backed catalogue lands, the only — catalogue.
+ */
+export const PLANNER_CATALOGUE: PlannerCatalogue = {
+	families: FAMILIES,
+	doorStyles: DOOR_STYLES.map((style) => ({
+		...style,
+		priceRmBySizeMm: Object.fromEntries(
+			Object.entries(style.priceRmBySizeMm).map(([mm, rm]) => [String(mm), rm]),
+		),
+	})),
+	doorWidthLadderMm: DOOR_WIDTHS,
+	roomTypes: ROOM_TYPES,
+	finishes: [...FINISHES],
+};
