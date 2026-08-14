@@ -28,7 +28,6 @@ import {
 import { Cabinet } from "./Cabinet";
 
 const m = (mm: number) => mm / 1000;
-const ROOM_DEPTH_MM = 3600;
 const ROOM_HEIGHT_MM = 2700;
 /** Scribe gap between the carcass backs and the wall, as a real fit has. */
 const WALL_GAP_MM = 5;
@@ -64,7 +63,13 @@ function runXFromRay(
 	return worldX * 1000 + runWidthMm / 2;
 }
 
-function FitCamera({ runWidthMm }: { runWidthMm: number }) {
+function FitCamera({
+	runWidthMm,
+	roomDepthMm,
+}: {
+	runWidthMm: number;
+	roomDepthMm: number;
+}) {
 	const camera = useThree((s) => s.camera) as PerspectiveCamera;
 	const controls = useThree((s) => s.controls) as {
 		target: Vector3Type;
@@ -78,7 +83,7 @@ function FitCamera({ runWidthMm }: { runWidthMm: number }) {
 		const centre = new Vector3(0, height / 2.2, 0);
 		const halfFovV = (camera.fov * Math.PI) / 360;
 		const halfFovH = Math.atan(Math.tan(halfFovV) * aspect);
-		const radius = Math.hypot(width, height, m(ROOM_DEPTH_MM)) / 2;
+		const radius = Math.hypot(width, height, m(roomDepthMm)) / 2;
 		const distance = (radius / Math.sin(Math.min(halfFovV, halfFovH))) * 0.95;
 
 		camera.position.copy(centre).addScaledVector(VIEW_DIRECTION, distance);
@@ -90,7 +95,7 @@ function FitCamera({ runWidthMm }: { runWidthMm: number }) {
 			controls.target.copy(centre);
 			controls.update();
 		}
-	}, [runWidthMm, aspect, camera, controls]);
+	}, [runWidthMm, roomDepthMm, aspect, camera, controls]);
 
 	return null;
 }
@@ -281,7 +286,7 @@ function Run({
 	// by its back face from here, with a scribe gap so the carcasses do not
 	// z-fight with the wall they stand against.
 	return (
-		<group position={[0, 0, -m(ROOM_DEPTH_MM) / 2 + m(WALL_GAP_MM)]}>
+		<group position={[0, 0, -m(layout.roomDepthMm) / 2 + m(WALL_GAP_MM)]}>
 			{/* Always mounted: it catches the moves during a drag, and a press on
 			    bare wall clears the selection.
 
@@ -354,7 +359,7 @@ function Run({
 						// The group is on the wall plane, so the cabinet's own centre
 						// plane is half its depth in front of it.
 						const planeZ =
-							-m(ROOM_DEPTH_MM) / 2 +
+							-m(layout.roomDepthMm) / 2 +
 							m(WALL_GAP_MM) +
 							m(position.family.depthMm) / 2;
 						dragRef.current = {
@@ -544,7 +549,7 @@ export default function PlannerScene({
 
 			<Room
 				width={Math.max(m(runWidthMm) + 1.2, 4)}
-				depth={m(ROOM_DEPTH_MM)}
+				depth={m(layout.roomDepthMm)}
 				height={m(ROOM_HEIGHT_MM)}
 			/>
 
@@ -566,7 +571,10 @@ export default function PlannerScene({
 				enablePan={false}
 				maxPolarAngle={Math.PI / 2 - 0.05}
 			/>
-			<FitCamera runWidthMm={Math.max(runWidthMm, rowEndMm(layout, "floor"))} />
+			<FitCamera
+				runWidthMm={Math.max(runWidthMm, rowEndMm(layout, "floor"))}
+				roomDepthMm={layout.roomDepthMm}
+			/>
 		</Canvas>
 	);
 }

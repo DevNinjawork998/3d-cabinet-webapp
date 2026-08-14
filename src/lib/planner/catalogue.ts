@@ -56,6 +56,14 @@ export const WALL_CABINET_FLOOR_MM = 1500;
 /** How far the hang slider lets the customer move that underside. */
 export const WALL_HANG_LIMITS = { minMm: 1200, maxMm: 1800 } as const;
 
+/**
+ * Front-to-back room depth is the room's, not the catalogue's — see the
+ * design rule in CLAUDE.md. This is only the starting figure a fresh layout
+ * opens with; `setRoomDepth` is what lets the customer measure their own.
+ */
+export const DEFAULT_ROOM_DEPTH_MM = 3600;
+export const ROOM_DEPTH_LIMITS = { minMm: 2000, maxMm: 8000 } as const;
+
 // ---------------------------------------------------------------- kitchen --
 // Real dimensions, invented prices.
 

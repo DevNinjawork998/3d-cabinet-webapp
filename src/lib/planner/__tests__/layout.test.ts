@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { FAMILIES, family, ROOM_TYPES } from "../catalogue";
+import { FAMILIES, family, ROOM_DEPTH_LIMITS, ROOM_TYPES } from "../catalogue";
 import {
 	addModule,
 	closeGaps,
@@ -24,6 +24,7 @@ import {
 	setDoor,
 	setDoors,
 	setHangingHeight,
+	setRoomDepth,
 	setWallWidth,
 	setWidth,
 	starterFor,
@@ -374,6 +375,27 @@ describe("wall length", () => {
 		const shorter = setWallWidth(next, 1600);
 		expect(overhangMm(shorter)).toBeGreaterThan(0);
 		expect(overhangMm(closeGaps(shorter))).toBe(0);
+	});
+});
+
+describe("room depth", () => {
+	it("starts at a real default and can be changed", () => {
+		expect(layout.roomDepthMm).toBe(3600);
+		expect(setRoomDepth(layout, 2800).roomDepthMm).toBe(2800);
+	});
+
+	it("clamps a mistyped figure rather than making an unusable room", () => {
+		expect(setRoomDepth(layout, 10).roomDepthMm).toBe(ROOM_DEPTH_LIMITS.minMm);
+		expect(setRoomDepth(layout, 999999).roomDepthMm).toBe(
+			ROOM_DEPTH_LIMITS.maxMm,
+		);
+	});
+
+	it("is independent of wall width — resizing one leaves the other alone", () => {
+		const wider = setWallWidth(layout, 6000);
+		expect(wider.roomDepthMm).toBe(layout.roomDepthMm);
+		const deeper = setRoomDepth(layout, 5000);
+		expect(deeper.wallWidthMm).toBe(layout.wallWidthMm);
 	});
 });
 

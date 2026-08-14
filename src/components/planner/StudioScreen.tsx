@@ -7,6 +7,7 @@ import {
 	FINISHES,
 	type FinishId,
 	family,
+	ROOM_DEPTH_LIMITS,
 	ROOM_TYPES,
 	type RoomTypeId,
 	roomType,
@@ -26,6 +27,7 @@ import {
 	rowEndMm,
 	setDoors,
 	setHangingHeight,
+	setRoomDepth,
 	setWallWidth,
 	setWidth,
 	starterFor,
@@ -188,6 +190,31 @@ export function StudioScreen({
 									onChange={(e) =>
 										setLayoutAction((prev) =>
 											setWallWidth(prev, Number(e.target.value)),
+										)
+									}
+								/>
+							</div>
+
+							<div>
+								<div className="flex items-baseline justify-between">
+									<span className="text-[12px] text-neutral-600">
+										Room depth
+									</span>
+									<span className="tabular-nums text-[12px]">
+										{layout.roomDepthMm.toLocaleString("en-MY")} mm
+									</span>
+								</div>
+								<input
+									type="range"
+									className="mt-1 w-full"
+									aria-label="Room depth"
+									min={ROOM_DEPTH_LIMITS.minMm}
+									max={ROOM_DEPTH_LIMITS.maxMm}
+									step={50}
+									value={layout.roomDepthMm}
+									onChange={(e) =>
+										setLayoutAction((prev) =>
+											setRoomDepth(prev, Number(e.target.value)),
 										)
 									}
 								/>

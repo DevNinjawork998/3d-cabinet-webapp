@@ -1,8 +1,10 @@
 import {
+	DEFAULT_ROOM_DEPTH_MM,
 	defaultWidthMm,
 	type Family,
 	family,
 	type ModuleKind,
+	ROOM_DEPTH_LIMITS,
 	type RoomTypeId,
 	roomType,
 	WALL_CABINET_FLOOR_MM,
@@ -45,6 +47,8 @@ export type PlacedModule = {
 
 export type PlannerLayout = {
 	wallWidthMm: number;
+	/** Front-to-back room depth — the customer's, not a catalogue figure. */
+	roomDepthMm: number;
 	/** Underside of the wall cabinets. They line up, as a real kitchen does. */
 	hangingHeightMm: number;
 	/** Floor row: base and tall units. */
@@ -64,8 +68,12 @@ export const SNAP_MM = 60;
 export const rowFor = (kind: ModuleKind): Row =>
 	kind === "wall" ? "wall" : "floor";
 
-export const emptyLayout = (wallWidthMm: number): PlannerLayout => ({
+export const emptyLayout = (
+	wallWidthMm: number,
+	roomDepthMm: number = DEFAULT_ROOM_DEPTH_MM,
+): PlannerLayout => ({
 	wallWidthMm,
+	roomDepthMm,
 	hangingHeightMm: WALL_CABINET_FLOOR_MM,
 	floor: [],
 	wall: [],
@@ -581,6 +589,25 @@ export function setWallWidth(
 	return clamped === layout.wallWidthMm
 		? layout
 		: { ...layout, wallWidthMm: clamped };
+}
+
+/**
+ * Set the room's front-to-back depth to what the customer measured. This is
+ * a 3D-scene dimension only — cabinet depths are fixed per family — but the
+ * room box, camera framing and drag planes all read it, so a shallow galley
+ * kitchen and a deep open one no longer render at the same fixed depth.
+ */
+export function setRoomDepth(
+	layout: PlannerLayout,
+	roomDepthMm: number,
+): PlannerLayout {
+	const clamped = Math.min(
+		ROOM_DEPTH_LIMITS.maxMm,
+		Math.max(ROOM_DEPTH_LIMITS.minMm, Math.round(roomDepthMm)),
+	);
+	return clamped === layout.roomDepthMm
+		? layout
+		: { ...layout, roomDepthMm: clamped };
 }
 
 /** How far the run overhangs the wall, if at all. */
