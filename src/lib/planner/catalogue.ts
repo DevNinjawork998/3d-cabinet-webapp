@@ -129,6 +129,23 @@ export const FAMILIES: Family[] = [
 			{ widthMm: 800, priceRm: 1780 },
 		],
 	},
+	{
+		id: "fridge-housing",
+		label: "Fridge housing",
+		kind: "tall",
+		// PLACEHOLDER — not in the client's .skp job. Deeper than a base run so
+		// the fridge door clears the worktop; carcass only, no front sold on it.
+		depthMm: 650,
+		heightMm: 2380,
+		floorHeightMm: 0,
+		hasWorktop: false,
+		drawers: 0,
+		note: "Houses the fridge — carcass only, dimensions not yet from a job file",
+		sizes: [
+			{ widthMm: 600, priceRm: 980 },
+			{ widthMm: 900, priceRm: 1240 },
+		],
+	},
 
 	// ------------------------------------------------------- other rooms --
 	// PLACEHOLDER dimensions — no .skp job for these yet.
@@ -319,7 +336,13 @@ export const ROOM_TYPES: RoomType[] = [
 	{
 		id: "kitchen",
 		label: "Kitchen",
-		familyIds: ["base-cabinet", "base-drawers", "wall-cabinet", "tall-cabinet"],
+		familyIds: [
+			"base-cabinet",
+			"base-drawers",
+			"wall-cabinet",
+			"tall-cabinet",
+			"fridge-housing",
+		],
 		defaultWallWidthMm: 4200,
 		starter: [
 			{ familyId: "base-cabinet", widthMm: 900 },

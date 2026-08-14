@@ -491,6 +491,33 @@ export function removeModule(layout: PlannerLayout, id: string): PlannerLayout {
 	return removeModules(layout, [id]);
 }
 
+/**
+ * A copy of one cabinet — same family, size and door — placed as close to the
+ * original as there is room for. Returns `layout` unchanged if `id` is not
+ * placed or nothing on the wall will hold a second one.
+ */
+export function duplicateModule(
+	layout: PlannerLayout,
+	id: string,
+	newIdValue: string = newId(),
+): PlannerLayout {
+	const source = [...layout.floor, ...layout.wall].find((m) => m.id === id);
+	if (!source) return layout;
+
+	const added = addModule(
+		layout,
+		source.familyId,
+		source.xMm + source.widthMm,
+		newIdValue,
+		source.widthMm,
+	);
+	if (added === layout) return layout;
+
+	return source.doorStyleId
+		? setDoor(added, newIdValue, source.doorStyleId)
+		: added;
+}
+
 export function setHangingHeight(
 	layout: PlannerLayout,
 	hangingHeightMm: number,

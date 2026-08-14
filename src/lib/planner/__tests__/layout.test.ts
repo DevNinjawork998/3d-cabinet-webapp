@@ -4,6 +4,7 @@ import {
 	addModule,
 	closeGaps,
 	dropModule,
+	duplicateModule,
 	emptyLayout,
 	firstFreeXMm,
 	fits,
@@ -317,6 +318,30 @@ describe("removeModule", () => {
 		const gone = removeModule(next, "b");
 		expect(at(gone, "a")).toBe(0);
 		expect(at(gone, "c")).toBe(1500);
+	});
+});
+
+describe("duplicateModule", () => {
+	it("copies family, size and door, and leaves the original where it was", () => {
+		let next = addModule(layout, "base-cabinet", 0, "a", 900);
+		next = setDoor(next, "a", "shaker");
+
+		const dup = duplicateModule(next, "a", "a2");
+		expect(at(dup, "a")).toBe(0);
+		const copy = positionsOf(dup, "floor").find((p) => p.placed.id === "a2");
+		expect(copy?.family.id).toBe("base-cabinet");
+		expect(copy?.widthMm).toBe(900);
+		expect(copy?.placed.doorStyleId).toBe("shaker");
+		expect(copy?.xMm).toBeGreaterThanOrEqual(900);
+	});
+
+	it("does nothing when there is no room for a second one", () => {
+		const tight = addModule(emptyLayout(900), "base-cabinet", 0, "a", 900);
+		expect(duplicateModule(tight, "a", "a2")).toBe(tight);
+	});
+
+	it("does nothing for an id that is not placed", () => {
+		expect(duplicateModule(layout, "missing", "x")).toBe(layout);
 	});
 });
 
