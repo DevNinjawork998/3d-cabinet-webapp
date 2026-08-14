@@ -1,7 +1,10 @@
 import {
+	defaultWidthMm,
+	type Family,
+	family,
 	type ModuleKind,
-	type ModuleType,
-	moduleType,
+	type RoomTypeId,
+	roomType,
 	WALL_CABINET_FLOOR_MM,
 } from "./catalogue";
 
@@ -21,17 +24,25 @@ import {
  * unrepresentable. Gaps are allowed — a kitchen has appliances and windows —
  * and `closeGaps` packs the run again on request.
  *
- * Pure: the UI holds a `KitchenLayout` and calls these.
+ * Pure: the UI holds a `PlannerLayout` and calls these.
  */
 
 export type PlacedModule = {
 	id: string;
-	typeId: string;
+	familyId: string;
+	/**
+	 * The size the customer chose, from the family's ladder. Width lives on the
+	 * cabinet rather than on the product so one can be dropped in and then
+	 * resized — which is the whole point of the size dropdown.
+	 */
+	widthMm: number;
+	/** The door on it, or `null` for a bare carcass, which is how it starts. */
+	doorStyleId: string | null;
 	/** Left edge of the carcass, from the left end of the run. */
 	xMm: number;
 };
 
-export type KitchenLayout = {
+export type PlannerLayout = {
 	wallWidthMm: number;
 	/** Underside of the wall cabinets. They line up, as a real kitchen does. */
 	hangingHeightMm: number;
@@ -52,7 +63,7 @@ export const SNAP_MM = 60;
 export const rowFor = (kind: ModuleKind): Row =>
 	kind === "wall" ? "wall" : "floor";
 
-export const emptyLayout = (wallWidthMm: number): KitchenLayout => ({
+export const emptyLayout = (wallWidthMm: number): PlannerLayout => ({
 	wallWidthMm,
 	hangingHeightMm: WALL_CABINET_FLOOR_MM,
 	floor: [],
@@ -61,19 +72,23 @@ export const emptyLayout = (wallWidthMm: number): KitchenLayout => ({
 
 export type Positioned = {
 	placed: PlacedModule;
-	type: ModuleType;
+	family: Family;
+	/** Copied off the instance, so callers never reach for a type's width. */
+	widthMm: number;
 	xMm: number;
 };
 
 const positioned = (placed: PlacedModule): Positioned | null => {
-	const type = moduleType(placed.typeId);
-	return type ? { placed, type, xMm: placed.xMm } : null;
+	const found = family(placed.familyId);
+	return found
+		? { placed, family: found, widthMm: placed.widthMm, xMm: placed.xMm }
+		: null;
 };
 
 const isPositioned = (p: Positioned | null): p is Positioned => p !== null;
 
 /** One row, left to right. Order comes from position, not from the array. */
-export function positionsOf(layout: KitchenLayout, row: Row): Positioned[] {
+export function positionsOf(layout: PlannerLayout, row: Row): Positioned[] {
 	return layout[row]
 		.map(positioned)
 		.filter(isPositioned)
@@ -81,14 +96,14 @@ export function positionsOf(layout: KitchenLayout, row: Row): Positioned[] {
 }
 
 /** Every cabinet in the run, both rows. For the 3D scene. */
-export function allPositions(layout: KitchenLayout): Positioned[] {
+export function allPositions(layout: PlannerLayout): Positioned[] {
 	return [...positionsOf(layout, "floor"), ...positionsOf(layout, "wall")];
 }
 
 /** How far along the wall the run reaches — its rightmost edge. */
-export function rowEndMm(layout: KitchenLayout, row: Row): number {
+export function rowEndMm(layout: PlannerLayout, row: Row): number {
 	return positionsOf(layout, row).reduce(
-		(end, position) => Math.max(end, position.xMm + position.type.widthMm),
+		(end, position) => Math.max(end, position.xMm + position.widthMm),
 		0,
 	);
 }
@@ -101,7 +116,7 @@ export function rowEndMm(layout: KitchenLayout, row: Row): number {
  * means every move, drop and add gets it for free.
  */
 export function occupiedSpans(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
 	ignoreId?: string,
 ): Span[] {
@@ -109,7 +124,7 @@ export function occupiedSpans(
 	const talls =
 		row === "wall"
 			? positionsOf(layout, "floor").filter(
-					(position) => position.type.kind === "tall",
+					(position) => position.family.kind === "tall",
 				)
 			: [];
 
@@ -117,14 +132,14 @@ export function occupiedSpans(
 		.filter((position) => position.placed.id !== ignoreId)
 		.map((position) => ({
 			startMm: position.xMm,
-			endMm: position.xMm + position.type.widthMm,
+			endMm: position.xMm + position.widthMm,
 		}))
 		.sort((a, b) => a.startMm - b.startMm);
 }
 
 /** The clear stretches of wall in a row, in order. */
 export function freeSpans(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
 	ignoreId?: string,
 ): Span[] {
@@ -157,14 +172,14 @@ const clampToWall = (xMm: number, widthMm: number, wallWidthMm: number) =>
  * would pop out on the far side.
  */
 export function clampX(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
-	type: ModuleType,
+	widthMm: number,
 	xMm: number,
 	ignoreId?: string,
 	fromMm?: number,
 ): number {
-	const wanted = clampToWall(xMm, type.widthMm, layout.wallWidthMm);
+	const wanted = clampToWall(xMm, widthMm, layout.wallWidthMm);
 	const spans = occupiedSpans(layout, row, ignoreId);
 	const origin = fromMm ?? wanted;
 
@@ -176,13 +191,13 @@ export function clampX(
 
 		for (const span of spans) {
 			const left = settled;
-			const right = settled + type.widthMm;
+			const right = settled + widthMm;
 			if (right <= span.startMm || left >= span.endMm) continue;
 
 			// Approaching from the left means stopping before the obstacle.
-			const approachingFromLeft = origin + type.widthMm / 2 < span.startMm;
-			settled = approachingFromLeft ? span.startMm - type.widthMm : span.endMm;
-			settled = clampToWall(settled, type.widthMm, layout.wallWidthMm);
+			const approachingFromLeft = origin + widthMm / 2 < span.startMm;
+			settled = approachingFromLeft ? span.startMm - widthMm : span.endMm;
+			settled = clampToWall(settled, widthMm, layout.wallWidthMm);
 			moved = true;
 		}
 
@@ -190,8 +205,8 @@ export function clampX(
 	}
 
 	// If it still overlaps, every direction is blocked — leave it where it was.
-	return overlapsAnything(settled, type.widthMm, spans)
-		? clampToWall(origin, type.widthMm, layout.wallWidthMm)
+	return overlapsAnything(settled, widthMm, spans)
+		? clampToWall(origin, widthMm, layout.wallWidthMm)
 		: settled;
 }
 
@@ -210,7 +225,7 @@ function overlapsAnything(
  * the base cabinet under it.
  */
 function snapTargets(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
 	ignoreId?: string,
 ): number[] {
@@ -220,7 +235,7 @@ function snapTargets(
 	for (const r of [row, other]) {
 		for (const position of positionsOf(layout, r)) {
 			if (position.placed.id === ignoreId) continue;
-			edges.push(position.xMm, position.xMm + position.type.widthMm);
+			edges.push(position.xMm, position.xMm + position.widthMm);
 		}
 	}
 
@@ -233,9 +248,9 @@ function snapTargets(
  * release — a snap that fires mid-drag makes the cabinet stick and jump.
  */
 export function snapX(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
-	type: ModuleType,
+	widthMm: number,
 	xMm: number,
 	ignoreId?: string,
 ): number {
@@ -246,7 +261,7 @@ export function snapX(
 
 	for (const target of targets) {
 		// Either the left edge or the right edge can be the one that lands.
-		for (const candidate of [target, target - type.widthMm]) {
+		for (const candidate of [target, target - widthMm]) {
 			const distance = Math.abs(candidate - xMm);
 			if (distance < bestDistance) {
 				best = candidate;
@@ -255,7 +270,7 @@ export function snapX(
 		}
 	}
 
-	return clampX(layout, row, type, best, ignoreId, xMm);
+	return clampX(layout, row, widthMm, best, ignoreId, xMm);
 }
 
 let counter = 0;
@@ -264,23 +279,23 @@ let counter = 0;
 export const newId = () => `m${++counter}`;
 
 const find = (
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	id: string,
-): { row: Row; placed: PlacedModule; type: ModuleType } | null => {
+): { row: Row; placed: PlacedModule; family: Family } | null => {
 	for (const row of ["floor", "wall"] as const) {
 		const placed = layout[row].find((module) => module.id === id);
-		const type = placed && moduleType(placed.typeId);
-		if (placed && type) return { row, placed, type };
+		const found = placed && family(placed.familyId);
+		if (placed && found) return { row, placed, family: found };
 	}
 	return null;
 };
 
 const withX = (
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
 	id: string,
 	xMm: number,
-): KitchenLayout => ({
+): PlannerLayout => ({
 	...layout,
 	[row]: layout[row].map((module) =>
 		module.id === id ? { ...module, xMm } : module,
@@ -289,17 +304,17 @@ const withX = (
 
 /** Mid-drag: follow the pointer as far as the neighbours allow. */
 export function moveModule(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	id: string,
 	xMm: number,
-): KitchenLayout {
+): PlannerLayout {
 	const found = find(layout, id);
 	if (!found) return layout;
 
 	const settled = clampX(
 		layout,
 		found.row,
-		found.type,
+		found.placed.widthMm,
 		xMm,
 		id,
 		found.placed.xMm,
@@ -311,22 +326,22 @@ export function moveModule(
 
 /** Drag released: settle, then snap flush if it is close to an edge. */
 export function dropModule(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	id: string,
 	xMm: number,
-): KitchenLayout {
+): PlannerLayout {
 	const found = find(layout, id);
 	if (!found) return layout;
 
 	const settled = clampX(
 		layout,
 		found.row,
-		found.type,
+		found.placed.widthMm,
 		xMm,
 		id,
 		found.placed.xMm,
 	);
-	const snapped = snapX(layout, found.row, found.type, settled, id);
+	const snapped = snapX(layout, found.row, found.placed.widthMm, settled, id);
 	return snapped === found.placed.xMm
 		? layout
 		: withX(layout, found.row, id, snapped);
@@ -334,7 +349,7 @@ export function dropModule(
 
 /** The leftmost clear position a cabinet of this width could take. */
 export function firstFreeXMm(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
 	widthMm: number,
 ): number | null {
@@ -350,22 +365,22 @@ export function firstFreeXMm(
  * drop onto an occupied stretch is a near miss, not a mistake.
  */
 export function placementFor(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	row: Row,
-	type: ModuleType,
+	widthMm: number,
 	xMm: number,
 ): number | null {
-	const wanted = clampToWall(xMm, type.widthMm, layout.wallWidthMm);
+	const wanted = clampToWall(xMm, widthMm, layout.wallWidthMm);
 
 	let best: number | null = null;
 	let bestDistance = Number.POSITIVE_INFINITY;
 
 	for (const gap of freeSpans(layout, row)) {
-		if (gap.endMm - gap.startMm < type.widthMm) continue;
+		if (gap.endMm - gap.startMm < widthMm) continue;
 		// Nearest spot inside this gap to where the pointer let go.
 		const candidate = Math.min(
 			Math.max(wanted, gap.startMm),
-			gap.endMm - type.widthMm,
+			gap.endMm - widthMm,
 		);
 		const distance = Math.abs(candidate - wanted);
 		if (distance < bestDistance) {
@@ -378,32 +393,45 @@ export function placementFor(
 }
 
 /** Is there anywhere left on this wall for one of these? */
-export function fits(layout: KitchenLayout, typeId: string): boolean {
-	const type = moduleType(typeId);
-	if (!type) return false;
-	return firstFreeXMm(layout, rowFor(type.kind), type.widthMm) !== null;
+export function fits(
+	layout: PlannerLayout,
+	familyId: string,
+	widthMm = defaultWidthMm(familyId),
+): boolean {
+	const found = family(familyId);
+	if (!found) return false;
+	return firstFreeXMm(layout, rowFor(found.kind), widthMm) !== null;
 }
 
+/**
+ * Place a cabinet. It arrives as a **bare carcass** — the door is a separate
+ * choice the customer drags on afterwards, which is the order they are sold in.
+ */
 export function addModule(
-	layout: KitchenLayout,
-	typeId: string,
+	layout: PlannerLayout,
+	familyId: string,
 	xMm: number,
 	id: string = newId(),
-): KitchenLayout {
-	const type = moduleType(typeId);
-	if (!type) return layout;
+	widthMm: number = defaultWidthMm(familyId),
+): PlannerLayout {
+	const found = family(familyId);
+	if (!found) return layout;
 
-	const row = rowFor(type.kind);
-	const at = placementFor(layout, row, type, xMm);
+	const row = rowFor(found.kind);
+	const at = placementFor(layout, row, widthMm, xMm);
 	if (at === null) return layout;
 
-	const placed: PlacedModule = { id, typeId, xMm: at };
+	const placed: PlacedModule = {
+		id,
+		familyId,
+		widthMm,
+		doorStyleId: null,
+		xMm: at,
+	};
 	const next = { ...layout, [row]: [...layout[row], placed] };
 	// A tall unit lands in the floor row but takes the hung row with it, so
 	// anything already hanging there has to give way.
-	return type.kind === "tall"
-		? evictBlockedWallUnits(next, placed, type)
-		: next;
+	return found.kind === "tall" ? evictBlockedWallUnits(next, placed) : next;
 }
 
 /**
@@ -413,25 +441,24 @@ export function addModule(
  * does nothing reads as broken.
  */
 function evictBlockedWallUnits(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	tall: PlacedModule,
-	type: ModuleType,
-): KitchenLayout {
+): PlannerLayout {
 	const blocked: Span = {
 		startMm: tall.xMm,
-		endMm: tall.xMm + type.widthMm,
+		endMm: tall.xMm + tall.widthMm,
 	};
 
 	let next = layout;
 	for (const position of positionsOf(layout, "wall")) {
 		const left = position.xMm;
-		const right = position.xMm + position.type.widthMm;
+		const right = position.xMm + position.widthMm;
 		if (right <= blocked.startMm || left >= blocked.endMm) continue;
 
 		const moved = placementFor(
 			removeModule(next, position.placed.id),
 			"wall",
-			position.type,
+			position.widthMm,
 			position.xMm,
 		);
 		next =
@@ -448,9 +475,9 @@ function evictBlockedWallUnits(
  * so closing the gap automatically would undo what the customer just asked for.
  */
 export function removeModules(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	ids: Iterable<string>,
-): KitchenLayout {
+): PlannerLayout {
 	const gone = new Set(ids);
 	if (gone.size === 0) return layout;
 	return {
@@ -460,14 +487,14 @@ export function removeModules(
 	};
 }
 
-export function removeModule(layout: KitchenLayout, id: string): KitchenLayout {
+export function removeModule(layout: PlannerLayout, id: string): PlannerLayout {
 	return removeModules(layout, [id]);
 }
 
 export function setHangingHeight(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	hangingHeightMm: number,
-): KitchenLayout {
+): PlannerLayout {
 	return { ...layout, hangingHeightMm };
 }
 
@@ -486,9 +513,9 @@ export const WALL_LIMITS = { minMm: 1000, maxMm: 12000 } as const;
  * UI shows what overhangs, and `closeGaps` usually recovers it.
  */
 export function setWallWidth(
-	layout: KitchenLayout,
+	layout: PlannerLayout,
 	wallWidthMm: number,
-): KitchenLayout {
+): PlannerLayout {
 	const clamped = Math.min(
 		WALL_LIMITS.maxMm,
 		Math.max(WALL_LIMITS.minMm, Math.round(wallWidthMm)),
@@ -499,7 +526,7 @@ export function setWallWidth(
 }
 
 /** How far the run overhangs the wall, if at all. */
-export function overhangMm(layout: KitchenLayout): number {
+export function overhangMm(layout: PlannerLayout): number {
 	const end = Math.max(rowEndMm(layout, "floor"), rowEndMm(layout, "wall"));
 	return Math.max(0, end - layout.wallWidthMm);
 }
@@ -509,18 +536,18 @@ export function overhangMm(layout: KitchenLayout): number {
  * This is the old always-on behaviour, demoted to one deliberate action: the
  * customer arranges freely and tidies up when they want a clean elevation.
  */
-export function closeGaps(layout: KitchenLayout): KitchenLayout {
+export function closeGaps(layout: PlannerLayout): PlannerLayout {
 	const floor: PlacedModule[] = [];
 	let cursor = 0;
 	for (const position of positionsOf(layout, "floor")) {
 		floor.push({ ...position.placed, xMm: cursor });
-		cursor += position.type.widthMm;
+		cursor += position.widthMm;
 	}
 
-	const packed: KitchenLayout = { ...layout, floor, wall: [] };
+	const packed: PlannerLayout = { ...layout, floor, wall: [] };
 	const talls = floor
-		.map((placed) => ({ placed, type: moduleType(placed.typeId) }))
-		.filter((entry) => entry.type?.kind === "tall");
+		.map((placed) => ({ placed, family: family(placed.familyId) }))
+		.filter((entry) => entry.family?.kind === "tall");
 
 	const wall: PlacedModule[] = [];
 	cursor = 0;
@@ -529,11 +556,11 @@ export function closeGaps(layout: KitchenLayout): KitchenLayout {
 		let moved = true;
 		while (moved) {
 			moved = false;
-			for (const { placed, type } of talls) {
-				if (!type) continue;
+			for (const { placed, family: tall } of talls) {
+				if (!tall) continue;
 				const start = placed.xMm;
-				const end = placed.xMm + type.widthMm;
-				if (cursor < end && cursor + position.type.widthMm > start) {
+				const end = placed.xMm + placed.widthMm;
+				if (cursor < end && cursor + position.widthMm > start) {
 					cursor = end;
 					moved = true;
 				}
@@ -541,30 +568,99 @@ export function closeGaps(layout: KitchenLayout): KitchenLayout {
 		}
 
 		wall.push({ ...position.placed, xMm: cursor });
-		cursor += position.type.widthMm;
+		cursor += position.widthMm;
 	}
 
 	return { ...packed, wall };
 }
 
 /**
- * A starter kitchen so the demo never opens on an empty wall — the same
- * blank-canvas rule the wardrobe configurator follows.
+ * Resize a cabinet in place.
+ *
+ * The **left edge stays put** and it grows to the right, because that is what
+ * the customer means by "make this one wider" — a cabinet that also slid
+ * sideways would move the run under them. If the neighbour is in the way the
+ * resize is refused outright rather than half-applied; `widthOptionsFor` is
+ * what the UI uses to grey those sizes out before they are even offered.
  */
-export function starterKitchen(wallWidthMm: number): KitchenLayout {
-	let layout = emptyLayout(wallWidthMm);
-	// Dropped at 0 each time, so each one takes the leftmost gap that holds it
-	// and the run comes out packed from the left without a tidy-up pass.
-	for (const typeId of [
-		"base-900",
-		"base-400-drawers",
-		"base-900",
-		"tall-600",
-	]) {
-		layout = addModule(layout, typeId, 0);
-	}
-	for (const typeId of ["wall-900", "wall-400", "wall-900"]) {
-		layout = addModule(layout, typeId, 0);
+export function setWidth(
+	layout: PlannerLayout,
+	id: string,
+	widthMm: number,
+): PlannerLayout {
+	const found = find(layout, id);
+	if (!found || widthMm === found.placed.widthMm) return layout;
+
+	const spans = occupiedSpans(layout, found.row, id);
+	const wall = layout.wallWidthMm;
+	if (found.placed.xMm + widthMm > wall) return layout;
+	if (overlapsAnything(found.placed.xMm, widthMm, spans)) return layout;
+
+	return {
+		...layout,
+		[found.row]: layout[found.row].map((module) =>
+			module.id === id ? { ...module, widthMm } : module,
+		),
+	};
+}
+
+/** Every size on this cabinet's ladder, flagged with whether it would fit. */
+export function widthOptionsFor(
+	layout: PlannerLayout,
+	id: string,
+): Array<{ widthMm: number; priceRm: number; fits: boolean }> {
+	const found = find(layout, id);
+	if (!found) return [];
+
+	const spans = occupiedSpans(layout, found.row, id);
+	return found.family.sizes.map((size) => ({
+		widthMm: size.widthMm,
+		priceRm: size.priceRm,
+		fits:
+			found.placed.xMm + size.widthMm <= layout.wallWidthMm &&
+			!overlapsAnything(found.placed.xMm, size.widthMm, spans),
+	}));
+}
+
+/** Put a door on a carcass, or take it off again with `null`. */
+export function setDoor(
+	layout: PlannerLayout,
+	id: string,
+	doorStyleId: string | null,
+): PlannerLayout {
+	const found = find(layout, id);
+	if (!found) return layout;
+
+	return {
+		...layout,
+		[found.row]: layout[found.row].map((module) =>
+			module.id === id ? { ...module, doorStyleId } : module,
+		),
+	};
+}
+
+/** Put the same door on several at once — what the palette does to a selection. */
+export function setDoors(
+	layout: PlannerLayout,
+	ids: Iterable<string>,
+	doorStyleId: string | null,
+): PlannerLayout {
+	let next = layout;
+	for (const id of ids) next = setDoor(next, id, doorStyleId);
+	return next;
+}
+
+/**
+ * The room's own starter, so no room ever opens on a blank wall — the same
+ * rule the wardrobe configurator follows. Dropped at 0 each time, so each one
+ * takes the leftmost gap that holds it and the run comes out packed from the
+ * left without a tidy-up pass.
+ */
+export function starterFor(roomId: RoomTypeId): PlannerLayout {
+	const room = roomType(roomId);
+	let layout = emptyLayout(room.defaultWallWidthMm);
+	for (const item of room.starter) {
+		layout = addModule(layout, item.familyId, 0, newId(), item.widthMm);
 	}
 	return layout;
 }

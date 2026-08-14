@@ -171,7 +171,15 @@ Separate Prisma Postgres database from Factory Tracker, same plan.
 
 Do not start Phase 2 before Phase 1 passes its tests. The engine is the product; the UI is a skin over it.
 
-Running alongside: the **kitchen planner** (`/kitchen`), a drag-and-drop mock built on the client's own extracted module standard, for demoing to Infinite Cabinet. Its layout engine is real and tested, and `lib/kitchen/pricing.ts` gives an indicative RM figure — but **every rate in it is invented**, clearly labelled as such on screen, and must be replaced from the client's price list before anyone quotes from it. The planner is not wired to leads or the wardrobe design document until the kitchen schema question above is settled, and its pricing runs client-side: the "price is computed server-side" rule applies the moment it feeds a quote.
+Running alongside: the **room planner** (`/planner`, `lib/planner`), a drag-and-drop mock for demoing to Infinite Cabinet. It covers four rooms — kitchen (base/drawer/wall/tall), living room (TV ledge, display cabinet), bedroom (wardrobe as a simple box) and foyer (shoe cabinet, bench) — and each room keeps its own layout.
+
+Its model is deliberately unlike the wardrobe's: a **family** is the product, a **size** is a priced option on it, and both the chosen width and the chosen door live on the placed cabinet rather than on the product. A cabinet arrives as a **bare carcass**; the customer drags a door style onto it, and one finish colour applies to the whole room. Cabinets are positioned freely along the wall, stopping against their neighbours, so gaps are allowed and `closeGaps` tidies on request.
+
+Two provenance rules matter and are stated in `lib/planner/catalogue.ts`:
+- **Kitchen dimensions are real** — extracted from the client's Mozaik `.skp` by `lib/skp`. **The other three rooms' dimensions are invented** until they send a job file for each.
+- **Every price is invented.** A job file carries geometry, not money. Pricing is per unit (carcass and door priced separately by size, worktop still per running foot) and labelled "not a quote" on screen. Phase 0 has to close before anyone quotes from it.
+
+The planner is not wired to leads or the wardrobe design document, and its pricing runs client-side: the "price is computed server-side" rule applies the moment it feeds a quote. `/viewer` remains the detailed, bay-based wardrobe configurator — the planner's wardrobe is only a box.
 
 ## Open questions
 

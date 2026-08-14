@@ -3,23 +3,28 @@
 import { OrbitControls, Shadow } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PerspectiveCamera, Vector3 as Vector3Type } from "three";
-import { Vector3 } from "three";
+import type {
+	Object3D,
+	PerspectiveCamera,
+	Vector3 as Vector3Type,
+} from "three";
+import { Raycaster, Vector2, Vector3 } from "three";
 import { Room } from "@/components/viewer/Room";
 import {
-	KITCHEN_FINISHES,
-	type KitchenFinishId,
+	doorStyle,
+	FINISHES,
+	type FinishId,
 	WORKTOP_COLOR,
 	WORKTOP_THICKNESS_MM,
-} from "@/lib/kitchen/catalogue";
+} from "@/lib/planner/catalogue";
 import {
 	allPositions,
 	dropModule,
-	type KitchenLayout,
 	moveModule,
+	type PlannerLayout,
 	positionsOf,
 	rowEndMm,
-} from "@/lib/kitchen/layout";
+} from "@/lib/planner/layout";
 import { Cabinet } from "./Cabinet";
 
 const m = (mm: number) => mm / 1000;
@@ -134,6 +139,54 @@ function DropPicker({
 }
 
 /**
+ * Answers "which cabinet is under this screen point?" for the HTML layer.
+ *
+ * Dropping a door needs a real raycast, not the run-position maths `DropPicker`
+ * does: a door lands on one specific carcass, and the cabinets are at different
+ * depths and heights. Each cabinet group carries its id in `userData`, so the
+ * first hit walks up to find whose it was.
+ */
+function CabinetHitTest({
+	hitTestRef,
+}: {
+	hitTestRef: React.RefObject<
+		((clientX: number, clientY: number) => string | null) | null
+	>;
+}) {
+	const camera = useThree((s) => s.camera);
+	const gl = useThree((s) => s.gl);
+	const scene = useThree((s) => s.scene);
+
+	useEffect(() => {
+		const raycaster = new Raycaster();
+		const ndc = new Vector2();
+
+		hitTestRef.current = (clientX, clientY) => {
+			const rect = gl.domElement.getBoundingClientRect();
+			ndc.set(
+				((clientX - rect.left) / rect.width) * 2 - 1,
+				-((clientY - rect.top) / rect.height) * 2 + 1,
+			);
+			raycaster.setFromCamera(ndc, camera);
+
+			for (const hit of raycaster.intersectObjects(scene.children, true)) {
+				for (let node: Object3D | null = hit.object; node; node = node.parent) {
+					const id = node.userData?.moduleId;
+					if (typeof id === "string") return id;
+				}
+			}
+			return null;
+		};
+
+		return () => {
+			hitTestRef.current = null;
+		};
+	}, [camera, gl, scene, hitTestRef]);
+
+	return null;
+}
+
+/**
  * The run itself, and the dragging of it.
  *
  * Two things here are deliberate and both were learned the hard way in
@@ -151,13 +204,16 @@ function Run({
 	layout,
 	finishHex,
 	selectedIds,
+	doorTargetId,
 	onLayoutChange,
 	onSelect,
 }: {
-	layout: KitchenLayout;
+	layout: PlannerLayout;
 	finishHex: string;
 	selectedIds: ReadonlySet<string>;
-	onLayoutChange: (next: KitchenLayout) => void;
+	/** The carcass a door is currently being dragged over, if any. */
+	doorTargetId: string | null;
+	onLayoutChange: (next: PlannerLayout) => void;
 	/** `additive` comes from shift/ctrl/cmd: add to the selection rather than
 	 * replace it. `null` clears. */
 	onSelect: (id: string | null, additive: boolean) => void;
@@ -269,16 +325,24 @@ function Run({
 			{allPositions(layout).map((position) => (
 				<Cabinet
 					key={position.placed.id}
-					type={position.type}
+					moduleId={position.placed.id}
+					family={position.family}
+					widthMm={position.widthMm}
+					door={
+						position.placed.doorStyleId
+							? (doorStyle(position.placed.doorStyleId) ?? null)
+							: null
+					}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
 					floorHeightMm={
-						position.type.kind === "wall"
+						position.family.kind === "wall"
 							? layout.hangingHeightMm
-							: position.type.floorHeightMm
+							: position.family.floorHeightMm
 					}
 					finishHex={finishHex}
 					selected={selectedIds.has(position.placed.id)}
+					highlighted={position.placed.id === doorTargetId}
 					onPointerDown={(e) => {
 						e.stopPropagation();
 						const additive = e.shiftKey || e.metaKey || e.ctrlKey;
@@ -292,7 +356,7 @@ function Run({
 						const planeZ =
 							-m(ROOM_DEPTH_MM) / 2 +
 							m(WALL_GAP_MM) +
-							m(position.type.depthMm) / 2;
+							m(position.family.depthMm) / 2;
 						dragRef.current = {
 							id: position.placed.id,
 							grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
@@ -320,7 +384,7 @@ function ContactShadows({
 	layout,
 	runWidthMm,
 }: {
-	layout: KitchenLayout;
+	layout: PlannerLayout;
 	runWidthMm: number;
 }) {
 	return (
@@ -329,14 +393,14 @@ function ContactShadows({
 				<Shadow
 					key={position.placed.id}
 					position={[
-						m(position.xMm + position.type.widthMm / 2 - runWidthMm / 2),
+						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
 						0.004,
-						m(position.type.depthMm * 0.62),
+						m(position.family.depthMm * 0.62),
 					]}
 					rotation={[-Math.PI / 2, 0, 0]}
 					scale={[
-						m(position.type.widthMm) * 1.15,
-						m(position.type.depthMm) * 1.7,
+						m(position.widthMm) * 1.15,
+						m(position.family.depthMm) * 1.7,
 						1,
 					]}
 					opacity={0.5}
@@ -351,13 +415,13 @@ function ContactShadows({
 				<Shadow
 					key={position.placed.id}
 					position={[
-						m(position.xMm + position.type.widthMm / 2 - runWidthMm / 2),
-						m(layout.hangingHeightMm + position.type.heightMm / 2) - 0.06,
+						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
+						m(layout.hangingHeightMm + position.family.heightMm / 2) - 0.06,
 						0.002,
 					]}
 					scale={[
-						m(position.type.widthMm) * 1.2,
-						m(position.type.heightMm) * 1.15,
+						m(position.widthMm) * 1.2,
+						m(position.family.heightMm) * 1.15,
 						1,
 					]}
 					opacity={0.28}
@@ -372,25 +436,37 @@ function Worktop({
 	layout,
 	runWidthMm,
 }: {
-	layout: KitchenLayout;
+	layout: PlannerLayout;
 	runWidthMm: number;
 }) {
-	// One slab per unbroken stretch of base units — a worktop is cut to the
-	// cabinets under it, not to the wall, so a tall unit or a deliberate gap
-	// splits it. Contiguity is decided by where the cabinets actually are, not
-	// by their order in the list.
-	const spans: Array<{ startMm: number; endMm: number; depthMm: number }> = [];
+	// One slab per unbroken stretch of units that carry one — a worktop is cut
+	// to the cabinets under it, not to the wall, so a unit without a top, a
+	// unit of a different height, or a deliberate gap splits it. Contiguity is
+	// decided by where the cabinets actually are, not by their order in the
+	// list, and `hasWorktop` is the same flag pricing charges against.
+	const spans: Array<{
+		startMm: number;
+		endMm: number;
+		depthMm: number;
+		topMm: number;
+	}> = [];
 	for (const position of positionsOf(layout, "floor")) {
-		if (position.type.kind === "tall") continue;
+		if (!position.family.hasWorktop) continue;
+		const topMm = position.family.floorHeightMm + position.family.heightMm;
 		const previous = spans[spans.length - 1];
-		if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
-			previous.endMm = position.xMm + position.type.widthMm;
-			previous.depthMm = Math.max(previous.depthMm, position.type.depthMm);
+		if (
+			previous &&
+			previous.topMm === topMm &&
+			Math.abs(previous.endMm - position.xMm) < 1
+		) {
+			previous.endMm = position.xMm + position.widthMm;
+			previous.depthMm = Math.max(previous.depthMm, position.family.depthMm);
 		} else {
 			spans.push({
 				startMm: position.xMm,
-				endMm: position.xMm + position.type.widthMm,
-				depthMm: position.type.depthMm,
+				endMm: position.xMm + position.widthMm,
+				depthMm: position.family.depthMm,
+				topMm,
 			});
 		}
 	}
@@ -405,7 +481,7 @@ function Worktop({
 						key={span.startMm}
 						position={[
 							m(span.startMm + widthMm / 2 - runWidthMm / 2),
-							m(880 + WORKTOP_THICKNESS_MM / 2),
+							m(span.topMm + WORKTOP_THICKNESS_MM / 2),
 							m((span.depthMm + overhangMm) / 2),
 						]}
 					>
@@ -424,27 +500,33 @@ function Worktop({
 	);
 }
 
-export default function KitchenScene({
+export default function PlannerScene({
 	layout,
 	finish,
 	selectedIds,
+	doorTargetId,
 	onLayoutChangeAction,
 	onSelectAction,
 	pickerRef,
+	hitTestRef,
 }: {
-	layout: KitchenLayout;
-	finish: KitchenFinishId;
+	layout: PlannerLayout;
+	finish: FinishId;
 	selectedIds: ReadonlySet<string>;
-	onLayoutChangeAction: (next: KitchenLayout) => void;
+	doorTargetId: string | null;
+	onLayoutChangeAction: (next: PlannerLayout) => void;
 	onSelectAction: (id: string | null, additive: boolean) => void;
 	pickerRef: React.RefObject<
 		((clientX: number, clientY: number) => number) | null
 	>;
+	/** Filled in by the scene: which cabinet is under this screen point. */
+	hitTestRef: React.RefObject<
+		((clientX: number, clientY: number) => string | null) | null
+	>;
 }) {
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
-		KITCHEN_FINISHES.find((f) => f.id === finish)?.hex ??
-		KITCHEN_FINISHES[0].hex;
+		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
 
 	return (
 		<Canvas
@@ -470,11 +552,13 @@ export default function KitchenScene({
 				layout={layout}
 				finishHex={finishHex}
 				selectedIds={selectedIds}
+				doorTargetId={doorTargetId}
 				onLayoutChange={onLayoutChangeAction}
 				onSelect={onSelectAction}
 			/>
 
 			<DropPicker runWidthMm={runWidthMm} pickerRef={pickerRef} />
+			<CabinetHitTest hitTestRef={hitTestRef} />
 			{/* `makeDefault` is what lets Run reach these through useThree and
 			    switch orbiting off for the duration of a cabinet drag. */}
 			<OrbitControls
