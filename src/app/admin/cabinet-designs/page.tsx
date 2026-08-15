@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type Category =
@@ -103,6 +104,7 @@ function chipClass(active: boolean) {
 }
 
 export default function CabinetDesignsPage() {
+	const router = useRouter();
 	const [designs, setDesigns] = useState<CabinetDesign[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [search, setSearch] = useState("");
@@ -130,6 +132,11 @@ export default function CabinetDesignsPage() {
 	useEffect(() => {
 		load();
 	}, []);
+
+	async function signOut() {
+		await fetch("/api/admin/logout", { method: "POST" });
+		router.push("/admin/login");
+	}
 
 	function openUpload() {
 		setEditingId(null);
@@ -297,15 +304,32 @@ export default function CabinetDesignsPage() {
 				<div className="flex items-center gap-1.5 text-neutral-500 text-xs">
 					<span className="font-medium text-neutral-900">Cabinet designs</span>
 					<span>·</span>
+					<button
+						type="button"
+						onClick={signOut}
+						className="text-neutral-400 hover:text-neutral-900"
+					>
+						Sign out
+					</button>
+					<span>·</span>
 					<Link href="/admin/import" className="hover:text-neutral-900">
 						Catalogue
 					</Link>
 					<span>·</span>
 					<span>Orders</span>
 				</div>
-				<span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-neutral-900 font-semibold text-white text-xs">
-					JT
-				</span>
+				<div className="flex items-center gap-3.5">
+					<Link
+						href="/planner"
+						target="_blank"
+						className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-1.5 text-neutral-700 text-xs"
+					>
+						View as customer
+					</Link>
+					<span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-neutral-900 font-semibold text-white text-xs">
+						JT
+					</span>
+				</div>
 			</header>
 
 			<main className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-5 p-7">
@@ -377,7 +401,18 @@ export default function CabinetDesignsPage() {
 
 				<div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
 					<div className="overflow-x-auto">
-						<table className="w-full text-left text-sm">
+						<table className="w-full table-fixed text-left text-sm">
+							<colgroup>
+								<col className="w-[22%]" />
+								<col className="w-[12%]" />
+								<col className="w-[10%]" />
+								<col className="w-[13%]" />
+								<col className="w-[10%]" />
+								<col className="w-[9%]" />
+								<col className="w-[10%]" />
+								<col className="w-[8%]" />
+								<col className="w-[6%]" />
+							</colgroup>
 							<thead>
 								<tr className="border-neutral-200 border-b bg-[#f7f6f4]">
 									{[
@@ -393,7 +428,7 @@ export default function CabinetDesignsPage() {
 									].map((h) => (
 										<th
 											key={h}
-											className="px-4 py-2.5 font-medium text-[11px] text-neutral-500 uppercase tracking-wide"
+											className="whitespace-nowrap px-4 py-2.5 font-medium text-[11px] text-neutral-500 uppercase tracking-wide"
 										>
 											{h}
 										</th>
@@ -403,32 +438,32 @@ export default function CabinetDesignsPage() {
 							<tbody>
 								{filtered.map((d) => (
 									<tr key={d.id} className="border-neutral-100 border-b">
-										<td className="px-4 py-2.5">
-											<div className="flex items-center gap-2.5">
+										<td className="overflow-hidden px-4 py-2.5">
+											<div className="flex min-w-0 items-center gap-2.5">
 												<span
 													className="h-8 w-10 flex-shrink-0 rounded-md shadow-[inset_0_0_0_1px_rgba(0,0,0,.06)]"
 													style={{
 														backgroundColor: CATEGORY_SWATCH[d.category],
 													}}
 												/>
-												<div>
-													<p className="font-medium">{d.name}</p>
-													<p className="mt-px text-[11px] text-neutral-400">
+												<div className="min-w-0">
+													<p className="truncate font-medium">{d.name}</p>
+													<p className="truncate text-[11px] text-neutral-400">
 														{d.filename}
 													</p>
 												</div>
 											</div>
 										</td>
-										<td className="px-3 py-2.5 text-neutral-700">
+										<td className="truncate px-3 py-2.5 text-neutral-700">
 											{CATEGORY_LABELS[d.category]}
 										</td>
-										<td className="px-3 py-2.5 text-neutral-700">
+										<td className="truncate px-3 py-2.5 text-neutral-700">
 											{ROOM_LABELS[d.room]}
 										</td>
-										<td className="px-3 py-2.5 text-neutral-700 tabular-nums">
+										<td className="whitespace-nowrap px-3 py-2.5 text-neutral-700 tabular-nums">
 											{d.widthMm} × {d.heightMm} × {d.depthMm}
 										</td>
-										<td className="px-3 py-2.5 font-mono text-neutral-500 text-xs">
+										<td className="truncate px-3 py-2.5 font-mono text-neutral-500 text-xs">
 											{d.sku}
 										</td>
 										<td className="px-3 py-2.5 text-right tabular-nums">
