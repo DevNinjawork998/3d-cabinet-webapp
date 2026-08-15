@@ -74,6 +74,8 @@ export function Cabinet({
 	selected,
 	highlighted,
 	onPointerDown,
+	onPointerMove,
+	onPointerOut,
 }: {
 	/** Stamped onto the group so a raycast can name what it hit — that is how a
 	 * door dropped from the HTML palette finds its carcass. */
@@ -90,9 +92,12 @@ export function Cabinet({
 	floorHeightMm: number;
 	finishHex: string;
 	selected: boolean;
-	/** A door is being dragged over this one right now. */
+	/** A door is being dragged over this one right now, or the measuring tool
+	 * is hovering it. */
 	highlighted?: boolean;
 	onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
+	onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
+	onPointerOut?: (e: ThreeEvent<PointerEvent>) => void;
 }) {
 	// The run is centred on the origin, so a cabinet's world x is its centre
 	// measured from the middle of the wall.
@@ -119,6 +124,8 @@ export function Cabinet({
 			position={[centreX, base, backToCentre]}
 			userData={{ moduleId }}
 			onPointerDown={onPointerDown}
+			onPointerMove={onPointerMove}
+			onPointerOut={onPointerOut}
 		>
 			{/* Plinth: the recessed kick under a floor-standing unit. */}
 			{plinth > 0 && (

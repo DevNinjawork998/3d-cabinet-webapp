@@ -57,6 +57,11 @@ export const WORKTOP_THICKNESS_MM = 40;
 export const WALL_CABINET_FLOOR_MM = 1500;
 /** How far the hang slider lets the customer move that underside. */
 export const WALL_HANG_LIMITS = { minMm: 1200, maxMm: 1800 } as const;
+/** Scribe gap between the carcass backs and the wall, as a real fit has.
+ * Shared by the scene (`PlannerScene.tsx`) and the measuring tool
+ * (`measure.ts`) — both need to agree on exactly where a cabinet's back
+ * face sits, so this lives here rather than duplicated in either. */
+export const WALL_GAP_MM = 5;
 
 /**
  * Front-to-back room depth is the room's, not the catalogue's — see the

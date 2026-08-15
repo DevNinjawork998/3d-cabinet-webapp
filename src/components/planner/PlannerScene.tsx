@@ -14,6 +14,7 @@ import {
 	doorStyle,
 	FINISHES,
 	type FinishId,
+	WALL_GAP_MM,
 	WORKTOP_COLOR,
 	WORKTOP_THICKNESS_MM,
 } from "@/lib/planner/catalogue";
@@ -25,12 +26,12 @@ import {
 	positionsOf,
 	rowEndMm,
 } from "@/lib/planner/layout";
+import { snapToCabinet, type Vec3Mm } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
+import { MeasureOverlay } from "./MeasureOverlay";
 
 const m = (mm: number) => mm / 1000;
 const ROOM_HEIGHT_MM = 2700;
-/** Scribe gap between the carcass backs and the wall, as a real fit has. */
-const WALL_GAP_MM = 5;
 
 /** Looking into the corner, the angle a kitchen elevation is usually sold at. */
 const VIEW_DIRECTION = new Vector3(0.25, 0.42, 1).normalize();
@@ -210,18 +211,28 @@ function Run({
 	finishHex,
 	selectedIds,
 	doorTargetId,
+	measureMode,
 	onLayoutChange,
 	onSelect,
+	onMeasurePick,
+	onMeasureHover,
 }: {
 	layout: PlannerLayout;
 	finishHex: string;
 	selectedIds: ReadonlySet<string>;
 	/** The carcass a door is currently being dragged over, if any. */
 	doorTargetId: string | null;
+	/** While true, clicking a cabinet picks a measurement point instead of
+	 * selecting or dragging it. */
+	measureMode: boolean;
 	onLayoutChange: (next: PlannerLayout) => void;
 	/** `additive` comes from shift/ctrl/cmd: add to the selection rather than
 	 * replace it. `null` clears. */
 	onSelect: (id: string | null, additive: boolean) => void;
+	onMeasurePick: (point: Vec3Mm) => void;
+	/** The point the measuring tool would pick right now, so the overlay can
+	 * show it before the click commits. `null` once the pointer leaves. */
+	onMeasureHover: (point: Vec3Mm | null) => void;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 	/**
@@ -241,6 +252,10 @@ function Run({
 		planeZ: number;
 	} | null>(null);
 	const [dragging, setDragging] = useState(false);
+	// Which cabinet the measuring tool is over right now, so it can glow the
+	// same way a door-drag target does — the user needs to see which surface
+	// a click is about to measure before committing to it.
+	const [measureHoverId, setMeasureHoverId] = useState<string | null>(null);
 	// Pointer moves outpace re-renders, so the handler reads the live layout
 	// through a ref rather than a closed-over prop.
 	const layoutRef = useRef(layout);
@@ -281,6 +296,12 @@ function Run({
 			document.body.style.cursor = "auto";
 		};
 	}, [dragging]);
+
+	useEffect(() => {
+		if (measureMode) return;
+		setMeasureHoverId(null);
+		onMeasureHover(null);
+	}, [measureMode, onMeasureHover]);
 
 	// The group sits on the wall plane itself: everything in the run is placed
 	// by its back face from here, with a scribe gap so the carcasses do not
@@ -347,9 +368,51 @@ function Run({
 					}
 					finishHex={finishHex}
 					selected={selectedIds.has(position.placed.id)}
-					highlighted={position.placed.id === doorTargetId}
+					highlighted={
+						position.placed.id === doorTargetId ||
+						(measureMode && measureHoverId === position.placed.id)
+					}
+					onPointerMove={
+						measureMode
+							? (e) => {
+									e.stopPropagation();
+									const hitMm: Vec3Mm = {
+										x: e.point.x * 1000,
+										y: e.point.y * 1000,
+										z: e.point.z * 1000,
+									};
+									setMeasureHoverId(position.placed.id);
+									onMeasureHover(snapToCabinet(hitMm, position, layout));
+								}
+							: undefined
+					}
+					onPointerOut={
+						measureMode
+							? () => {
+									setMeasureHoverId((current) =>
+										current === position.placed.id ? null : current,
+									);
+									onMeasureHover(null);
+								}
+							: undefined
+					}
 					onPointerDown={(e) => {
 						e.stopPropagation();
+
+						if (measureMode) {
+							// `e.point` is already in the scene's outer world space —
+							// the same space the picked points are stored and rendered
+							// in — so no group-offset math is needed here, only mm
+							// conversion and the snap to this cabinet's own geometry.
+							const hitMm: Vec3Mm = {
+								x: e.point.x * 1000,
+								y: e.point.y * 1000,
+								z: e.point.z * 1000,
+							};
+							onMeasurePick(snapToCabinet(hitMm, position, layout));
+							return;
+						}
+
 						const additive = e.shiftKey || e.metaKey || e.ctrlKey;
 						// Pressing one that is already selected keeps the selection, so a
 						// group stays picked while its members are still draggable.
@@ -510,8 +573,11 @@ export default function PlannerScene({
 	finish,
 	selectedIds,
 	doorTargetId,
+	measureMode = false,
+	measurePoints = [],
 	onLayoutChangeAction,
 	onSelectAction,
+	onMeasurePickAction,
 	pickerRef,
 	hitTestRef,
 }: {
@@ -519,8 +585,14 @@ export default function PlannerScene({
 	finish: FinishId;
 	selectedIds: ReadonlySet<string>;
 	doorTargetId: string | null;
+	/** While true, clicking a cabinet picks a measurement point instead of
+	 * selecting or dragging it. */
+	measureMode?: boolean;
+	/** The points picked so far — 0, 1, or 2 of them. */
+	measurePoints?: Vec3Mm[];
 	onLayoutChangeAction: (next: PlannerLayout) => void;
 	onSelectAction: (id: string | null, additive: boolean) => void;
+	onMeasurePickAction?: (point: Vec3Mm) => void;
 	pickerRef: React.RefObject<
 		((clientX: number, clientY: number) => number) | null
 	>;
@@ -532,6 +604,7 @@ export default function PlannerScene({
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
 		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
+	const [hoverPoint, setHoverPoint] = useState<Vec3Mm | null>(null);
 
 	return (
 		<Canvas
@@ -558,8 +631,15 @@ export default function PlannerScene({
 				finishHex={finishHex}
 				selectedIds={selectedIds}
 				doorTargetId={doorTargetId}
+				measureMode={measureMode}
 				onLayoutChange={onLayoutChangeAction}
 				onSelect={onSelectAction}
+				onMeasurePick={onMeasurePickAction ?? (() => {})}
+				onMeasureHover={setHoverPoint}
+			/>
+			<MeasureOverlay
+				points={measurePoints}
+				previewPoint={measureMode ? hoverPoint : null}
 			/>
 
 			<DropPicker runWidthMm={runWidthMm} pickerRef={pickerRef} />

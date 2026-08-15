@@ -34,6 +34,7 @@ import {
 	WALL_LIMITS,
 	widthOptionsFor,
 } from "@/lib/planner/layout";
+import { AXIS_COLOR, measure, type Vec3Mm } from "@/lib/planner/measure";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { FamilyThumb } from "./thumbs";
 
@@ -51,6 +52,27 @@ const rm = (amount: number) =>
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
 	});
+
+/** A single W/H/D value, colour-matched to its dashed leg in the 3D overlay
+ * (`AXIS_COLOR`) — the pairing a floating in-scene label used to try to make
+ * and failed at once the leg got too short on screen to hold text. */
+function DimChip({
+	axis,
+	valueMm,
+}: {
+	axis: "x" | "y" | "z";
+	valueMm: number;
+}) {
+	const letter = axis === "x" ? "W" : axis === "y" ? "H" : "D";
+	return (
+		<span
+			className="rounded px-1.5 py-0.5 font-medium text-[11px] text-white"
+			style={{ backgroundColor: AXIS_COLOR[axis] }}
+		>
+			{letter} {Math.round(valueMm)}
+		</span>
+	);
+}
 
 export function StudioScreen({
 	roomId,
@@ -86,6 +108,8 @@ export function StudioScreen({
 		null,
 	);
 	const [dragFamilyId, setDragFamilyId] = useState<string | null>(null);
+	const [measureMode, setMeasureMode] = useState(false);
+	const [measurePoints, setMeasurePoints] = useState<Vec3Mm[]>([]);
 
 	const select = (id: string | null, additive: boolean) => {
 		if (id === null) return setSelectedIdsAction([]);
@@ -127,19 +151,48 @@ export function StudioScreen({
 		setLayoutAction((prev) => addModule(prev, familyId, runXMm));
 	};
 
+	// A third click starts a fresh measurement rather than adding a third
+	// point — two points is the whole tool, like a real CAD measuring
+	// command: pick, pick, read the result, pick again to start over.
+	const onMeasurePick = (point: Vec3Mm) => {
+		setMeasurePoints((prev) => (prev.length >= 2 ? [point] : [...prev, point]));
+	};
+	const measurement =
+		measurePoints.length === 2
+			? measure(measurePoints[0], measurePoints[1])
+			: null;
+
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
 				<span className="font-semibold text-sm">
 					Infinite Cabinet · {room.label} planner
 				</span>
-				<button
-					type="button"
-					onClick={onBackToStartAction}
-					className="text-neutral-500 text-xs hover:text-neutral-900"
-				>
-					Change room
-				</button>
+				<div className="flex items-center gap-4">
+					<button
+						type="button"
+						onClick={() => {
+							setMeasureMode((on) => !on);
+							setMeasurePoints([]);
+						}}
+						aria-pressed={measureMode}
+						title="Click two points on a cabinet — a corner, an edge, or the surface — to measure between them"
+						className={`rounded-full px-3 py-1 text-[12px] transition ${
+							measureMode
+								? "bg-neutral-900 text-white"
+								: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+						}`}
+					>
+						{measureMode ? "Measuring…" : "Measure"}
+					</button>
+					<button
+						type="button"
+						onClick={onBackToStartAction}
+						className="text-neutral-500 text-xs hover:text-neutral-900"
+					>
+						Change room
+					</button>
+				</div>
 			</div>
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -346,8 +399,11 @@ export function StudioScreen({
 						finish={finish}
 						selectedIds={selectedSet}
 						doorTargetId={null}
+						measureMode={measureMode}
+						measurePoints={measurePoints}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
+						onMeasurePickAction={onMeasurePick}
 						pickerRef={pickerRef}
 						hitTestRef={hitTestRef}
 					/>
@@ -363,9 +419,38 @@ export function StudioScreen({
 						</span>
 					</div>
 
+					{measureMode && (
+						<div className="absolute top-3.5 right-3.5 flex items-center gap-2 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
+							{measurement ? (
+								<span className="flex items-center gap-2 text-[12px] text-neutral-800">
+									<span>{Math.round(measurement.distanceMm)}mm</span>
+									<DimChip axis="x" valueMm={measurement.widthMm} />
+									<DimChip axis="y" valueMm={measurement.heightMm} />
+									<DimChip axis="z" valueMm={measurement.depthMm} />
+								</span>
+							) : (
+								<span className="text-[12px] text-neutral-500">
+									{measurePoints.length === 0
+										? "Click a point to start measuring"
+										: "Click a second point"}
+								</span>
+							)}
+							{measurePoints.length > 0 && (
+								<button
+									type="button"
+									onClick={() => setMeasurePoints([])}
+									className="text-[12px] text-[#2b6cb0] hover:underline"
+								>
+									Clear
+								</button>
+							)}
+						</div>
+					)}
+
 					<p className="absolute right-3.5 bottom-3.5 hidden max-w-[260px] text-right text-[12px] text-[#8a8580] leading-4 lg:block">
-						Click a cabinet to change its size or front. Drag it along the wall
-						to move it.
+						{measureMode
+							? "Click two points on a cabinet — corner, edge or surface — to measure between them."
+							: "Click a cabinet to change its size or front. Drag it along the wall to move it."}
 					</p>
 				</div>
 
