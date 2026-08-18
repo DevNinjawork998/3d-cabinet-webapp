@@ -1,5 +1,9 @@
 import { Line } from "@react-three/drei";
-import { AXIS_COLOR, type Vec3Mm } from "@/lib/planner/measure";
+import {
+	AXIS_COLOR,
+	isAxisSignificant,
+	type Vec3Mm,
+} from "@/lib/planner/measure";
 
 const m = (mm: number) => mm / 1000;
 
@@ -82,11 +86,17 @@ function DimensionChain({ a, b }: { a: Vec3Mm; b: Vec3Mm }) {
 	const c1: Vec3Mm = { x: b.x, y: a.y, z: a.z };
 	const c2: Vec3Mm = { x: b.x, y: b.y, z: a.z };
 
+	const maxAxisMm = Math.max(
+		Math.abs(a.x - b.x),
+		Math.abs(a.y - b.y),
+		Math.abs(a.z - b.z),
+	);
+
 	return (
 		<>
-			<AxisSegment from={a} to={c1} axis="x" />
-			<AxisSegment from={c1} to={c2} axis="y" />
-			<AxisSegment from={c2} to={b} axis="z" />
+			<AxisSegment from={a} to={c1} axis="x" maxAxisMm={maxAxisMm} />
+			<AxisSegment from={c1} to={c2} axis="y" maxAxisMm={maxAxisMm} />
+			<AxisSegment from={c2} to={b} axis="z" maxAxisMm={maxAxisMm} />
 		</>
 	);
 }
@@ -95,16 +105,17 @@ function AxisSegment({
 	from,
 	to,
 	axis,
+	maxAxisMm,
 }: {
 	from: Vec3Mm;
 	to: Vec3Mm;
 	axis: "x" | "y" | "z";
+	/** Largest of the measurement's three axis deltas — a leg only draws if
+	 * its own length is significant relative to this, not just nonzero. */
+	maxAxisMm: number;
 }) {
 	const lengthMm = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
-	// Two picked points can share a coordinate on any axis — a pure-width
-	// measurement between two corners at the same height leaves no "height"
-	// leg to draw at all.
-	if (lengthMm < 1) return null;
+	if (!isAxisSignificant(lengthMm, maxAxisMm)) return null;
 
 	return (
 		<Line

@@ -114,6 +114,31 @@ function nearestPointOnSegment(p: Vec3Mm, a: Vec3Mm, b: Vec3Mm): Vec3Mm {
  * than keeping the raw surface point the ray actually hit. */
 export const SNAP_TOLERANCE_MM = 40;
 
+/** Below this, an axis delta is stray noise (unsnapped surface points never
+ * land on exactly the same x/y/z), not a dimension the user meant to read —
+ * a pure-height pick shouldn't also report a 3mm "width". Shared by the 3D
+ * dashed leg (`MeasureOverlay`) and the W/H/D chips (`StudioScreen`) so both
+ * agree on what counts as "no dimension on this axis". */
+export const AXIS_NOISE_TOLERANCE_MM = 5;
+
+/** An axis also doesn't count as a dimension if it's small *relative to the
+ * measurement's biggest axis* — a width pick with a few stray cm of depth
+ * from an imprecise click on an adjoining face is still "a width", not a
+ * width-and-depth. Two opposite corners of a cabinet (genuinely comparable
+ * W/H/D) clear this; a single mostly-one-axis pick doesn't. */
+export const AXIS_RELATIVE_NOISE_FRACTION = 0.15;
+
+/** Whether `valueMm` is a real dimension of this measurement, given the
+ * largest of the three axis deltas — combines the absolute and relative
+ * noise floors above. */
+export function isAxisSignificant(valueMm: number, maxAxisMm: number): boolean {
+	if (maxAxisMm <= 0) return false;
+	return (
+		valueMm >= AXIS_NOISE_TOLERANCE_MM &&
+		valueMm >= maxAxisMm * AXIS_RELATIVE_NOISE_FRACTION
+	);
+}
+
 /**
  * Snaps a raw surface hit to the nearest vertex or edge of the cabinet it
  * landed on, within `snapMm`. A corner wins over an edge through it — a

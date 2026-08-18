@@ -34,7 +34,12 @@ import {
 	WALL_LIMITS,
 	widthOptionsFor,
 } from "@/lib/planner/layout";
-import { AXIS_COLOR, measure, type Vec3Mm } from "@/lib/planner/measure";
+import {
+	AXIS_COLOR,
+	isAxisSignificant,
+	measure,
+	type Vec3Mm,
+} from "@/lib/planner/measure";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { FamilyThumb } from "./thumbs";
 
@@ -59,10 +64,18 @@ const rm = (amount: number) =>
 function DimChip({
 	axis,
 	valueMm,
+	maxAxisMm,
 }: {
 	axis: "x" | "y" | "z";
 	valueMm: number;
+	/** Largest of the measurement's three axis deltas — a chip only shows if
+	 * its own value is significant relative to this, not just nonzero. */
+	maxAxisMm: number;
 }) {
+	// Not a dimension the user meant to read — a width pick shouldn't also
+	// report a stray few cm of "depth" from an imprecise click.
+	if (!isAxisSignificant(valueMm, maxAxisMm)) return null;
+
 	const letter = axis === "x" ? "W" : axis === "y" ? "H" : "D";
 	return (
 		<span
@@ -161,6 +174,9 @@ export function StudioScreen({
 		measurePoints.length === 2
 			? measure(measurePoints[0], measurePoints[1])
 			: null;
+	const maxMeasuredAxisMm = measurement
+		? Math.max(measurement.widthMm, measurement.heightMm, measurement.depthMm)
+		: 0;
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
@@ -424,9 +440,21 @@ export function StudioScreen({
 							{measurement ? (
 								<span className="flex items-center gap-2 text-[12px] text-neutral-800">
 									<span>{Math.round(measurement.distanceMm)}mm</span>
-									<DimChip axis="x" valueMm={measurement.widthMm} />
-									<DimChip axis="y" valueMm={measurement.heightMm} />
-									<DimChip axis="z" valueMm={measurement.depthMm} />
+									<DimChip
+										axis="x"
+										valueMm={measurement.widthMm}
+										maxAxisMm={maxMeasuredAxisMm}
+									/>
+									<DimChip
+										axis="y"
+										valueMm={measurement.heightMm}
+										maxAxisMm={maxMeasuredAxisMm}
+									/>
+									<DimChip
+										axis="z"
+										valueMm={measurement.depthMm}
+										maxAxisMm={maxMeasuredAxisMm}
+									/>
 								</span>
 							) : (
 								<span className="text-[12px] text-neutral-500">
