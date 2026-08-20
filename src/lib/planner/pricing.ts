@@ -1,8 +1,4 @@
-import {
-	type FinishId,
-	PLANNER_CATALOGUE,
-	WORKTOP_THICKNESS_MM,
-} from "./catalogue";
+import { type FinishId, PLANNER_CATALOGUE, RATES } from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
 import { type PlannerLayout, type Positioned, positionsOf } from "./layout";
 import { doorPriceRm, doorStyle, sizePriceRm } from "./lookup";
@@ -29,7 +25,8 @@ import { doorPriceRm, doorStyle, sizePriceRm } from "./lookup";
 
 export const MM_PER_FT = 304.8;
 
-/** PLACEHOLDER — RM per running foot of worktop. */
+/** PLACEHOLDER fallback — the live figure comes from the published
+ * catalogue's `rates.worktopRmPerFt` (see `RATES` in `catalogue.ts`). */
 export const WORKTOP_RM_PER_FT = 200;
 
 export type PriceLine = {
@@ -126,8 +123,8 @@ export function computePlannerPrice(
 		},
 		{
 			label: "Worktop",
-			detail: `${tops.toFixed(2)} ft @ RM ${WORKTOP_RM_PER_FT}/ft`,
-			amountRm: tops * WORKTOP_RM_PER_FT,
+			detail: `${tops.toFixed(2)} ft @ RM ${RATES.worktopRmPerFt}/ft`,
+			amountRm: tops * RATES.worktopRmPerFt,
 		},
 	];
 
@@ -138,6 +135,3 @@ export function computePlannerPrice(
 		totalRm: categories.reduce((total, line) => total + line.amountRm, 0),
 	};
 }
-
-/** Kept so the worktop's thickness stays a single source of truth. */
-export { WORKTOP_THICKNESS_MM };

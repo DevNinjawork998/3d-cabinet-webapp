@@ -49,10 +49,26 @@ export type Family = {
 	note?: string;
 };
 
-/** Straight from the extracted job. */
-export const PANEL_THICKNESS_MM = 16;
-export const PLINTH_HEIGHT_MM = 100;
-export const WORKTOP_THICKNESS_MM = 40;
+/**
+ * Workshop constants a published catalogue can override — board thickness,
+ * toe-kick height and slab thickness are per-maker choices, not universals.
+ * Mutable so `setActivePlannerCatalogue` can swap them the same way it swaps
+ * the families; the values here are the fallback when a catalogue omits them.
+ */
+export const CONSTRUCTION = {
+	panelThicknessMm: 16,
+	plinthHeightMm: 100,
+	worktopThicknessMm: 40,
+	/** Above this carcass width a front is split into two leaves. */
+	doorLeavesThresholdMm: 650,
+};
+
+/** Rates a published catalogue can override. Mutable, same as
+ * `CONSTRUCTION` — the value here is the fallback. */
+export const RATES = {
+	/** PLACEHOLDER — RM per running foot of worktop. */
+	worktopRmPerFt: 200,
+};
 /** Underside of the wall cabinets — the sample job's own hanging height. */
 export const WALL_CABINET_FLOOR_MM = 1500;
 /** How far the hang slider lets the customer move that underside. */
@@ -335,7 +351,8 @@ export function doorPriceRm(doorStyleId: string, widthMm: number): number {
 }
 
 /** How many door leaves a carcass of this width carries. */
-export const doorLeavesFor = (widthMm: number) => (widthMm > 650 ? 2 : 1);
+export const doorLeavesFor = (widthMm: number) =>
+	widthMm > CONSTRUCTION.doorLeavesThresholdMm ? 2 : 1;
 
 // ------------------------------------------------------------------ rooms --
 
@@ -414,6 +431,62 @@ export function roomType(id: RoomTypeId): RoomType {
 	return found;
 }
 
+/**
+ * Swap the live palette to a fetched catalogue, in place — every consumer
+ * (`layout.ts`'s `family`/`roomType`/`starterFor`, the UI's direct
+ * `FAMILIES`/`ROOM_TYPES` iteration) reads through `FAMILIES`/`ROOM_TYPES`,
+ * so mutating the same array objects everyone already holds a reference to
+ * updates them everywhere without threading a catalogue parameter through
+ * every call site.
+ *
+ * ponytail: global mutable module state instead of real dependency
+ * injection (which `pricing.ts`/`lookup.ts` already use for the
+ * server-priced surface). Safe here because this only ever runs client-side
+ * — each browser tab owns its own JS module instance, no cross-request
+ * leakage — and no test calls this, so `FAMILIES`/`ROOM_TYPES` stay the
+ * static fixtures for `__tests__/*`. Ceiling: breaks if the app ever needs
+ * two different live catalogues in one tab at once; upgrade to explicit DI
+ * (like `pricing.ts`) if that happens.
+ */
+export function setActivePlannerCatalogue(catalogue: PlannerCatalogue): void {
+	FAMILIES.length = 0;
+	FAMILIES.push(...catalogue.families);
+	FAMILY_BY_ID.clear();
+	for (const f of FAMILIES) FAMILY_BY_ID.set(f.id, f);
+
+	ROOM_TYPES.length = 0;
+	ROOM_TYPES.push(...(catalogue.roomTypes as RoomType[]));
+	ROOM_BY_ID.clear();
+	for (const r of ROOM_TYPES) ROOM_BY_ID.set(r.id, r);
+
+	// Door styles arrive with string-keyed price maps (JSON object keys always
+	// are); the in-memory shape is number-keyed, so re-key on the way in.
+	DOOR_STYLES.length = 0;
+	DOOR_STYLES.push(
+		...catalogue.doorStyles.map((style) => ({
+			...style,
+			priceRmBySizeMm: Object.fromEntries(
+				Object.entries(style.priceRmBySizeMm).map(([mm, price]) => [
+					Number(mm),
+					price,
+				]),
+			) as Record<number, number>,
+		})),
+	);
+	DOOR_BY_ID.clear();
+	for (const d of DOOR_STYLES) DOOR_BY_ID.set(d.id, d);
+
+	DOOR_WIDTHS.length = 0;
+	DOOR_WIDTHS.push(...catalogue.doorWidthLadderMm);
+
+	FINISHES.length = 0;
+	FINISHES.push(...catalogue.finishes);
+
+	if (catalogue.construction)
+		Object.assign(CONSTRUCTION, catalogue.construction);
+	if (catalogue.rates) Object.assign(RATES, catalogue.rates);
+}
+
 // --------------------------------------------------------------- finishes --
 
 /**
@@ -421,16 +494,20 @@ export function roomType(id: RoomTypeId): RoomType {
  * names their sales team already says out loud. One colour applies to the
  * whole room, which is how they sell it.
  */
-export const FINISHES = [
+export type Finish = { id: string; label: string; hex: string };
+
+export const FINISHES: Finish[] = [
 	{ id: "strata-noir", label: "Strata Noir", hex: "#393939" },
 	{ id: "rhone-oak", label: "Rhone Oak", hex: "#d1af81" },
 	{ id: "white", label: "White", hex: "#ffffff" },
 	{ id: "dulux-tapestry-beige", label: "Tapestry Beige", hex: "#b7ab9e" },
 	{ id: "color-soft-gray", label: "Soft Gray", hex: "#a1abb4" },
 	{ id: "color-knoxville-green", label: "Knoxville Green", hex: "#606d6c" },
-] as const;
+];
 
-export type FinishId = (typeof FINISHES)[number]["id"];
+/** A published catalogue can define finishes this file has never seen, so this
+ * is the id as data rather than a union of today's constants. */
+export type FinishId = string;
 
 /** Deliberately a few shades off the room's wall (#edebe7): the 16mm carcass
  * reveal around a light door is the only thing separating it from the wall

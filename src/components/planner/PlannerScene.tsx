@@ -11,12 +11,12 @@ import type {
 import { Raycaster, Vector2, Vector3 } from "three";
 import { Room } from "@/components/viewer/Room";
 import {
+	CONSTRUCTION,
 	doorStyle,
 	FINISHES,
 	type FinishId,
 	WALL_GAP_MM,
 	WORKTOP_COLOR,
-	WORKTOP_THICKNESS_MM,
 } from "@/lib/planner/catalogue";
 import {
 	allPositions,
@@ -549,14 +549,14 @@ function Worktop({
 						key={span.startMm}
 						position={[
 							m(span.startMm + widthMm / 2 - runWidthMm / 2),
-							m(span.topMm + WORKTOP_THICKNESS_MM / 2),
+							m(span.topMm + CONSTRUCTION.worktopThicknessMm / 2),
 							m((span.depthMm + overhangMm) / 2),
 						]}
 					>
 						<boxGeometry
 							args={[
 								m(widthMm),
-								m(WORKTOP_THICKNESS_MM),
+								m(CONSTRUCTION.worktopThicknessMm),
 								m(span.depthMm + overhangMm),
 							]}
 						/>

@@ -56,6 +56,24 @@ export const finishSchema = z.object({
 });
 export type Finish = z.infer<typeof finishSchema>;
 
+/** Workshop build standards — board thickness, toe-kick and slab depth are
+ * per-maker choices, not universals, so they belong in the catalogue rather
+ * than in code. Optional so catalogues published before this existed keep
+ * validating; `catalogue.ts`'s `CONSTRUCTION` holds the fallbacks. */
+export const constructionSchema = z.object({
+	panelThicknessMm: z.number().positive(),
+	plinthHeightMm: z.number().min(0),
+	worktopThicknessMm: z.number().positive(),
+	/** Above this carcass width a front is split into two leaves. */
+	doorLeavesThresholdMm: z.number().positive(),
+});
+export type Construction = z.infer<typeof constructionSchema>;
+
+export const ratesSchema = z.object({
+	worktopRmPerFt: z.number().min(0),
+});
+export type Rates = z.infer<typeof ratesSchema>;
+
 export const plannerCatalogueSchema = z.object({
 	families: z.array(familySchema).min(1),
 	doorStyles: z.array(doorStyleSchema).min(1),
@@ -64,5 +82,7 @@ export const plannerCatalogueSchema = z.object({
 	doorWidthLadderMm: z.array(z.number().int().positive()).min(1),
 	roomTypes: z.array(roomTypeSchema).min(1),
 	finishes: z.array(finishSchema).min(1),
+	construction: constructionSchema.optional(),
+	rates: ratesSchema.optional(),
 });
 export type PlannerCatalogue = z.infer<typeof plannerCatalogueSchema>;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -89,7 +90,14 @@ export default function AdminLoginPage() {
 						{busy ? "Checking…" : "Sign in"}
 					</button>
 
-					<p className="mt-1 text-center text-neutral-400 text-xs">
+					<Link
+						href="/"
+						className="text-center text-neutral-500 text-xs hover:text-neutral-900"
+					>
+						← Back to site
+					</Link>
+
+					<p className="text-center text-neutral-400 text-xs">
 						Internal tool · Infinite Cabinet staff only
 					</p>
 				</form>

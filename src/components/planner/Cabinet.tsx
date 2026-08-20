@@ -3,13 +3,12 @@ import type { ThreeEvent } from "@react-three/fiber";
 import {
 	CARCASS_COLOR,
 	CARCASS_INTERIOR_COLOR,
+	CONSTRUCTION,
 	type DoorStyle,
 	doorLeavesFor,
 	type Family,
 	GLASS_COLOR,
 	HARDWARE_COLOR,
-	PANEL_THICKNESS_MM,
-	PLINTH_HEIGHT_MM,
 } from "@/lib/planner/catalogue";
 
 /**
@@ -110,8 +109,8 @@ export function Cabinet({
 	const w = m(widthMm);
 	const d = m(family.depthMm);
 	const h = m(family.heightMm);
-	const t = m(PANEL_THICKNESS_MM);
-	const plinth = family.kind === "wall" ? 0 : m(PLINTH_HEIGHT_MM);
+	const t = m(CONSTRUCTION.panelThicknessMm);
+	const plinth = family.kind === "wall" ? 0 : m(CONSTRUCTION.plinthHeightMm);
 	const carcassH = h - plinth;
 	const base = m(floorHeightMm);
 

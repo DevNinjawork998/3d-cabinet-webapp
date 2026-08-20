@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { CatalogueDraft } from "@/lib/skp/extract";
 
@@ -40,11 +41,17 @@ type PublishState =
 	| { status: "error"; message: string };
 
 export default function ImportPage() {
+	const router = useRouter();
 	const [local, setLocal] = useState<LocalState>({ status: "idle" });
 	const [upload, setUpload] = useState<UploadState>({ status: "idle" });
 	const [product, setProduct] = useState<"WARDROBE" | "PLANNER">("WARDROBE");
 	const [catalogueJson, setCatalogueJson] = useState("");
 	const [publish, setPublish] = useState<PublishState>({ status: "idle" });
+
+	async function signOut() {
+		await fetch("/api/admin/logout", { method: "POST" });
+		router.push("/admin/login");
+	}
 
 	async function handleFile(file: File) {
 		setLocal({ status: "reading", name: file.name });
@@ -179,13 +186,34 @@ export default function ImportPage() {
 
 	return (
 		<main className="min-h-screen bg-white text-neutral-900">
-			<div className="mx-auto max-w-4xl space-y-6 p-6">
-				<Link
-					href="/admin/cabinet-designs"
-					className="text-neutral-500 text-xs hover:text-neutral-900"
-				>
-					← Cabinet designs
+			<header className="flex h-[60px] shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-7">
+				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
+					Infinite Cabinet · Admin
 				</Link>
+				<div className="flex items-center gap-1.5 text-neutral-500 text-xs">
+					<Link
+						href="/admin/cabinet-designs"
+						className="hover:text-neutral-900"
+					>
+						← Cabinet designs
+					</Link>
+					<span>·</span>
+					<Link href="/admin/catalogue" className="hover:text-neutral-900">
+						Catalogue
+					</Link>
+					<span>·</span>
+					<span className="font-medium text-neutral-900">Import .skp</span>
+					<span>·</span>
+					<button
+						type="button"
+						onClick={signOut}
+						className="text-neutral-400 hover:text-neutral-900"
+					>
+						Sign out
+					</button>
+				</div>
+			</header>
+			<div className="mx-auto max-w-4xl space-y-6 p-6">
 				<div>
 					<h1 className="font-semibold text-lg">Import a SketchUp job</h1>
 					<p className="text-neutral-500 text-sm">

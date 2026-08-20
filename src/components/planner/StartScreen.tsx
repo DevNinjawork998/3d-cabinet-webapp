@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
 import { starterFor } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
@@ -156,12 +157,20 @@ export function StartScreen({
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
-				<span className="font-semibold text-sm">
+				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
 					Infinite Cabinet · Room planner
-				</span>
-				<span className="text-neutral-500 text-xs">
-					Free to try · no account needed
-				</span>
+				</Link>
+				<div className="flex items-center gap-4">
+					<span className="text-neutral-500 text-xs">
+						Free to try · no account needed
+					</span>
+					<Link
+						href="/admin/login"
+						className="border-neutral-200 border-l pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
+					>
+						Admin
+					</Link>
+				</div>
 			</div>
 
 			<div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10">

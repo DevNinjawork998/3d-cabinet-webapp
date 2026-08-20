@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import {
 	DOOR_STYLES,
@@ -181,9 +182,9 @@ export function StudioScreen({
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
-				<span className="font-semibold text-sm">
+				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
 					Infinite Cabinet · {room.label} planner
-				</span>
+				</Link>
 				<div className="flex items-center gap-4">
 					<button
 						type="button"
@@ -208,6 +209,12 @@ export function StudioScreen({
 					>
 						Change room
 					</button>
+					<Link
+						href="/admin/login"
+						className="border-neutral-200 border-l pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
+					>
+						Admin
+					</Link>
 				</div>
 			</div>
 
