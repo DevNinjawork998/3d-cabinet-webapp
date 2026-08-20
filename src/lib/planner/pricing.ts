@@ -1,7 +1,13 @@
-import { type FinishId, PLANNER_CATALOGUE, RATES } from "./catalogue";
+import {
+	doorPriceRmIn,
+	doorStyleIn,
+	type FinishId,
+	PLANNER_CATALOGUE,
+	RATES,
+	sizePriceRmIn,
+} from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
 import { type PlannerLayout, type Positioned, positionsOf } from "./layout";
-import { doorPriceRm, doorStyle, sizePriceRm } from "./lookup";
 
 /**
  * Indicative planner pricing.
@@ -29,7 +35,7 @@ export const MM_PER_FT = 304.8;
  * catalogue's `rates.worktopRmPerFt` (see `RATES` in `catalogue.ts`). */
 export const WORKTOP_RM_PER_FT = 200;
 
-export type PriceLine = {
+type PriceLine = {
 	/** The cabinet this line is for, on per-cabinet lines. */
 	id?: string;
 	label: string;
@@ -37,7 +43,7 @@ export type PriceLine = {
 	amountRm: number;
 };
 
-export type KitchenPrice = {
+type KitchenPrice = {
 	/** One line per cabinet, carcass and door shown separately. */
 	cabinets: Array<
 		PriceLine & { carcassRm: number; doorRm: number; doorLabel: string | null }
@@ -50,16 +56,16 @@ export type KitchenPrice = {
 const ftOf = (mm: number) => mm / MM_PER_FT;
 
 /** What one placed cabinet costs: its size, plus its door if it has one. */
-export function cabinetPriceRm(
+function cabinetPriceRm(
 	placed: Positioned,
 	catalogue: PlannerCatalogue = PLANNER_CATALOGUE,
 ): {
 	carcassRm: number;
 	doorRm: number;
 } {
-	const carcassRm = sizePriceRm(catalogue, placed.family.id, placed.widthMm);
+	const carcassRm = sizePriceRmIn(catalogue, placed.family.id, placed.widthMm);
 	const doorRm = placed.placed.doorStyleId
-		? doorPriceRm(catalogue, placed.placed.doorStyleId, placed.widthMm)
+		? doorPriceRmIn(catalogue, placed.placed.doorStyleId, placed.widthMm)
 		: 0;
 	return { carcassRm, doorRm };
 }
@@ -89,7 +95,7 @@ export function computePlannerPrice(
 	const cabinets = placed.map((position) => {
 		const { carcassRm, doorRm } = cabinetPriceRm(position, catalogue);
 		const door = position.placed.doorStyleId
-			? doorStyle(catalogue, position.placed.doorStyleId)
+			? doorStyleIn(catalogue, position.placed.doorStyleId)
 			: undefined;
 		return {
 			id: position.placed.id,

@@ -30,7 +30,7 @@ import {
  * Pure: the UI holds a `PlannerLayout` and calls these.
  */
 
-export type PlacedModule = {
+type PlacedModule = {
 	id: string;
 	familyId: string;
 	/**
@@ -59,7 +59,7 @@ export type PlannerLayout = {
 
 export type Row = "floor" | "wall";
 
-export type Span = { startMm: number; endMm: number };
+type Span = { startMm: number; endMm: number };
 
 /** Land exactly on an edge within this of it, when a drag is released. */
 export const SNAP_MM = 60;
@@ -180,7 +180,7 @@ const clampToWall = (xMm: number, widthMm: number, wallWidthMm: number) =>
  * cabinet dragged fast enough to jump clean over a neighbour in one frame
  * would pop out on the far side.
  */
-export function clampX(
+function clampX(
 	layout: PlannerLayout,
 	row: Row,
 	widthMm: number,
@@ -256,7 +256,7 @@ function snapTargets(
  * of something worth aligning to, land on it exactly. Deliberately only on
  * release — a snap that fires mid-drag makes the cabinet stick and jump.
  */
-export function snapX(
+function snapX(
 	layout: PlannerLayout,
 	row: Row,
 	widthMm: number,
@@ -285,7 +285,7 @@ export function snapX(
 let counter = 0;
 /** ponytail: a counter is enough for a client-side planner; swap for nanoid
  * when layouts start being saved and merged. */
-export const newId = () => `m${++counter}`;
+const newId = () => `m${++counter}`;
 
 const find = (
 	layout: PlannerLayout,
@@ -373,7 +373,7 @@ export function firstFreeXMm(
  * dropped if that is clear, otherwise the nearest gap that will hold it. A
  * drop onto an occupied stretch is a near miss, not a mistake.
  */
-export function placementFor(
+function placementFor(
 	layout: PlannerLayout,
 	row: Row,
 	widthMm: number,

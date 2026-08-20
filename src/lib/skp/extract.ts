@@ -7,7 +7,7 @@ import type { SkpModule, SkpPart, SkpRead, Vec3 } from "./read";
  * wardrobes come later, so nothing here knows about bays.
  *
  * The output is a *draft*. A human reads it, edits it and commits it into
- * `lib/wardrobe/catalogue.ts`; nothing is priced or persisted from here.
+ * `lib/planner/catalogue.ts`; nothing is priced or persisted from here.
  */
 
 export type PartSpec = {
@@ -31,7 +31,7 @@ export type ModuleSpec = {
 };
 
 export type FinishCandidate = {
-	/** Slug in the shape `lib/wardrobe/catalogue.ts` uses for finish ids. */
+	/** Slug in the shape `lib/planner/catalogue.ts` uses for finish ids. */
 	id: string;
 	label: string;
 	hex: string;

@@ -2,7 +2,7 @@ import type { CatalogueDraft } from "./extract";
 
 /**
  * Renders a draft as TypeScript for a human to paste into
- * `lib/wardrobe/catalogue.ts`. It deliberately stops at the point where money
+ * `lib/planner/catalogue.ts`. It deliberately stops at the point where money
  * starts: dimensions come from the client's own file and can be trusted, rates
  * cannot be derived from geometry and are left as `0` with a TODO, so nobody
  * can mistake an extracted number for an agreed price.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	doorPriceRm,
+	doorPriceRmIn,
 	PLANNER_CATALOGUE,
 	ROOM_TYPES,
 	sizePriceRm,
@@ -14,7 +15,6 @@ import {
 	setWidth,
 	starterFor,
 } from "../layout";
-import { doorPriceRm as doorPriceRmIn } from "../lookup";
 import {
 	computePlannerPrice,
 	MM_PER_FT,
@@ -138,7 +138,7 @@ describe("catalogue is a real parameter, not just an import default", () => {
 		).toBeGreaterThan(computePlannerPrice(run(), "white").totalRm);
 	});
 
-	it("lookup.ts's doorPriceRm agrees with catalogue.ts's for the shipped catalogue", () => {
+	it("the explicit-catalogue read agrees with the module-palette one", () => {
 		expect(doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900)).toBe(
 			doorPriceRm("shaker", 900),
 		);

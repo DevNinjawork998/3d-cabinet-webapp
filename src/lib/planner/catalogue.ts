@@ -223,7 +223,7 @@ export const FAMILIES: Family[] = [
 		floorHeightMm: 0,
 		hasWorktop: false,
 		drawers: 0,
-		note: "Simple box — the detailed wardrobe tool lives at /viewer",
+		note: "Simple box — no interior fit-out yet",
 		sizes: [
 			{ widthMm: 600, priceRm: 1350 },
 			{ widthMm: 900, priceRm: 1850 },
@@ -263,14 +263,14 @@ export const FAMILIES: Family[] = [
 	},
 ];
 
-export const FAMILY_BY_ID = new Map(FAMILIES.map((f) => [f.id, f]));
+const FAMILY_BY_ID = new Map(FAMILIES.map((f) => [f.id, f]));
 
 export function family(familyId: string): Family | undefined {
 	return FAMILY_BY_ID.get(familyId);
 }
 
 /** The size ladder for a family, cheapest first. */
-export function sizesOf(familyId: string): SizeOption[] {
+function sizesOf(familyId: string): SizeOption[] {
 	return family(familyId)?.sizes ?? [];
 }
 
@@ -330,7 +330,7 @@ export const DOOR_STYLES: DoorStyle[] = [
 	},
 ];
 
-export const DOOR_BY_ID = new Map(DOOR_STYLES.map((d) => [d.id, d]));
+const DOOR_BY_ID = new Map(DOOR_STYLES.map((d) => [d.id, d]));
 
 export function doorStyle(doorStyleId: string): DoorStyle | undefined {
 	return DOOR_BY_ID.get(doorStyleId);
@@ -353,6 +353,59 @@ export function doorPriceRm(doorStyleId: string, widthMm: number): number {
 /** How many door leaves a carcass of this width carries. */
 export const doorLeavesFor = (widthMm: number) =>
 	widthMm > CONSTRUCTION.doorLeavesThresholdMm ? 2 : 1;
+
+// ------------------------------------------------- explicit-catalogue reads --
+
+/**
+ * The same three lookups, against a catalogue passed in rather than the live
+ * module palette above.
+ *
+ * `pricing.ts` is the money path and CLAUDE.md makes it server-authoritative,
+ * so it must never read whatever `setActivePlannerCatalogue` last happened to
+ * install — it takes its catalogue as an argument. Everything else (the 3D
+ * scene, the palette UI, `layout.ts`) reads the module palette, which is what
+ * that swap exists to update.
+ *
+ * Linear scans, not indexed: a catalogue holds tens of families and door
+ * styles, and building a Map per call costs more than the scan it saves.
+ */
+export function sizePriceRmIn(
+	catalogue: PlannerCatalogue,
+	familyId: string,
+	widthMm: number,
+): number {
+	const found = catalogue.families.find((f) => f.id === familyId);
+	return found?.sizes.find((size) => size.widthMm === widthMm)?.priceRm ?? 0;
+}
+
+export function doorStyleIn(
+	catalogue: PlannerCatalogue,
+	doorStyleId: string,
+): PlannerCatalogue["doorStyles"][number] | undefined {
+	return catalogue.doorStyles.find((d) => d.id === doorStyleId);
+}
+
+/**
+ * What a door costs on a carcass of this width. Widths between rungs are
+ * charged at the next rung up — you cannot buy half a door.
+ *
+ * Prices arrive string-keyed here (JSON object keys always are), unlike the
+ * number-keyed in-memory shape `doorPriceRm` reads.
+ */
+export function doorPriceRmIn(
+	catalogue: PlannerCatalogue,
+	doorStyleId: string,
+	widthMm: number,
+): number {
+	const style = doorStyleIn(catalogue, doorStyleId);
+	if (!style) return 0;
+	const exact = style.priceRmBySizeMm[String(widthMm)];
+	if (exact !== undefined) return exact;
+
+	const ladder = catalogue.doorWidthLadderMm;
+	const rung = ladder.find((mm) => mm >= widthMm) ?? ladder.at(-1);
+	return rung === undefined ? 0 : (style.priceRmBySizeMm[String(rung)] ?? 0);
+}
 
 // ------------------------------------------------------------------ rooms --
 
@@ -423,7 +476,7 @@ export const ROOM_TYPES: RoomType[] = [
 	},
 ];
 
-export const ROOM_BY_ID = new Map(ROOM_TYPES.map((room) => [room.id, room]));
+const ROOM_BY_ID = new Map(ROOM_TYPES.map((room) => [room.id, room]));
 
 export function roomType(id: RoomTypeId): RoomType {
 	const found = ROOM_BY_ID.get(id);
@@ -440,7 +493,7 @@ export function roomType(id: RoomTypeId): RoomType {
  * every call site.
  *
  * ponytail: global mutable module state instead of real dependency
- * injection (which `pricing.ts`/`lookup.ts` already use for the
+ * injection (which `pricing.ts` already uses for the
  * server-priced surface). Safe here because this only ever runs client-side
  * — each browser tab owns its own JS module instance, no cross-request
  * leakage — and no test calls this, so `FAMILIES`/`ROOM_TYPES` stay the

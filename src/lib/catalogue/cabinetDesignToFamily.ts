@@ -14,7 +14,7 @@ import {
 /** Only the `CabinetDesign` fields the mapping actually reads — deliberately
  * not the full Prisma model, so this stays usable client-side (the admin
  * page runs this in the browser) without pulling in generated Prisma types. */
-export type DesignForFamily = {
+type DesignForFamily = {
 	id: string;
 	name: string;
 	category: Category;

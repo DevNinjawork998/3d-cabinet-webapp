@@ -57,13 +57,7 @@ export function FamilyThumb({ family: option }: { family: Family }) {
 }
 
 /** A door style swatch, in the room's chosen colour. */
-export function DoorThumb({
-	style,
-	finish,
-}: {
-	style: DoorStyle;
-	finish: FinishId;
-}) {
+function DoorThumb({ style, finish }: { style: DoorStyle; finish: FinishId }) {
 	const hex = FINISHES.find((f) => f.id === finish)?.hex ?? "#ffffff";
 	return (
 		<svg

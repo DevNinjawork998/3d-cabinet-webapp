@@ -17,7 +17,7 @@ import type { PlannerLayout, Positioned } from "./layout";
 
 export type Vec3Mm = { x: number; y: number; z: number };
 
-export type CabinetBoundsMm = {
+type CabinetBoundsMm = {
 	minX: number;
 	maxX: number;
 	minY: number;
@@ -112,21 +112,21 @@ function nearestPointOnSegment(p: Vec3Mm, a: Vec3Mm, b: Vec3Mm): Vec3Mm {
 
 /** How close a click has to land to a corner or edge to snap to it, rather
  * than keeping the raw surface point the ray actually hit. */
-export const SNAP_TOLERANCE_MM = 40;
+const SNAP_TOLERANCE_MM = 40;
 
 /** Below this, an axis delta is stray noise (unsnapped surface points never
  * land on exactly the same x/y/z), not a dimension the user meant to read —
  * a pure-height pick shouldn't also report a 3mm "width". Shared by the 3D
  * dashed leg (`MeasureOverlay`) and the W/H/D chips (`StudioScreen`) so both
  * agree on what counts as "no dimension on this axis". */
-export const AXIS_NOISE_TOLERANCE_MM = 5;
+const AXIS_NOISE_TOLERANCE_MM = 5;
 
 /** An axis also doesn't count as a dimension if it's small *relative to the
  * measurement's biggest axis* — a width pick with a few stray cm of depth
  * from an imprecise click on an adjoining face is still "a width", not a
  * width-and-depth. Two opposite corners of a cabinet (genuinely comparable
  * W/H/D) clear this; a single mostly-one-axis pick doesn't. */
-export const AXIS_RELATIVE_NOISE_FRACTION = 0.15;
+const AXIS_RELATIVE_NOISE_FRACTION = 0.15;
 
 /** Whether `valueMm` is a real dimension of this measurement, given the
  * largest of the three axis deltas — combines the absolute and relative
@@ -188,7 +188,7 @@ export const AXIS_COLOR = {
 	z: "#4338ca",
 } as const;
 
-export type Measurement = {
+type Measurement = {
 	a: Vec3Mm;
 	b: Vec3Mm;
 	/** |Δx| — width between the two points. */

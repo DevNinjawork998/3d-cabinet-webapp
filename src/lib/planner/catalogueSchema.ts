@@ -8,7 +8,7 @@ import { z } from "zod";
  * has to satisfy (see the DB-backed-catalogue plan).
  */
 
-export const sizeOptionSchema = z.object({
+const sizeOptionSchema = z.object({
 	widthMm: z.number().positive(),
 	priceRm: z.number().min(0),
 });
@@ -28,7 +28,7 @@ export const familySchema = z.object({
 });
 export type Family = z.infer<typeof familySchema>;
 
-export const doorStyleSchema = z.object({
+const doorStyleSchema = z.object({
 	id: z.string(),
 	label: z.string(),
 	look: z.enum(["slab", "shaker", "glass"]),
@@ -38,7 +38,7 @@ export const doorStyleSchema = z.object({
 });
 export type DoorStyle = z.infer<typeof doorStyleSchema>;
 
-export const roomTypeSchema = z.object({
+const roomTypeSchema = z.object({
 	id: z.enum(["kitchen", "living", "bedroom", "foyer"]),
 	label: z.string(),
 	familyIds: z.array(z.string()).min(1),
@@ -49,7 +49,7 @@ export const roomTypeSchema = z.object({
 });
 export type RoomType = z.infer<typeof roomTypeSchema>;
 
-export const finishSchema = z.object({
+const finishSchema = z.object({
 	id: z.string(),
 	label: z.string(),
 	hex: z.string().regex(/^#[0-9a-f]{6}$/i),
@@ -60,7 +60,7 @@ export type Finish = z.infer<typeof finishSchema>;
  * per-maker choices, not universals, so they belong in the catalogue rather
  * than in code. Optional so catalogues published before this existed keep
  * validating; `catalogue.ts`'s `CONSTRUCTION` holds the fallbacks. */
-export const constructionSchema = z.object({
+const constructionSchema = z.object({
 	panelThicknessMm: z.number().positive(),
 	plinthHeightMm: z.number().min(0),
 	worktopThicknessMm: z.number().positive(),
@@ -69,7 +69,7 @@ export const constructionSchema = z.object({
 });
 export type Construction = z.infer<typeof constructionSchema>;
 
-export const ratesSchema = z.object({
+const ratesSchema = z.object({
 	worktopRmPerFt: z.number().min(0),
 });
 export type Rates = z.infer<typeof ratesSchema>;
