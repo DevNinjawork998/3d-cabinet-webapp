@@ -1,4 +1,11 @@
 import Link from "next/link";
+import { prisma } from "@/lib/catalogue/db";
+import {
+	finishSlot,
+	HERO_SLOT,
+	roomSlot,
+	siteImageSrc,
+} from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
 import { starterFor } from "@/lib/planner/layout";
@@ -58,14 +65,32 @@ const FAQS = [
 	},
 ];
 
-/** A soft tinted panel standing in for a photo that doesn't exist yet — same
- * "no real photography" placeholder role `/designs`' colour tiles play. */
-function PhotoPlaceholder({ className = "" }: { className?: string }) {
-	return (
-		<div
-			className={`bg-gradient-to-br from-[#e2ddd2] to-[#cdc4b3] ${className}`}
-		/>
-	);
+/**
+ * A homepage photo, or the tinted panel that stands in until someone drops
+ * one on `/admin/site-content`. Every slot is optional — the page has to look
+ * deliberate with no photography at all, which is its state today.
+ */
+function Photo({
+	url,
+	alt,
+	className = "",
+}: {
+	url: string | null;
+	alt: string;
+	className?: string;
+}) {
+	if (!url) {
+		return (
+			<div
+				className={`bg-gradient-to-br from-[#e2ddd2] to-[#cdc4b3] ${className}`}
+			/>
+		);
+	}
+	// Plain <img>: the photos live on a Blob host next/image isn't configured
+	// for, and adding a remote pattern for a bucket whose domain varies per
+	// deploy is more moving parts than the optimisation is worth here.
+	// biome-ignore lint/performance/noImgElement: see above
+	return <img src={url} alt={alt} className={`object-cover ${className}`} />;
 }
 
 export default async function Home() {
@@ -79,7 +104,14 @@ export default async function Home() {
 	// while the two agree; if a published catalogue ever changes a room's
 	// starter widths, this headline figure needs `layout.ts` parameterised
 	// like `pricing.ts` already is.
-	const { data: catalogue } = await getPublishedPlannerCatalogue();
+	const [{ data: catalogue }, siteImages] = await Promise.all([
+		getPublishedPlannerCatalogue(),
+		prisma.siteImage.findMany(),
+	]);
+	const photo = new Map(
+		siteImages.map((i) => [i.key, siteImageSrc(i.key, i.updatedAt)]),
+	);
+
 	const kitchenPrice = computePlannerPrice(
 		starterFor("kitchen"),
 		catalogue.finishes[0].id,
@@ -172,7 +204,11 @@ export default async function Home() {
 					</div>
 				</div>
 				<div className="min-w-0">
-					<PhotoPlaceholder className="h-[420px] w-full rounded-[14px]" />
+					<Photo
+						url={photo.get(HERO_SLOT) ?? null}
+						alt="A finished Infinite Cabinet kitchen"
+						className="h-[420px] w-full rounded-[14px]"
+					/>
 				</div>
 			</div>
 
@@ -214,7 +250,11 @@ export default async function Home() {
 							href={`/planner?room=${room.id}`}
 							className="overflow-hidden rounded-xl border border-neutral-200 bg-white"
 						>
-							<PhotoPlaceholder className="h-[140px] w-full" />
+							<Photo
+								url={photo.get(roomSlot(room.id)) ?? null}
+								alt={`${room.label} cabinets`}
+								className="h-[140px] w-full"
+							/>
 							<div className="px-4 py-3.5">
 								<p className="font-semibold text-[14px]">{room.label}</p>
 								<p className="mt-0.5 text-[12px] text-neutral-500">
@@ -236,15 +276,29 @@ export default async function Home() {
 						Swap finishes on any cabinet right inside the planner.
 					</p>
 					<div className="grid grid-cols-3 gap-5 sm:grid-cols-6">
-						{catalogue.finishes.map((finish) => (
-							<div key={finish.id} className="text-center">
-								<div
-									className="mb-2 h-16 rounded-lg border border-neutral-200"
-									style={{ backgroundColor: finish.hex }}
-								/>
-								<p className="text-[12px] text-neutral-600">{finish.label}</p>
-							</div>
-						))}
+						{catalogue.finishes.map((finish) => {
+							// A swatch photo if one's been uploaded, otherwise the
+							// catalogue's flat colour — which is a perfectly good swatch,
+							// so an empty slot is a fallback rather than a hole.
+							const swatch = photo.get(finishSlot(finish.id));
+							return (
+								<div key={finish.id} className="text-center">
+									{swatch ? (
+										<Photo
+											url={swatch}
+											alt={finish.label}
+											className="mb-2 h-16 w-full rounded-lg border border-neutral-200"
+										/>
+									) : (
+										<div
+											className="mb-2 h-16 rounded-lg border border-neutral-200"
+											style={{ backgroundColor: finish.hex }}
+										/>
+									)}
+									<p className="text-[12px] text-neutral-600">{finish.label}</p>
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			</div>

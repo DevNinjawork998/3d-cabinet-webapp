@@ -106,3 +106,19 @@ model CabinetDesign {
 
   @@index([status])
 }
+
+/// One marketing photo, keyed by the homepage slot it fills (`hero`,
+/// `room:kitchen`, `finish:<finishId>`). Unlike CatalogueVersion there is no
+/// draft/publish gate — the design's own copy says a photo is live the moment
+/// it's dropped, and a wrong photo is trivially reversible by dropping
+/// another. Bytes live in Blob (public, since these render on the public
+/// homepage); only the URL is stored here, same rule as CatalogueImport.
+model SiteImage {
+  key          String   @id
+  blobUrl      String
+  blobPathname String
+  filename     String
+  sizeBytes    Int
+  uploadedBy   String
+  updatedAt    DateTime @updatedAt
+}
