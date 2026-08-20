@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { AdminHeader } from "@/components/admin/AdminHeader";
 import {
 	CATEGORIES,
 	CATEGORY_LABELS,
@@ -93,7 +93,7 @@ function emptyForm(): Form {
 }
 
 function chipClass(active: boolean) {
-	return `rounded-full border px-3 py-1.5 text-xs font-medium ${
+	return `min-h-8 rounded-full border px-3.5 py-2 text-xs font-medium ${
 		active
 			? "border-neutral-900 bg-neutral-900 text-white"
 			: "border-neutral-200 bg-white text-neutral-600"
@@ -153,11 +153,6 @@ export default function CabinetDesignsPage() {
 	useEffect(() => {
 		load();
 	}, []);
-
-	async function signOut() {
-		await fetch("/api/admin/logout", { method: "POST" });
-		router.push("/admin/login");
-	}
 
 	function openUpload() {
 		setEditingId(null);
@@ -425,40 +420,7 @@ export default function CabinetDesignsPage() {
 
 	return (
 		<div className="flex min-h-screen flex-col bg-[#f4f3f1] text-neutral-900">
-			<header className="flex h-[60px] flex-shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-7">
-				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
-					Infinite Cabinet · Admin
-				</Link>
-				<div className="flex items-center gap-1.5 text-neutral-500 text-xs">
-					<span className="font-medium text-neutral-900">Cabinet designs</span>
-					<span>·</span>
-					<button
-						type="button"
-						onClick={signOut}
-						className="text-neutral-400 hover:text-neutral-900"
-					>
-						Sign out
-					</button>
-					<span>·</span>
-					<Link href="/admin/catalogue" className="hover:text-neutral-900">
-						Catalogue
-					</Link>
-					<span>·</span>
-					<span>Orders</span>
-				</div>
-				<div className="flex items-center gap-3.5">
-					<Link
-						href="/planner"
-						target="_blank"
-						className="flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-1.5 text-neutral-700 text-xs"
-					>
-						View as customer
-					</Link>
-					<span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-neutral-900 font-semibold text-white text-xs">
-						JT
-					</span>
-				</div>
-			</header>
+			<AdminHeader current="designs" />
 
 			<main className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-5 p-7">
 				<div className="flex items-end justify-between gap-4">
@@ -472,9 +434,23 @@ export default function CabinetDesignsPage() {
 					<button
 						type="button"
 						onClick={openUpload}
-						className="flex items-center gap-1.5 rounded-lg bg-neutral-900 px-4 py-2.5 font-medium text-sm text-white"
+						className="flex items-center gap-1.5 rounded-[9px] bg-neutral-900 px-4 py-2.5 font-medium text-[13px] text-white"
 					>
-						+ Upload design
+						<svg
+							width="14"
+							height="14"
+							viewBox="0 0 14 14"
+							fill="none"
+							aria-hidden="true"
+						>
+							<path
+								d="M7 1V13M1 7H13"
+								stroke="currentColor"
+								strokeWidth="1.6"
+								strokeLinecap="round"
+							/>
+						</svg>
+						Upload design
 					</button>
 				</div>
 

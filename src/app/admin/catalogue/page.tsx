@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
+import { AdminHeader } from "@/components/admin/AdminHeader";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
 import {
 	type PlannerCatalogue,
@@ -292,47 +292,9 @@ export default function CatalogueEditorPage() {
 		setLive(draft);
 	}
 
-	async function signOut() {
-		await fetch("/api/admin/logout", { method: "POST" });
-		router.push("/admin/login");
-	}
-
 	return (
 		<div className="flex min-h-screen flex-col bg-[#f4f3f1] text-neutral-900">
-			<header className="flex h-[60px] shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-7">
-				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
-					Infinite Cabinet · Admin
-				</Link>
-				<div className="flex items-center gap-1.5 text-neutral-500 text-xs">
-					<Link
-						href="/admin/cabinet-designs"
-						className="hover:text-neutral-900"
-					>
-						Cabinet designs
-					</Link>
-					<span>·</span>
-					<span className="font-medium text-neutral-900">Catalogue</span>
-					<span>·</span>
-					<Link href="/admin/import" className="hover:text-neutral-900">
-						Import .skp
-					</Link>
-					<span>·</span>
-					<button
-						type="button"
-						onClick={signOut}
-						className="text-neutral-400 hover:text-neutral-900"
-					>
-						Sign out
-					</button>
-				</div>
-				<Link
-					href="/planner"
-					target="_blank"
-					className="rounded-lg border border-neutral-300 px-3 py-1.5 text-neutral-700 text-xs"
-				>
-					View as customer
-				</Link>
-			</header>
+			<AdminHeader current="catalogue" />
 
 			<main className="mx-auto w-full max-w-5xl flex-1 p-6">
 				<div className="mb-5">

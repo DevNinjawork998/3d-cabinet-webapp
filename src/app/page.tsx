@@ -94,28 +94,30 @@ export default async function Home() {
 					<span className="font-bold text-[15px] tracking-tight">
 						Infinite Cabinet
 					</span>
-					<div className="flex items-center gap-7">
+					{/* Tight gap, padding on each link instead: the tap target is the
+					    padded box, not just the glyphs. */}
+					<div className="flex items-center gap-2">
 						<a
 							href="#how"
-							className="text-neutral-600 text-[13px] hover:text-neutral-900"
+							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
 						>
 							How it works
 						</a>
 						<a
 							href="#gallery"
-							className="text-neutral-600 text-[13px] hover:text-neutral-900"
+							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
 						>
 							Gallery
 						</a>
 						<a
 							href="#finishes"
-							className="text-neutral-600 text-[13px] hover:text-neutral-900"
+							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
 						>
 							Finishes
 						</a>
 						<a
 							href="#faq"
-							className="text-neutral-600 text-[13px] hover:text-neutral-900"
+							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
 						>
 							FAQ
 						</a>
@@ -130,7 +132,7 @@ export default async function Home() {
 						<Link
 							href="/admin/login"
 							target="_blank"
-							className="border-neutral-200 border-l pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
+							className="border-neutral-200 border-l py-2.5 pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
 						>
 							Admin
 						</Link>
@@ -140,7 +142,9 @@ export default async function Home() {
 
 			{/* Hero */}
 			<div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-14 px-8 py-18 md:grid-cols-2">
-				<div>
+				{/* min-w-0 on both columns: a grid item's default `min-width:auto`
+				    lets long content push the track wider than its 1fr share. */}
+				<div className="min-w-0">
 					<p className="mb-3.5 font-semibold text-[#8a8478] text-xs uppercase tracking-[0.08em]">
 						Free to try · no account needed
 					</p>
@@ -167,7 +171,9 @@ export default async function Home() {
 						</span>
 					</div>
 				</div>
-				<PhotoPlaceholder className="h-[420px] w-full rounded-[14px]" />
+				<div className="min-w-0">
+					<PhotoPlaceholder className="h-[420px] w-full rounded-[14px]" />
+				</div>
 			</div>
 
 			{/* How it works */}
