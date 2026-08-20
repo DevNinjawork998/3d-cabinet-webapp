@@ -1,10 +1,8 @@
 import { type HandleUploadBody, handleUpload } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
+import { SKP_PATHNAME } from "@/lib/catalogue/skpBlob";
 
 export const runtime = "nodejs";
-
-/** `skp/<uuid>/<filename>` — matches `importIdFromPathname` in skpBlob.ts. */
-const SKP_PATHNAME = /^skp\/[0-9a-f-]{36}\/[^/]+$/;
 
 /**
  * Issues the short-lived token `@vercel/blob/client`'s `upload()` needs to

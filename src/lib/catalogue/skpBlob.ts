@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { del, get, head } from "@vercel/blob";
+import { del, get } from "@vercel/blob";
 
 /**
  * Object storage for raw `.skp` job files.
@@ -18,25 +18,24 @@ import { del, get, head } from "@vercel/blob";
  * Upload itself is client-direct-to-Blob (`@vercel/blob/client`'s
  * `upload()`, called from the admin UI against the token route) — Vercel
  * Functions hard-cap request bodies at 4.5MB, so nothing here ever puts a
- * file *to* Blob from a Buffer. What's left is: build the pathname the
- * client uploads to, and fetch the bytes back down for server-side
- * extraction once the client says the upload finished.
+ * file *to* Blob from a Buffer. The client builds the pathname it uploads
+ * to; what's left here is validating that pathname and fetching the bytes
+ * back down for server-side extraction once the upload finished.
  */
 
-export function skpPathname(importId: string, filename: string): string {
-	return `skp/${importId}/${sanitiseFilename(filename)}`;
-}
+/**
+ * The one definition of an `.skp` blob pathname: `skp/<uuid>/<filename>`.
+ *
+ * The admin page builds the same shape inline rather than importing it —
+ * this module is `server-only` and that page is a client component. Keep the
+ * two in step.
+ */
+export const SKP_PATHNAME = /^skp\/([0-9a-f-]{36})\/[^/]+$/;
 
-/** The inverse of `skpPathname` — the finalize route trusts this, not a
- * client-sent importId field, since the pathname is what the upload token
- * was actually scoped to. */
+/** The finalize route trusts this, not a client-sent importId field, since
+ * the pathname is what the upload token was actually scoped to. */
 export function importIdFromPathname(pathname: string): string | null {
-	const match = pathname.match(/^skp\/([0-9a-f-]{36})\//);
-	return match ? match[1] : null;
-}
-
-function sanitiseFilename(filename: string): string {
-	return filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+	return pathname.match(SKP_PATHNAME)?.[1] ?? null;
 }
 
 export function sha256Hex(bytes: Uint8Array): string {
@@ -59,21 +58,11 @@ export async function fetchSkpFile(pathname: string): Promise<Buffer> {
 	return Buffer.from(await new Response(result.stream).arrayBuffer());
 }
 
-/** Whether a `.skp` at this pathname is still there. Used before a re-download. */
-export async function skpFileExists(pathname: string): Promise<boolean> {
-	try {
-		await head(pathname);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 /**
- * Not called anywhere yet — retention policy is "keep forever" (see the
- * DB-backed-catalogue plan), so nothing currently deletes a `.skp`. Kept as
- * the one place that would, if that policy ever changes, and for cleaning up
- * an orphaned re-upload's blob when the finalize route hits a sha256 dupe.
+ * Removes a `.skp`. Retention policy is "keep forever", so this is not a
+ * cleanup job — it is how the upload routes roll back the blob when the row
+ * they were writing alongside it fails (a sha256 dupe, a bad payload) and
+ * would otherwise leave the bytes orphaned.
  */
 export async function deleteSkpFile(pathname: string): Promise<void> {
 	await del(pathname);

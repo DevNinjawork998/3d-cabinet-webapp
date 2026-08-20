@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 /**
  * The admin chrome: a breadcrumb row over a tab bar.
@@ -9,20 +9,21 @@ import { useRouter } from "next/navigation";
  * Shared by every admin page so the tabs stay in one place — the design has
  * a single "Catalogue" tab because the mockup only knows about this one
  * screen, but the real app has three working admin routes, so they're
- * listed as siblings here. "Orders" is deliberately inert: it's on the
- * roadmap, not built, and a dead link reads as broken.
+ * listed as siblings here.
+ *
+ * Which tab is current comes from the route, not a prop: the router already
+ * knows, and a prop would be the same fact written twice.
  */
 
-type Section = "designs" | "catalogue" | "import";
-
-const TABS: { id: Section; label: string; href: string }[] = [
-	{ id: "designs", label: "Cabinet designs", href: "/admin/cabinet-designs" },
-	{ id: "catalogue", label: "Catalogue", href: "/admin/catalogue" },
-	{ id: "import", label: "Import .skp", href: "/admin/import" },
+const TABS = [
+	{ label: "Cabinet designs", href: "/admin/cabinet-designs" },
+	{ label: "Catalogue", href: "/admin/catalogue" },
+	{ label: "Import .skp", href: "/admin/import" },
 ];
 
-export function AdminHeader({ current }: { current: Section }) {
+export function AdminHeader() {
 	const router = useRouter();
+	const pathname = usePathname();
 
 	// Lives here rather than being passed in: it was copy-pasted identically
 	// into all three admin pages, and a function prop isn't serializable
@@ -78,38 +79,27 @@ export function AdminHeader({ current }: { current: Section }) {
 					>
 						Sign out
 					</button>
-					<span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-neutral-900 font-semibold text-white text-xs">
-						JT
-					</span>
 				</div>
 			</div>
 
 			<nav className="flex items-center gap-1 px-6 pt-3">
-				{TABS.map((tab) =>
-					tab.id === current ? (
-						<span
-							key={tab.id}
-							aria-current="page"
-							className="border-neutral-900 border-b-2 px-3 py-2.5 font-semibold text-[13px] text-neutral-900"
-						>
-							{tab.label}
-						</span>
-					) : (
+				{TABS.map((tab) => {
+					const active = pathname.startsWith(tab.href);
+					return (
 						<Link
-							key={tab.id}
+							key={tab.href}
 							href={tab.href}
-							className="border-transparent border-b-2 px-3 py-2.5 text-[13px] text-neutral-500 hover:text-neutral-900"
+							aria-current={active ? "page" : undefined}
+							className={`border-b-2 px-3 py-2.5 text-[13px] ${
+								active
+									? "border-neutral-900 font-semibold text-neutral-900"
+									: "border-transparent text-neutral-500 hover:text-neutral-900"
+							}`}
 						>
 							{tab.label}
 						</Link>
-					),
-				)}
-				<span className="flex cursor-default items-center gap-1.5 border-transparent border-b-2 px-3 py-2.5 text-[#c7c7c5] text-[13px]">
-					Orders
-					<span className="rounded-full bg-[#f4f3f1] px-1.5 py-0.5 font-semibold text-[10px] text-neutral-400">
-						Soon
-					</span>
-				</span>
+					);
+				})}
 			</nav>
 		</header>
 	);

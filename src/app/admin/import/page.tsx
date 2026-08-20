@@ -90,6 +90,8 @@ export default function ImportPage() {
 		try {
 			const { upload: blobUpload } = await import("@vercel/blob/client");
 			const importId = crypto.randomUUID();
+			// Must match SKP_PATHNAME in lib/catalogue/skpBlob.ts, which is
+			// server-only and so cannot be imported here.
 			const pathname = `skp/${importId}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
 			const blob = await blobUpload(pathname, file, {
@@ -178,7 +180,7 @@ export default function ImportPage() {
 
 	return (
 		<main className="min-h-screen bg-white text-neutral-900">
-			<AdminHeader current="import" />
+			<AdminHeader />
 			<div className="mx-auto max-w-4xl space-y-6 p-6">
 				<div>
 					<h1 className="font-semibold text-lg">Import a SketchUp job</h1>

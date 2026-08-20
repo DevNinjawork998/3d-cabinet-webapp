@@ -420,7 +420,7 @@ export default function CabinetDesignsPage() {
 
 	return (
 		<div className="flex min-h-screen flex-col bg-[#f4f3f1] text-neutral-900">
-			<AdminHeader current="designs" />
+			<AdminHeader />
 
 			<main className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-5 p-7">
 				<div className="flex items-end justify-between gap-4">

@@ -294,7 +294,7 @@ export default function CatalogueEditorPage() {
 
 	return (
 		<div className="flex min-h-screen flex-col bg-[#f4f3f1] text-neutral-900">
-			<AdminHeader current="catalogue" />
+			<AdminHeader />
 
 			<main className="mx-auto w-full max-w-5xl flex-1 p-6">
 				<div className="mb-5">
