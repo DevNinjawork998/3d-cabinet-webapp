@@ -1,11 +1,15 @@
 import { z } from "zod";
 import { plannerCatalogueSchema } from "@/lib/planner/catalogueSchema";
-import { wardrobeCatalogueSchema } from "@/lib/wardrobe/catalogueSchema";
 
-export const productSchema = z.enum(["WARDROBE", "PLANNER"]);
+/**
+ * The planner is the only product with an engine behind it. The `Product`
+ * column stays because `CatalogueVersion` is keyed and indexed on it, but
+ * there is exactly one valid value — a second one only earns its place when
+ * a second engine does.
+ */
+export const productSchema = z.enum(["PLANNER"]);
 export type Product = z.infer<typeof productSchema>;
 
 export const catalogueSchemaByProduct = {
-	WARDROBE: wardrobeCatalogueSchema,
 	PLANNER: plannerCatalogueSchema,
 } as const;

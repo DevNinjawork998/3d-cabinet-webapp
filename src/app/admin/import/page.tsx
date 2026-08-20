@@ -42,7 +42,6 @@ type PublishState =
 export default function ImportPage() {
 	const [local, setLocal] = useState<LocalState>({ status: "idle" });
 	const [upload, setUpload] = useState<UploadState>({ status: "idle" });
-	const [product, setProduct] = useState<"WARDROBE" | "PLANNER">("WARDROBE");
 	const [catalogueJson, setCatalogueJson] = useState("");
 	const [publish, setPublish] = useState<PublishState>({ status: "idle" });
 
@@ -120,12 +119,12 @@ export default function ImportPage() {
 			}
 			setUpload({ status: "done", importId: body.importId, draft: body.draft });
 
-			// Seed the review textarea with the currently-live catalogue for this
-			// product, as a starting point to edit against the draft table above
-			// — never auto-mapped from the draft (see the plan: that's a human's
-			// product decision, not something geometry can invent).
+			// Seed the review textarea with the currently-live catalogue, as a
+			// starting point to edit against the draft table above — never
+			// auto-mapped from the draft (see the plan: that's a human's product
+			// decision, not something geometry can invent).
 			const live = await fetch(
-				`/api/admin/catalogue/versions?product=${product}&include=data`,
+				"/api/admin/catalogue/versions?product=PLANNER&include=data",
 			).then((r) => r.json());
 			const published = live.versions?.find(
 				(v: { status: string }) => v.status === "PUBLISHED",
@@ -151,7 +150,7 @@ export default function ImportPage() {
 		const res = await fetch("/api/admin/catalogue/versions", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ product, data, importId }),
+			body: JSON.stringify({ product: "PLANNER", data, importId }),
 		});
 		const body = await res.json();
 		if (!res.ok) {
@@ -224,20 +223,6 @@ export default function ImportPage() {
 
 						<div className="space-y-3 rounded-lg border border-neutral-200 p-4">
 							<h2 className="font-medium text-sm">Publish from this job</h2>
-							<label className="flex items-center gap-2 text-sm">
-								Product
-								<select
-									value={product}
-									onChange={(e) =>
-										setProduct(e.target.value as "WARDROBE" | "PLANNER")
-									}
-									className="rounded border border-neutral-300 px-2 py-1 text-sm"
-								>
-									<option value="WARDROBE">Wardrobe</option>
-									<option value="PLANNER">Planner</option>
-								</select>
-							</label>
-
 							{upload.status === "idle" && (
 								<button
 									type="button"

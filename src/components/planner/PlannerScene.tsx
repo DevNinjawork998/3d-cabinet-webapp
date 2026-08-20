@@ -9,7 +9,6 @@ import type {
 	Vector3 as Vector3Type,
 } from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
-import { Room } from "@/components/viewer/Room";
 import {
 	CONSTRUCTION,
 	doorStyle,
@@ -29,6 +28,7 @@ import {
 import { snapToCabinet, type Vec3Mm } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
 import { MeasureOverlay } from "./MeasureOverlay";
+import { Room } from "./Room";
 
 const m = (mm: number) => mm / 1000;
 const ROOM_HEIGHT_MM = 2700;
@@ -240,8 +240,8 @@ function Run({
 	 *
 	 * The grab offset is what stops the cabinet snapping its left edge to the
 	 * cursor the moment you touch it. It is re-anchored on every settled move
-	 * for the reason written up in `lib/wardrobe/placement.ts` — push a cabinet
-	 * into its neighbour and keep dragging, and without re-anchoring the pointer
+	 * for this reason: push a cabinet into its neighbour and keep dragging,
+	 * and without re-anchoring the pointer
 	 * has to retrace every millimetre of that overshoot before the cabinet moves
 	 * again, which reads as the cabinet sticking.
 	 */
