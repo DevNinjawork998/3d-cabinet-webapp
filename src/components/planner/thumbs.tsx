@@ -5,8 +5,12 @@ export function FamilyThumb({ family: option }: { family: Family }) {
 	const widest = option.sizes[option.sizes.length - 1].widthMm;
 	const ratio = widest / option.heightMm;
 	const w = Math.max(18, Math.min(92, 46 * ratio));
-	const fronts = option.drawers > 0 ? option.drawers : widest > 650 ? 2 : 1;
-	const horizontal = option.drawers > 0;
+	// The imported design knows how many fronts this cabinet has; guessing from
+	// width is only the fallback for families that predate design intake.
+	const drawers = option.geometry?.drawers ?? option.drawers;
+	const leaves = option.geometry?.doorLeaves || (widest > 650 ? 2 : 1);
+	const fronts = drawers > 0 ? drawers : leaves;
+	const horizontal = drawers > 0;
 
 	return (
 		<svg

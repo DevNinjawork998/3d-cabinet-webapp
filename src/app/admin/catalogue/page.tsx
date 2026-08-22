@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useId, useMemo, useState } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
@@ -14,11 +14,14 @@ import {
  * Field-level editor for the live planner catalogue.
  *
  * Replaces the raw-JSON textarea on `/admin/import`, which could only be
- * reached by uploading a `.skp` file first and reported a bad edit as the
+ * reached by uploading a design file first and reported a bad edit as the
  * string "not valid JSON". Everything here still goes out through the same
  * `POST /versions` → `.../publish` gate, so schema validation, the DRAFT
  * review step and cache revalidation are unchanged — only the editing
  * surface is new.
+ *
+ * Opens on the published catalogue by default, or on `?version=<id>` — which
+ * is how `/admin/import` hands over the draft it just built from a design.
  */
 
 type Tab = "families" | "doors" | "finishes" | "rooms" | "standards";
@@ -190,8 +193,24 @@ function SectionCard({
 	);
 }
 
+/**
+ * `useSearchParams` opts the tree out of prerendering, so the boundary is
+ * required — without it the build fails on this route.
+ */
 export default function CatalogueEditorPage() {
+	return (
+		<Suspense fallback={null}>
+			<CatalogueEditor />
+		</Suspense>
+	);
+}
+
+function CatalogueEditor() {
 	const router = useRouter();
+	// `/admin/import` sends the reviewer straight here with the draft it just
+	// created. Without this the editor could only ever open the published
+	// version, and an imported draft would be unreachable.
+	const versionId = useSearchParams().get("version");
 	const [live, setLive] = useState<PlannerCatalogue | null>(null);
 	const [draft, setDraft] = useState<PlannerCatalogue | null>(null);
 	const [tab, setTab] = useState<Tab>("families");
@@ -217,12 +236,22 @@ export default function CatalogueEditorPage() {
 			const published = body.versions?.find(
 				(v: { status: string }) => v.status === "PUBLISHED",
 			);
-			if (!published) {
+			const asked = versionId
+				? body.versions?.find((v: { id: string }) => v.id === versionId)
+				: null;
+			if (versionId && !asked) {
+				setLoadError("That catalogue version no longer exists");
+				return;
+			}
+			if (!published && !asked) {
 				setLoadError("No published planner catalogue to edit yet");
 				return;
 			}
-			setLive(published.data);
-			setDraft(JSON.parse(JSON.stringify(published.data)));
+			// Edits are always diffed against what is live, even when the editor
+			// opened on a draft — "what changes if I publish this" is the only
+			// comparison that means anything.
+			setLive(published?.data ?? asked.data);
+			setDraft(JSON.parse(JSON.stringify(asked?.data ?? published.data)));
 		})();
 	}, []);
 

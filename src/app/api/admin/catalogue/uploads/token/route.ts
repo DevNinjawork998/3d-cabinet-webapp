@@ -1,6 +1,6 @@
 import { type HandleUploadBody, handleUpload } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
-import { SKP_PATHNAME } from "@/lib/catalogue/skpBlob";
+import { MESH_PATHNAME } from "@/lib/catalogue/meshBlob";
 
 export const runtime = "nodejs";
 
@@ -31,17 +31,14 @@ export async function POST(request: Request) {
 			body,
 			request,
 			onBeforeGenerateToken: async (pathname) => {
-				if (!SKP_PATHNAME.test(pathname)) {
-					throw new Error(`invalid .skp pathname: ${pathname}`);
+				if (!MESH_PATHNAME.test(pathname)) {
+					throw new Error(`invalid design-import pathname: ${pathname}`);
 				}
 				return {
-					// No `allowedContentTypes`: `.skp` isn't a MIME type browsers
-					// recognise, and Chrome sniffs it to essentially random values
-					// (`application/vnd.koan` for this exact file) that don't follow
-					// a `type/*` pattern a wildcard could cover — the SDK's own
-					// wildcard matching only accepts literal `type/*` entries, not a
-					// blanket `*/*`. Content type isn't a trust boundary here
-					// anyway; the finalize route validates the actual bytes.
+					// Content type is not a trust boundary here — browsers report
+					// a zip as any of several types depending on how it was made,
+					// and the finalize route reads the actual bytes anyway. The
+					// pathname check above is what actually scopes the token.
 					addRandomSuffix: false,
 				};
 			},

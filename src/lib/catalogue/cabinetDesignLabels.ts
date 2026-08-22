@@ -27,8 +27,8 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 	FRIDGE_HOUSING: "Fridge housing",
 };
 
-/** No render/thumbnail exists for an uploaded `.skp` (never parsed
- * client-side) — this colour stands in as the gallery card's placeholder
+/** A design file in this library is stored, never parsed, so there is no
+ * render to show — this colour stands in as the gallery card's placeholder
  * art instead of a new required-upload field. */
 export const CATEGORY_SWATCH: Record<Category, string> = {
 	BASE_CABINET: "#c9c2b5",

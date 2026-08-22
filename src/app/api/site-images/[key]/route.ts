@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * doesn't apply. It exists because the Blob store is private-access-only
  * (see `siteImageSrc`), so the bytes can't be linked to directly; this is
  * the narrow, read-only hole that lets marketing photos out without making
- * `.skp` job files reachable too.
+ * design files reachable too.
  *
  * Only keys that are actually recorded in `SiteImage` resolve, so this can't
  * be used to read an arbitrary path out of the bucket.

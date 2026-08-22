@@ -30,7 +30,7 @@ export function siteImagePathname(slotKey: string, filename: string): string {
 export const SITE_IMAGE_PATHNAME =
 	/^site\/(hero|room_[a-z-]+|finish_[a-z0-9-]+)\/[^/]+$/;
 
-/** What the browser is allowed to upload here. Unlike `.skp` (which browsers
+/** What the browser is allowed to upload here. Unlike a design export (which browsers
  * sniff to junk MIME types) these are ordinary web images, so the content
  * type is worth pinning. */
 export const SITE_IMAGE_CONTENT_TYPES = [
@@ -47,7 +47,7 @@ export const SITE_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
  *
  * Not the Blob URL directly: this project's Blob store is configured
  * private-access-only (a public `put` fails outright with "Cannot use public
- * access on a private store"), which is deliberate — `.skp` job files carry
+ * access on a private store"), which is deliberate — design files carry
  * the client's module standard and must never get a public URL. Rather than
  * open the whole store up, marketing photos are streamed back out through
  * `/api/site-images/[key]`, which is the one thing in there allowed to be

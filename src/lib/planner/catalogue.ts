@@ -17,11 +17,11 @@ import type {
  * PROVENANCE, and it matters:
  * - **Kitchen dimensions are real.** 16mm board, 880mm base carcasses on 607mm
  *   depth, wall units 397mm deep hung at 1500mm, 2380mm tall units — all read
- *   out of Infinite Cabinet's own Mozaik export by `lib/skp`.
+ *   out of Infinite Cabinet's own design export by `lib/mesh`.
  * - **Living room, bedroom and foyer dimensions are invented.** Plausible, but
- *   ours. Get a `.skp` job for each from the client and `lib/skp` turns them
- *   into real numbers in minutes.
- * - **Every price here is invented.** A job file contains geometry, not money.
+ *   ours. Get a design export for each from the client and `lib/mesh` turns
+ *   them into real numbers in minutes.
+ * - **Every price here is invented.** A design file contains geometry, not money.
  *   Phase 0 has not closed; these come from their price list, in a
  *   catalogue-only commit.
  */
@@ -158,7 +158,7 @@ export const FAMILIES: Family[] = [
 		id: "fridge-housing",
 		label: "Fridge housing",
 		kind: "tall",
-		// PLACEHOLDER — not in the client's .skp job. Deeper than a base run so
+		// PLACEHOLDER — not in the client's design export. Deeper than a base run so
 		// the fridge door clears the worktop; carcass only, no front sold on it.
 		depthMm: 650,
 		heightMm: 2380,
@@ -173,7 +173,7 @@ export const FAMILIES: Family[] = [
 	},
 
 	// ------------------------------------------------------- other rooms --
-	// PLACEHOLDER dimensions — no .skp job for these yet.
+	// PLACEHOLDER dimensions — no design export for these yet.
 	{
 		id: "tv-ledge",
 		label: "TV ledge",

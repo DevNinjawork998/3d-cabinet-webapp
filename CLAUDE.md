@@ -18,7 +18,9 @@ The wardrobe survives only as one **family** in the planner catalogue (`id: "war
 
 Phase 0 (catalogue + pricing spec with client) not yet complete — see Open questions. The engine, the planner UI, and the admin catalogue surface are built.
 
-**Confirmed client requirement (resolved):** Infinite Cabinet designs in SketchUp and asked for "upload SketchUp designs so we can maintain new configurations." This is a real requirement, not a nice-to-have. It is resolved as **design intake, not a runtime asset pipeline** — see [SketchUp files are design intake, not runtime assets](#sketchup-files-are-design-intake-not-runtime-assets). Do not read "SketchUp upload" as "load a .skp/GLB into the scene."
+**Confirmed client requirement (resolved):** Infinite Cabinet designs in SketchUp and asked for "upload SketchUp designs so we can maintain new configurations." This is a real requirement, not a nice-to-have. It is resolved as **design intake, not a runtime asset pipeline** — see [Design files are intake, not runtime assets](#design-files-are-intake-not-runtime-assets). Do not read "design upload" as "load a mesh into the scene."
+
+**The file format is OBJ, not `.skp`, everywhere.** A `.skp` is a SketchUp-proprietary container that in practice needs SketchUp itself to read; the `openskp` reader was deleted in August 2026 along with `lib/skp`. The client exports the design folder as Wavefront OBJ — `.obj` + `.mtl` + textures — and uploads it zipped. `lib/mesh` reads it. Nothing in the app accepts a `.skp` any more: not catalogue import, not the cabinet-design library. If you are adding an upload that takes a design, it takes `.obj`/`.zip`.
 
 ## Stack
 
@@ -27,7 +29,7 @@ Phase 0 (catalogue + pricing spec with client) not yet complete — see Open que
 - Tailwind
 - React Three Fiber + drei for the 3D viewer
 - Prisma ORM + Postgres (local via docker compose; Prisma Postgres in production)
-- Vercel Blob for user-generated files and `.skp` job files
+- Vercel Blob for user-generated files and design exports
 - Zod for the catalogue and layout schemas
 - Vitest for the engine tests
 - Deployed on Vercel, functions pinned to `sin1` (Singapore) — users are in Klang Valley
@@ -70,11 +72,18 @@ src/
     measure.ts           ← the in-scene measuring tool
     __tests__/           ← vitest
   lib/catalogue/         ← DB-backed catalogue: read path, versions, diffs, blob
-  lib/skp/               ← reads a SketchUp job file into a draft catalogue
+  lib/mesh/              ← reads a zipped OBJ export into a draft catalogue
+    archive.ts           ← unzip; the .obj text and the texture filenames
+    objRead.ts           ← OBJ parse: named boxes in the file's own units
+    normalise.ts         ← infers scale and up-axis, never assumes them
+    roles.ts             ← what each panel is: naming table, geometric fallback
+    strategies.ts        ← flat panels → cabinets, three strategies best-first
+    extract.ts           ← cabinets → CatalogueDraft (no money, ever)
+    mergeIntoCatalogue.ts ← confirmed draft folded into the live catalogue
   components/planner/    ← R3F scene and the planner screens
   components/admin/      ← admin chrome
   app/planner/           ← the planner route
-  app/admin/             ← catalogue editor, cabinet designs, .skp import
+  app/admin/             ← catalogue editor, cabinet designs, design import
   app/api/               ← admin + catalogue endpoints
 ```
 
@@ -108,25 +117,45 @@ That split is a known compromise, not a design to extend — see Known issues.
 
 Do not introduce draggable sprites or imported cabinet models. That breaks parametric resizing and kills the path to a BOM.
 
-### SketchUp files are design intake, not runtime assets
+### Design files are intake, not runtime assets
 
-Infinite Cabinet designs in SketchUp (`.skp`) and asked to "upload SketchUp designs." This is a confirmed requirement, and it is tempting to satisfy it by converting `.skp` → GLB and loading it into the scene. **Do not do this.** A baked mesh:
+Infinite Cabinet designs in SketchUp and asked to "upload SketchUp designs." This is a confirmed requirement, and it is tempting to satisfy it by loading the exported mesh into the scene. **Do not do this.** A baked mesh:
 
 - cannot resize to the customer's discrete size ladder without ugly non-uniform stretching (panel thickness, hinges, and edges all distort);
 - carries no parameters, so it can never produce a price or a BOM;
 - is heavy web geometry that fights the mobile performance budget below.
 
-Instead, a SketchUp file is a **reference for design intent**, not a thing the browser ever loads. `lib/skp` reads a job file server-side into a *draft catalogue* — dimensions and finish names, never money — which a human reviews and publishes at `/admin/import`. The browser only ever sees the published catalogue.
+Instead, a design file is a **reference for design intent**, not a thing the browser ever loads. `lib/mesh` reads a zipped OBJ export into a *draft catalogue* — dimensions and finish names, never money — which a human confirms at `/admin/import`. That produces a DRAFT `CatalogueVersion`, priced and published at `/admin/catalogue`. The browser only ever sees the published catalogue.
 
 ```
-Infinite Cabinet's .skp design
-        ↓  (lib/skp extracts: module layout, panel config, finishes, dimensions)
-  Draft catalogue → human review at /admin/import → published CatalogueVersion
+Infinite Cabinet's design → exported as a zipped .obj folder
+        ↓  read · normalise · classify · group · describe  (lib/mesh)
+  Draft catalogue → human confirms at /admin/import
+        ↓  mergeIntoCatalogue: additive, every new price 0
+  DRAFT CatalogueVersion → priced and published at /admin/catalogue
         ↓
   Procedural engine generates the resizable model in-browser
 ```
 
-Onboarding a new design is therefore a **data-entry task, not a 3D-modeling task**. That is the whole point: it is what lets one person maintain the catalogue and what lets the product scale to other cabinet makers later. The SketchUp file tells us *what to build*; our code builds the resizable version.
+**Every stage infers, none assumes.** The admin keeps adding designs, so each import is a file nobody has seen. A `.skp` gave cabinets for free — component instances *are* cabinets — but an OBJ is one flat namespace of ~150 boxes with no units and no up-axis. So:
+
+- **Scale** (`normalise.ts`) is found by trying mm/cm/inch/metre and keeping the one that puts the modal panel thickness in 12–25mm. Board thickness is a constant of the trade; model size is not.
+- **Up-axis** is found by settling *depth first* (this product plans one wall, so depth is the smallest extent) and then voting between the two axes left, on which one panels are thin on. Voting across all three gets it wrong on a real file, because doors and backs are thin on depth and outvote the shelves.
+- **Which end is the wall** is found from where the handles are, falling back to "backs line up and fronts do not". There is no convention — the client's own export puts the wall at depth zero.
+- **Panel roles** (`roles.ts`) come from one ordered naming table, with a geometric fallback for panels the table does not recognise. `NAMING_RULES` is the only place cabinet semantics live; a drafter who renames something is an edit there and nowhere else. Anything guessed from shape is flagged `inferred` in the review table.
+- **Cabinets** (`strategies.ts`) are found by three strategies, best-first: gaps between end panels (high confidence), connected components of touching panels (medium), the whole file as one row (low). The review page names which fired.
+
+Finish names do not survive the export: materials come through as `7#752#-1` pointing at re-encoded texture copies. The real names survive only as the texture filenames in the folder, so the confirm step asks a human to name and colour each one. Do not try to auto-map them.
+
+### Imports are additive
+
+`mergeIntoCatalogue` can create a family and it can add a rung to an existing family's size ladder. **It cannot delete a family, remove a rung, or overwrite a `priceRm` that already has a value.** An earlier version replaced the family list wholesale, which meant the second import silently destroyed everything the first one had contributed and the client had priced. A cabinet matching an existing family's shape and fit-out — within 20mm, since 607 and 600 are the same carcass read with and without its door — extends that family's ladder at RM 0 rather than forking a duplicate.
+
+### What the design changes in the scene
+
+`familySchema.geometry` (optional) carries `shelves`, `fixedShelves`, `doorLeaves`, `drawers` and `hasBack` from the design into the render, so a six-shelf tall unit draws six shelves and a three-drawer base draws three drawers. `Cabinet.tsx` and `thumbs.tsx` fall back to their old constants when it is absent, which is how catalogues published before design intake keep working. This is still procedural geometry from numbers — no mesh is loaded, ever.
+
+Onboarding a new design is therefore a **data-entry task, not a 3D-modeling task**. That is the whole point: it is what lets one person maintain the catalogue and what lets the product scale to other cabinet makers later. The design file tells us *what to build*; our code builds the resizable version.
 
 When pitching this to the client, frame it as *"your design drives a smart, resizable configurator,"* not *"we render your file."* It's a better product and they should hear why.
 
@@ -148,14 +177,14 @@ Two features carry the sale: a **doors-open / doors-hidden toggle** so the custo
 | --- | --- | --- |
 | Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN |
 | Palette thumbnails | Inline SVG (`components/planner/thumbs.tsx`) | Drawn from the family's own proportions. Never boot a WebGL context per thumbnail. |
-| SketchUp job files | Vercel Blob, **private** | A job file carries the client's module standard and part naming. Never public, never in `/public`, never loaded at runtime. |
+| Design exports (`.obj`, or `.zip` with textures) | Vercel Blob, **private** | A design file carries the client's module standard and part naming. Never public, never in `/public`, never loaded at runtime. |
 | Canvas screenshots | Vercel Blob | User-generated at runtime, one per lead |
 | Quote PDFs | Vercel Blob | Same |
 | Catalogue versions, designs, leads, Blob URLs | Postgres | |
 
 Test: if you could delete it and rebuild it from a `git clone`, it belongs in the repo, not Blob.
 
-**Never base64 images into a Postgres column.** A job file is ~3 MB; a screenshot is tens of KB. This is the one thing that would realistically blow the storage budget.
+**Never base64 images into a Postgres column.** A design export is ~2 MB; a screenshot is tens of KB. This is the one thing that would realistically blow the storage budget.
 
 ## UX flow
 
@@ -187,7 +216,7 @@ Separate Postgres database from Factory Tracker.
 
 | Phase | Work |
 | --- | --- |
-| 0 | Catalogue + pricing spec workshop with client, including SketchUp design-intake process |
+| 0 | Catalogue + pricing spec workshop with client, including the design-intake process |
 | 1 | Layout schema, rules, pricing — headless, tested against fixtures ✅ |
 | 2 | Planner UI + 3D scene ✅ |
 | 3 | Lead capture, share links, admin inbox (admin catalogue + designs ✅; lead capture not started) |
@@ -208,8 +237,8 @@ All three have the same root: the live palette is a mutable module global rather
 - **How does Infinite Cabinet actually price cabinets?** The engine currently models it **per unit** — each carcass size is its own priced line, each door priced by the width it covers, worktop by the running foot. Confirm that matches their price list.
 - **Does the public tool show a firm price or an indicative range?** Sales teams often resist public exact pricing. This is a business decision and it changes the UI.
 - **The real size ladders** per family — widths, heights, depths — from their standard modules.
-- **Their real module standard** for living room, bedroom, and foyer. Only the kitchen dimensions come from a real `.skp` job; the rest are invented.
-- **SketchUp design-intake cadence.** In what form does the client hand designs over, and how often do new ones arrive? This determines whether manual intake stays sustainable.
+- **Their real module standard** for living room, bedroom, and foyer. Only the kitchen dimensions come from a real design export; the rest are invented.
+- **Design-intake cadence.** How often do new exports arrive, and will the panel naming (`G-UEnd_(L)`, `G-Door(R)`, …) stay stable? Extraction depends on it, so a change in their drawing habits is a change to `lib/mesh`.
 - Does Prisma Postgres offer an ap-southeast region? If not, quote submission eats a transpacific round trip.
 
 ## Conventions

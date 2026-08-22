@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/catalogue/db";
 import {
-	deleteSkpFile,
-	fetchSkpFile,
+	deleteMeshFile,
+	fetchMeshFile,
 	sha256Hex,
-} from "@/lib/catalogue/skpBlob";
+} from "@/lib/catalogue/meshBlob";
 
 export const runtime = "nodejs";
 
@@ -70,7 +70,7 @@ export async function PATCH(
 	let sha256: string | undefined;
 	let sizeBytes: number | undefined;
 	if (blobPathname && blobPathname !== existing.blobPathname) {
-		const bytes = await fetchSkpFile(blobPathname);
+		const bytes = await fetchMeshFile(blobPathname);
 		sha256 = sha256Hex(bytes);
 		sizeBytes = bytes.byteLength;
 
@@ -78,14 +78,14 @@ export async function PATCH(
 			where: { sha256, id: { not: id } },
 		});
 		if (dupe) {
-			await deleteSkpFile(blobPathname);
+			await deleteMeshFile(blobPathname);
 			return NextResponse.json(
 				{ error: "duplicate", designId: dupe.id },
 				{ status: 409 },
 			);
 		}
 		// Replacing the file — the old blob is no longer referenced by any row.
-		await deleteSkpFile(existing.blobPathname);
+		await deleteMeshFile(existing.blobPathname);
 	}
 
 	const updated = await prisma.cabinetDesign.update({

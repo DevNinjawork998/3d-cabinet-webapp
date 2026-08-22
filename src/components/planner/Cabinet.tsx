@@ -114,6 +114,14 @@ export function Cabinet({
 	const carcassH = h - plinth;
 	const base = m(floorHeightMm);
 
+	// What the design file said this cabinet holds. A family imported before
+	// geometry was recorded — or a hand-written one — keeps the old look: one
+	// shelf, leaves derived from width.
+	const shelves = family.geometry
+		? family.geometry.shelves + family.geometry.fixedShelves
+		: 1;
+	const drawers = family.geometry?.drawers ?? family.drawers;
+
 	const frontZ = d / 2 + m(FRONT_THICKNESS_MM) / 2;
 	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
 	const emissive = highlighted ? "#15803d" : "#2b6cb0";
@@ -142,14 +150,16 @@ export function Cabinet({
 				height={carcassH}
 				thickness={t}
 				y={plinth}
+				shelves={shelves}
+				hasBack={family.geometry?.hasBack ?? true}
 				emissive={emissive}
 				emphasis={emphasis}
 			/>
 
 			{door &&
-				(family.drawers > 0 ? (
+				(drawers > 0 ? (
 					<Drawers
-						count={family.drawers}
+						count={drawers}
 						door={door}
 						width={w}
 						height={carcassH}
@@ -161,7 +171,7 @@ export function Cabinet({
 					/>
 				) : (
 					<Doors
-						count={doorLeavesFor(widthMm)}
+						count={family.geometry?.doorLeaves || doorLeavesFor(widthMm)}
 						door={door}
 						width={w}
 						height={carcassH}
@@ -176,13 +186,22 @@ export function Cabinet({
 	);
 }
 
-/** Sides, top, bottom, back and a shelf — an open box you can see into. */
+/**
+ * Sides, top, bottom, a back and however many shelves the design has — an open
+ * box you can see into.
+ *
+ * The shelf count is the cheapest thing that makes two imported designs read as
+ * different products: a tall unit with six shelves and a base unit with one are
+ * the same six boxes otherwise.
+ */
 function Carcass({
 	width,
 	depth,
 	height,
 	thickness,
 	y,
+	shelves,
+	hasBack,
 	emissive,
 	emphasis,
 }: {
@@ -191,6 +210,8 @@ function Carcass({
 	height: number;
 	thickness: number;
 	y: number;
+	shelves: number;
+	hasBack: boolean;
 	emissive: string;
 	emphasis: number;
 }) {
@@ -236,19 +257,42 @@ function Carcass({
 				[width, thickness, depth],
 				[0, y + height - thickness / 2, 0],
 			)}
-			{panel(
-				"back",
-				[width, height, thickness],
-				[0, midY, -depth / 2 + thickness / 2],
-				true,
-			)}
-			{panel(
-				"shelf",
-				[width - thickness * 2, thickness, depth - thickness * 2],
-				[0, y + height / 2, 0],
-				true,
+			{hasBack &&
+				panel(
+					"back",
+					[width, height, thickness],
+					[0, midY, -depth / 2 + thickness / 2],
+					true,
+				)}
+			{shelfHeights(shelves, y, height, thickness).map((shelfY, i) =>
+				panel(
+					`shelf-${i}`,
+					[width - thickness * 2, thickness, depth - thickness * 2],
+					[0, shelfY, 0],
+					true,
+				),
 			)}
 		</>
+	);
+}
+
+/**
+ * Shelves split the opening into equal bays, which is how they are actually
+ * set out — three shelves make four bays, not three shelves crowded at the
+ * bottom. Returns nothing for a cabinet with no shelves, so a drawer bank does
+ * not get a stray board through the middle of it.
+ */
+function shelfHeights(
+	count: number,
+	y: number,
+	height: number,
+	thickness: number,
+): number[] {
+	if (count <= 0) return [];
+	const clear = height - thickness * 2;
+	return Array.from(
+		{ length: count },
+		(_, i) => y + thickness + (clear * (i + 1)) / (count + 1),
 	);
 }
 

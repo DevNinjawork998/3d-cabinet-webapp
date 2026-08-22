@@ -210,7 +210,10 @@ export default function CabinetDesignsPage() {
 			if (file) {
 				const { upload } = await import("@vercel/blob/client");
 				const importId = crypto.randomUUID();
-				const pathname = `skp/${importId}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+				// Must match MESH_PATHNAME in lib/catalogue/meshBlob.ts, which the
+				// shared token route enforces. That module is server-only, so the
+				// shape is repeated here rather than imported. Keep the two in step.
+				const pathname = `mesh/${importId}/${file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 				const result = await upload(pathname, file, {
 					access: "private",
 					handleUploadUrl: "/api/admin/catalogue/uploads/token",
@@ -223,7 +226,7 @@ export default function CabinetDesignsPage() {
 			}
 
 			if (!editingId && !blob) {
-				setError("Choose a .skp file first");
+				setError("Choose a design file first");
 				setSaving(false);
 				return;
 			}
@@ -312,8 +315,8 @@ export default function CabinetDesignsPage() {
 					<div>
 						<h1 className="mb-1 font-semibold text-[22px]">Cabinet designs</h1>
 						<p className="text-neutral-500 text-sm">
-							Upload SketchUp (.skp) drawings, describe them, and control what
-							customers see in the planner.
+							Upload design exports, describe them, and control what customers
+							see in the planner.
 						</p>
 					</div>
 					<button
@@ -531,7 +534,7 @@ export default function CabinetDesignsPage() {
 						<div className="flex flex-col gap-5 p-5.5">
 							<div>
 								<p className="mb-1.5 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									SketchUp file
+									Design file
 								</p>
 								<div className="rounded-[10px] border-[1.5px] border-neutral-300 border-dashed bg-neutral-50 p-5 text-center">
 									{file || existingFilename ? (
@@ -556,13 +559,13 @@ export default function CabinetDesignsPage() {
 									) : (
 										<>
 											<p className="mb-1 text-neutral-700 text-sm">
-												Drag a .skp file here, or
+												Drag a design file here, or
 											</p>
 											<label className="inline-block cursor-pointer rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs">
 												Browse files
 												<input
 													type="file"
-													accept=".skp"
+													accept=".obj,.zip"
 													className="hidden"
 													onChange={(e) => {
 														const f = e.target.files?.[0];
@@ -571,7 +574,7 @@ export default function CabinetDesignsPage() {
 												/>
 											</label>
 											<p className="mt-2.5 text-[11px] text-neutral-400">
-												.skp (SketchUp) up to 40 MB
+												.obj, or .zip with its textures — up to 40 MB
 											</p>
 										</>
 									)}

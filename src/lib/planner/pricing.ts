@@ -14,7 +14,7 @@ import { type PlannerLayout, type Positioned, positionsOf } from "./layout";
  *
  * PLACEHOLDER — every figure is invented. They are plausible Malaysian market
  * numbers so the demo produces a believable total, and they are not Infinite
- * Cabinet's. A `.skp` job carries geometry, not money, so rates have to come
+ * Cabinet's. A design file carries geometry, not money, so rates have to come
  * from their price list; replace the tables in `catalogue.ts` in a
  * catalogue-only commit before anyone quotes from this.
  *

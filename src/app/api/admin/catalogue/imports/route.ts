@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
 import {
-	deleteSkpFile,
-	fetchSkpFile,
+	deleteMeshFile,
+	fetchMeshFile,
 	importIdFromPathname,
 	sha256Hex,
-} from "@/lib/catalogue/skpBlob";
-import { extractCatalogue } from "@/lib/skp/extract";
-import { readSkp } from "@/lib/skp/read";
+} from "@/lib/catalogue/meshBlob";
+import type { CatalogueDraft } from "@/lib/mesh/extract";
+import { readMeshArchive } from "@/lib/mesh/read";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: "invalid pathname" }, { status: 400 });
 	}
 
-	const bytes = await fetchSkpFile(blobPathname);
+	const bytes = await fetchMeshFile(blobPathname);
 	const sha256 = sha256Hex(bytes);
 
 	const existing = await prisma.catalogueImport.findUnique({
@@ -43,20 +43,16 @@ export async function POST(request: Request) {
 	if (existing) {
 		// This exact file was already imported under a different upload — the
 		// new blob is a duplicate of bytes we already have, not new evidence.
-		await deleteSkpFile(blobPathname);
+		await deleteMeshFile(blobPathname);
 		return NextResponse.json(
 			{ error: "duplicate", importId: existing.id },
 			{ status: 409 },
 		);
 	}
 
-	let draft: ReturnType<typeof extractCatalogue>;
+	let draft: CatalogueDraft;
 	try {
-		const arrayBuffer = bytes.buffer.slice(
-			bytes.byteOffset,
-			bytes.byteOffset + bytes.byteLength,
-		) as ArrayBuffer;
-		draft = extractCatalogue(readSkp(arrayBuffer));
+		draft = readMeshArchive(bytes).draft;
 	} catch (error) {
 		// Leave the blob in place — a parse failure is exactly when a human
 		// needs to go look at the raw file.

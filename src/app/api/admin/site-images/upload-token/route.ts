@@ -10,10 +10,10 @@ export const runtime = "nodejs";
 
 /**
  * Token route for dropping a homepage photo straight to Blob from the
- * browser, same shape as the `.skp` one — Vercel Functions cap request
+ * browser, same shape as the design-import one — Vercel Functions cap request
  * bodies at 4.5MB, so the file never passes through a route handler.
  *
- * Public access, unlike `.skp`: these render on the public homepage, so a
+ * Public access, unlike a design file: these render on the public homepage, so a
  * private blob would be useless. Auth on *writing* is still enforced —
  * middleware gates `/api/admin/*`, so an anonymous caller never gets a
  * token in the first place.

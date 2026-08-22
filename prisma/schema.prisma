@@ -18,8 +18,9 @@ enum CatalogueStatus {
   DISCARDED
 }
 
-/// One `.skp` job file and the draft `lib/skp` extracted from it. Immutable —
-/// the draft is what the extractor said, never what a human later edited.
+/// One design export (a zipped OBJ folder) and the draft `lib/mesh` extracted
+/// from it. Immutable — the draft is what the extractor said, never what a
+/// human later edited; the human's version is the CatalogueVersion it links to.
 model CatalogueImport {
   id            String   @id @default(cuid())
   filename      String

@@ -14,6 +14,24 @@ const sizeOptionSchema = z.object({
 });
 export type SizeOption = z.infer<typeof sizeOptionSchema>;
 
+/**
+ * What a cabinet is made of, as read off the design file it was imported from.
+ * This is what lets two families of the same box look different in the scene:
+ * a six-shelf tall unit draws six shelves.
+ *
+ * Optional, for the same reason `construction` is: catalogues published before
+ * design intake existed have to keep validating. `Cabinet.tsx` falls back to
+ * its own defaults when it is absent.
+ */
+const cabinetGeometrySchema = z.object({
+	shelves: z.number().int().min(0),
+	fixedShelves: z.number().int().min(0),
+	doorLeaves: z.number().int().min(0),
+	drawers: z.number().int().min(0),
+	hasBack: z.boolean(),
+});
+export type CabinetGeometry = z.infer<typeof cabinetGeometrySchema>;
+
 export const familySchema = z.object({
 	id: z.string(),
 	label: z.string(),
@@ -24,6 +42,7 @@ export const familySchema = z.object({
 	sizes: z.array(sizeOptionSchema).min(1),
 	hasWorktop: z.boolean(),
 	drawers: z.number().int().min(0),
+	geometry: cabinetGeometrySchema.optional(),
 	note: z.string().optional(),
 });
 export type Family = z.infer<typeof familySchema>;

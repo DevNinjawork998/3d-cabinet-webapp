@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/catalogue/db";
 import {
-	deleteSkpFile,
-	fetchSkpFile,
+	deleteMeshFile,
+	fetchMeshFile,
 	sha256Hex,
-} from "@/lib/catalogue/skpBlob";
+} from "@/lib/catalogue/meshBlob";
 
 export const runtime = "nodejs";
 
@@ -40,7 +40,7 @@ export async function GET() {
 	return NextResponse.json({ designs });
 }
 
-/** Uploads store metadata only — no server-side .skp parsing here, unlike
+/** Uploads store metadata only — no server-side geometry parsing here, unlike
  * catalogue/imports. This is a flat reference catalog, not the versioned
  * pricing catalogue. */
 export async function POST(request: Request) {
@@ -54,12 +54,12 @@ export async function POST(request: Request) {
 	}
 	const { blobPathname, ...data } = parsed.data;
 
-	const bytes = await fetchSkpFile(blobPathname);
+	const bytes = await fetchMeshFile(blobPathname);
 	const sha256 = sha256Hex(bytes);
 
 	const existing = await prisma.cabinetDesign.findUnique({ where: { sha256 } });
 	if (existing) {
-		await deleteSkpFile(blobPathname);
+		await deleteMeshFile(blobPathname);
 		return NextResponse.json(
 			{ error: "duplicate", designId: existing.id },
 			{ status: 409 },
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
 		where: { sku: data.sku },
 	});
 	if (skuTaken) {
-		await deleteSkpFile(blobPathname);
+		await deleteMeshFile(blobPathname);
 		return NextResponse.json({ error: "sku_taken" }, { status: 409 });
 	}
 
