@@ -1,4 +1,10 @@
-import type { PlannerCatalogue } from "./catalogueSchema";
+import type {
+	Family,
+	Finish,
+	PlannerCatalogue,
+	RoomType,
+	SizeOption,
+} from "./catalogueSchema";
 
 /**
  * The room planner's product catalogue.
@@ -25,29 +31,15 @@ export type ModuleKind = "base" | "wall" | "tall";
 
 export type RoomTypeId = "kitchen" | "living" | "bedroom" | "foyer";
 
-export type SizeOption = {
-	widthMm: number;
-	/** PLACEHOLDER — RM for this carcass at this width. */
-	priceRm: number;
-};
-
-export type Family = {
-	id: string;
-	label: string;
-	kind: ModuleKind;
-	depthMm: number;
-	heightMm: number;
-	/** Underside above the floor. Wall units hang; everything else stands. */
-	floorHeightMm: number;
-	/** The size ladder, each rung priced on its own. */
-	sizes: SizeOption[];
-	/** Does a worktop run over it? Base runs and TV ledges yes, shoe racks no. */
-	hasWorktop: boolean;
-	/** Drawer fronts instead of doors, when this family is a drawer stack. */
-	drawers: number;
-	/** A one-line note for the palette card. */
-	note?: string;
-};
+/**
+ * The catalogue's shapes are owned by `catalogueSchema.ts` and inferred from
+ * its Zod schemas — re-exported here so the many consumers that already
+ * import from this file don't all have to change. Declaring them a second
+ * time by hand is what CLAUDE.md's "Zod is the single source of truth for
+ * types" rule exists to prevent: the copies drift, and the schema is the one
+ * that actually validates.
+ */
+export type { Family, Finish, RoomType, SizeOption };
 
 /**
  * Workshop constants a published catalogue can override — board thickness,
@@ -288,6 +280,12 @@ export function defaultWidthMm(familyId: string): number {
 
 // ------------------------------------------------------------------ doors --
 
+/**
+ * Deliberately NOT the schema's `DoorStyle`: that one keys prices by string,
+ * because JSON object keys always are. In memory the ladder is looked up by
+ * a number (`doorPriceRm`), so `setActivePlannerCatalogue` re-keys on the way
+ * in and this is the shape everything downstream sees.
+ */
 export type DoorStyle = {
 	id: string;
 	label: string;
@@ -408,16 +406,6 @@ export function doorPriceRmIn(
 }
 
 // ------------------------------------------------------------------ rooms --
-
-export type RoomType = {
-	id: RoomTypeId;
-	label: string;
-	/** Families offered, in palette order. */
-	familyIds: string[];
-	/** What the room opens on, so it is never a blank wall. */
-	starter: Array<{ familyId: string; widthMm: number }>;
-	defaultWallWidthMm: number;
-};
 
 export const ROOM_TYPES: RoomType[] = [
 	{
@@ -547,8 +535,6 @@ export function setActivePlannerCatalogue(catalogue: PlannerCatalogue): void {
  * names their sales team already says out loud. One colour applies to the
  * whole room, which is how they sell it.
  */
-export type Finish = { id: string; label: string; hex: string };
-
 export const FINISHES: Finish[] = [
 	{ id: "strata-noir", label: "Strata Noir", hex: "#393939" },
 	{ id: "rhone-oak", label: "Rhone Oak", hex: "#d1af81" },

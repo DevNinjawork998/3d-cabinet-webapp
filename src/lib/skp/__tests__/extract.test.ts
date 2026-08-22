@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { extractCatalogue, slugify } from "../extract";
-import { toCataloguePatch } from "../patch";
 import { readSkp } from "../read";
 
 /**
@@ -154,17 +153,5 @@ describe("slugify", () => {
 	it("makes catalogue-shaped ids", () => {
 		expect(slugify("Strata Noir")).toBe("strata-noir");
 		expect(slugify("Color_Soft Gray")).toBe("color-soft-gray");
-	});
-});
-
-describe("toCataloguePatch", () => {
-	it("emits reviewable TypeScript with rates left blank", () => {
-		const patch = toCataloguePatch(draft, "flat-pack.skp");
-		expect(patch).toContain("export const PANEL_THICKNESS_MM = 16;");
-		expect(patch).toContain('name: "Base Cabinet"');
-		expect(patch).toContain('"strata-noir"');
-		// Money never comes out of geometry.
-		expect(patch).toContain("surchargeRmPerFt: 0");
-		expect(patch).toContain("GENERATED DRAFT");
 	});
 });

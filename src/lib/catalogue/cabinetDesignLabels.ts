@@ -1,9 +1,6 @@
-import type { RoomTypeId } from "@/lib/planner/catalogue";
-
-/** Shared between the admin upload form (`/admin/cabinet-designs`), the
- * public gallery (`/designs`), and the CabinetDesign→Family bridge — one
- * vocabulary for the `CabinetDesign` table's enums, not copies drifting
- * apart. */
+/** One vocabulary for the `CabinetDesign` table's enums, so the admin upload
+ * form and its table read the same labels rather than each spelling them
+ * out. */
 
 export type Category =
 	| "BASE_CABINET"
@@ -48,13 +45,4 @@ export const ROOM_LABELS: Record<Room, string> = {
 	LIVING_ROOM: "Living room",
 	BEDROOM: "Bedroom",
 	FOYER: "Foyer",
-};
-
-/** `CabinetDesign.room` only covers the planner's rooms — nothing here
- * targets the wardrobe product. */
-export const ROOM_TO_PLANNER: Record<Room, RoomTypeId> = {
-	KITCHEN: "kitchen",
-	LIVING_ROOM: "living",
-	BEDROOM: "bedroom",
-	FOYER: "foyer",
 };

@@ -31,20 +31,19 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.8",
+		"@biomejs/biome": "^2.5.9",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^20.19.43",
-		"@types/pg": "^8.21.0",
+		"@types/pg": "^8.23.1",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.4",
 		"@types/three": "^0.185.4",
 		"dotenv": "^17.4.2",
-		"pngjs": "^7.0.0",
 		"prisma": "^7.9.1",
 		"tailwindcss": "^4.3.3",
 		"tsx": "^4.23.12",
 		"typescript": "^5.9.3",
-		"vitest": "^4.1.10"
+		"vitest": "^4.1.11"
 	},
 	"packageManager": "pnpm@11.20.0"
 }

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { chipClass, fieldClass } from "@/components/admin/styles";
 import {
 	CATEGORIES,
 	CATEGORY_LABELS,
@@ -36,12 +37,6 @@ type CabinetDesign = {
 };
 
 const FINISH_OPTIONS = ["Slab", "Shaker", "Glass"];
-
-function fieldClass(hasError: boolean, extra = "") {
-	return `w-full rounded-lg border px-2.5 py-2 text-sm ${
-		hasError ? "border-red-400 bg-red-50" : "border-neutral-300"
-	} ${extra}`;
-}
 
 /** What the API's zod schema actually requires, mirrored here so the form
  * can flag missing fields before a round trip — same rules, human labels. */
@@ -92,14 +87,6 @@ function emptyForm(): Form {
 	};
 }
 
-function chipClass(active: boolean) {
-	return `min-h-8 rounded-full border px-3.5 py-2 text-xs font-medium ${
-		active
-			? "border-neutral-900 bg-neutral-900 text-white"
-			: "border-neutral-200 bg-white text-neutral-600"
-	}`;
-}
-
 export default function CabinetDesignsPage() {
 	const router = useRouter();
 	const [designs, setDesigns] = useState<CabinetDesign[]>([]);
@@ -117,20 +104,6 @@ export default function CabinetDesignsPage() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [missing, setMissing] = useState<Set<string>>(new Set());
-
-	const [publishTarget, setPublishTarget] = useState<CabinetDesign | null>(
-		null,
-	);
-	const [publishJson, setPublishJson] = useState("");
-	const [publishState, setPublishState] = useState<
-		| { status: "loading" }
-		| { status: "review" }
-		| { status: "saving" }
-		| { status: "draft"; id: string }
-		| { status: "publishing"; id: string }
-		| { status: "published"; id: string }
-		| { status: "error"; message: string }
-	>({ status: "loading" });
 
 	async function load() {
 		setLoading(true);
@@ -209,94 +182,6 @@ export default function CabinetDesignsPage() {
 				? f.finishes.filter((v) => v !== label)
 				: [...f.finishes, label],
 		}));
-	}
-
-	/** Fetch the live PLANNER catalogue, merge this design into it as a Family,
-	 * and open the review panel — publish is a separate, explicit step from
-	 * here (`publishCatalogueDraft`), same safety posture as `/admin/import`. */
-	async function openPublishToPlanner(d: CabinetDesign) {
-		setPublishTarget(d);
-		setPublishState({ status: "loading" });
-		try {
-			const { toFamily, mergeFamilyIntoCatalogue, toRoomTypeId } = await import(
-				"@/lib/catalogue/cabinetDesignToFamily"
-			);
-			const res = await fetch(
-				"/api/admin/catalogue/versions?product=PLANNER&include=data",
-			);
-			const body = await res.json();
-			const published = body.versions?.find(
-				(v: { status: string }) => v.status === "PUBLISHED",
-			);
-			if (!published) {
-				setPublishState({
-					status: "error",
-					message: "No published planner catalogue found",
-				});
-				return;
-			}
-			const family = toFamily(d);
-			const merged = mergeFamilyIntoCatalogue(
-				published.data,
-				family,
-				toRoomTypeId(d.room),
-			);
-			setPublishJson(JSON.stringify(merged, null, 2));
-			setPublishState({ status: "review" });
-		} catch (e) {
-			setPublishState({
-				status: "error",
-				message: e instanceof Error ? e.message : String(e),
-			});
-		}
-	}
-
-	function closePublishPanel() {
-		setPublishTarget(null);
-	}
-
-	async function saveCatalogueDraft() {
-		setPublishState({ status: "saving" });
-		let data: unknown;
-		try {
-			data = JSON.parse(publishJson);
-		} catch {
-			setPublishState({ status: "error", message: "not valid JSON" });
-			return;
-		}
-		const res = await fetch("/api/admin/catalogue/versions", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				product: "PLANNER",
-				data,
-				note: publishTarget
-					? `Published "${publishTarget.name}" (${publishTarget.sku}) into the planner catalogue`
-					: undefined,
-			}),
-		});
-		const body = await res.json();
-		if (!res.ok) {
-			setPublishState({
-				status: "error",
-				message: JSON.stringify(body.issues ?? body.error),
-			});
-			return;
-		}
-		setPublishState({ status: "draft", id: body.id });
-	}
-
-	async function publishCatalogueDraft(id: string) {
-		setPublishState({ status: "publishing", id });
-		const res = await fetch(`/api/admin/catalogue/versions/${id}/publish`, {
-			method: "POST",
-		});
-		const body = await res.json();
-		if (!res.ok) {
-			setPublishState({ status: "error", message: body.error });
-			return;
-		}
-		setPublishState({ status: "published", id });
 	}
 
 	async function toggleArchive(d: CabinetDesign) {
@@ -613,13 +498,6 @@ export default function CabinetDesignsPage() {
 											>
 												{d.status === "PUBLISHED" ? "Archive" : "Publish"}
 											</button>
-											<button
-												type="button"
-												onClick={() => openPublishToPlanner(d)}
-												className="ml-3 text-neutral-600 text-xs underline"
-											>
-												Add to planner
-											</button>
 										</td>
 									</tr>
 								))}
@@ -709,7 +587,7 @@ export default function CabinetDesignsPage() {
 									value={form.name}
 									onChange={(e) => setField("name", e.target.value)}
 									placeholder="e.g. Drawer base 400"
-									className={fieldClass(missing.has("name"))}
+									className={fieldClass(missing.has("name"), "w-full")}
 								/>
 								{missing.has("name") && (
 									<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -764,7 +642,7 @@ export default function CabinetDesignsPage() {
 											value={form.w}
 											onChange={(e) => setField("w", e.target.value)}
 											placeholder="W"
-											className={fieldClass(missing.has("w"))}
+											className={fieldClass(missing.has("w"), "w-full")}
 										/>
 										{missing.has("w") && (
 											<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -776,7 +654,7 @@ export default function CabinetDesignsPage() {
 											value={form.h}
 											onChange={(e) => setField("h", e.target.value)}
 											placeholder="H"
-											className={fieldClass(missing.has("h"))}
+											className={fieldClass(missing.has("h"), "w-full")}
 										/>
 										{missing.has("h") && (
 											<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -788,7 +666,7 @@ export default function CabinetDesignsPage() {
 											value={form.d}
 											onChange={(e) => setField("d", e.target.value)}
 											placeholder="D"
-											className={fieldClass(missing.has("d"))}
+											className={fieldClass(missing.has("d"), "w-full")}
 										/>
 										{missing.has("d") && (
 											<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -807,7 +685,7 @@ export default function CabinetDesignsPage() {
 										value={form.price}
 										onChange={(e) => setField("price", e.target.value)}
 										placeholder="0.00"
-										className={fieldClass(missing.has("price"))}
+										className={fieldClass(missing.has("price"), "w-full")}
 									/>
 									{missing.has("price") && (
 										<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -822,7 +700,10 @@ export default function CabinetDesignsPage() {
 										value={form.sku}
 										onChange={(e) => setField("sku", e.target.value)}
 										placeholder="ICB-0000"
-										className={fieldClass(missing.has("sku"), "font-mono")}
+										className={fieldClass(
+											missing.has("sku"),
+											"w-full font-mono",
+										)}
 									/>
 									{missing.has("sku") && (
 										<p className="mt-1 text-[11px] text-red-600">Required</p>
@@ -934,91 +815,6 @@ export default function CabinetDesignsPage() {
 										? "Save changes"
 										: "Upload design"}
 							</button>
-						</div>
-					</div>
-				</div>
-			)}
-
-			{publishTarget && (
-				<div className="fixed inset-0 z-20 flex justify-end bg-neutral-900/30">
-					<div className="flex h-full w-full max-w-[560px] flex-col overflow-y-auto bg-white shadow-2xl">
-						<div className="sticky top-0 z-10 flex items-center justify-between border-neutral-200 border-b bg-white px-5.5 py-4.5">
-							<p className="font-semibold text-[15px]">
-								Add "{publishTarget.name}" to the planner catalogue
-							</p>
-							<button
-								type="button"
-								onClick={closePublishPanel}
-								className="text-lg text-neutral-400 leading-none"
-							>
-								×
-							</button>
-						</div>
-
-						<div className="flex flex-1 flex-col gap-3 p-5.5">
-							{publishState.status === "loading" && (
-								<p className="text-neutral-500 text-sm">
-									Loading the live planner catalogue…
-								</p>
-							)}
-							{publishState.status === "error" && (
-								<p className="rounded border border-red-300 bg-red-50 p-2.5 text-red-900 text-sm">
-									{publishState.message}
-								</p>
-							)}
-
-							{(publishState.status === "review" ||
-								publishState.status === "saving" ||
-								publishState.status === "error") && (
-								<>
-									<p className="text-neutral-500 text-xs">
-										Merged into the current catalogue as a new family. Review
-										before saving — this becomes a draft, not live, until you
-										publish it.
-									</p>
-									<textarea
-										value={publishJson}
-										onChange={(e) => setPublishJson(e.target.value)}
-										rows={20}
-										className="w-full flex-1 rounded border border-neutral-300 p-2 font-mono text-xs"
-									/>
-									<button
-										type="button"
-										onClick={saveCatalogueDraft}
-										disabled={publishState.status === "saving"}
-										className="self-end rounded-full border border-neutral-300 px-4 py-2 text-sm hover:border-neutral-500 disabled:opacity-50"
-									>
-										{publishState.status === "saving"
-											? "Saving…"
-											: "Save as draft"}
-									</button>
-								</>
-							)}
-
-							{publishState.status === "draft" && (
-								<>
-									<p className="text-neutral-500 text-sm">
-										Saved as draft {publishState.id}. Publishing makes it live
-										for every customer.
-									</p>
-									<button
-										type="button"
-										onClick={() => publishCatalogueDraft(publishState.id)}
-										className="self-start rounded-full bg-neutral-900 px-4 py-2 text-sm text-white"
-									>
-										Publish
-									</button>
-								</>
-							)}
-							{publishState.status === "publishing" && (
-								<p className="text-neutral-500 text-sm">Publishing…</p>
-							)}
-							{publishState.status === "published" && (
-								<p className="text-green-700 text-sm">
-									Published as version {publishState.id}. Live in the planner
-									shortly.
-								</p>
-							)}
 						</div>
 					</div>
 				</div>

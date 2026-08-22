@@ -1,26 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import type { CatalogueDraft } from "@/lib/skp/extract";
 
 /**
- * Sales-side tool: drop a Mozaik `.skp` export in, read out the module
- * standard, and either download it as a catalogue patch (the original,
- * still-supported path — costs nothing to leave in as a fallback) or upload
- * it to the server, review a full catalogue JSON against it, and publish.
+ * Sales-side tool: drop a Mozaik `.skp` export in and read out the module
+ * standard it was drawn to.
  *
- * Local parse is unchanged and still happens first, for the instant preview
- * table. The upload step is separate and re-parses server-side — the
- * published catalogue is never derived from anything the client computed
- * (see the DB-backed-catalogue plan's "never parse bytes the server didn't
- * see" rule).
+ * Parse happens twice, deliberately. Locally first, for the instant preview
+ * table; then again server-side on upload, because the published catalogue
+ * is never derived from anything the client computed ("never parse bytes the
+ * server didn't see").
+ *
+ * This page stops at storing the job. Turning its modules into priced
+ * families is a separate step in `/admin/catalogue` — geometry carries no
+ * money, so that decision stays a human's.
  */
 
 type LocalState =
 	| { status: "idle" }
 	| { status: "reading"; name: string }
-	| { status: "done"; file: File; draft: CatalogueDraft; patch: string }
+	| { status: "done"; file: File; draft: CatalogueDraft }
 	| { status: "error"; message: string };
 
 type UploadState =
@@ -31,40 +33,25 @@ type UploadState =
 	| { status: "duplicate"; importId: string }
 	| { status: "error"; message: string };
 
-type PublishState =
-	| { status: "idle" }
-	| { status: "saving" }
-	| { status: "draft"; id: string }
-	| { status: "publishing" }
-	| { status: "published"; id: string }
-	| { status: "error"; message: string };
-
 export default function ImportPage() {
 	const [local, setLocal] = useState<LocalState>({ status: "idle" });
 	const [upload, setUpload] = useState<UploadState>({ status: "idle" });
-	const [catalogueJson, setCatalogueJson] = useState("");
-	const [publish, setPublish] = useState<PublishState>({ status: "idle" });
 
 	async function handleFile(file: File) {
 		setLocal({ status: "reading", name: file.name });
 		setUpload({ status: "idle" });
-		setPublish({ status: "idle" });
 		try {
 			// Loaded on demand: the parser is a chunk the public configurator must
 			// never pay for.
-			const [{ readSkp }, { extractCatalogue }, { toCataloguePatch }] =
-				await Promise.all([
-					import("@/lib/skp/read"),
-					import("@/lib/skp/extract"),
-					import("@/lib/skp/patch"),
-				]);
+			const [{ readSkp }, { extractCatalogue }] = await Promise.all([
+				import("@/lib/skp/read"),
+				import("@/lib/skp/extract"),
+			]);
 
-			const draft = extractCatalogue(readSkp(await file.arrayBuffer()));
 			setLocal({
 				status: "done",
 				file,
-				draft,
-				patch: toCataloguePatch(draft, file.name),
+				draft: extractCatalogue(readSkp(await file.arrayBuffer())),
 			});
 		} catch (error) {
 			setLocal({
@@ -72,17 +59,6 @@ export default function ImportPage() {
 				message: error instanceof Error ? error.message : String(error),
 			});
 		}
-	}
-
-	function download(patch: string, name: string) {
-		const url = URL.createObjectURL(
-			new Blob([patch], { type: "text/plain;charset=utf-8" }),
-		);
-		const link = document.createElement("a");
-		link.href = url;
-		link.download = `${name.replace(/\.skp$/i, "")}-catalogue.ts`;
-		link.click();
-		URL.revokeObjectURL(url);
 	}
 
 	async function uploadToServer(file: File) {
@@ -120,62 +96,12 @@ export default function ImportPage() {
 				return;
 			}
 			setUpload({ status: "done", importId: body.importId, draft: body.draft });
-
-			// Seed the review textarea with the currently-live catalogue, as a
-			// starting point to edit against the draft table above — never
-			// auto-mapped from the draft (see the plan: that's a human's product
-			// decision, not something geometry can invent).
-			const live = await fetch(
-				"/api/admin/catalogue/versions?product=PLANNER&include=data",
-			).then((r) => r.json());
-			const published = live.versions?.find(
-				(v: { status: string }) => v.status === "PUBLISHED",
-			);
-			if (published) setCatalogueJson(JSON.stringify(published.data, null, 2));
 		} catch (error) {
 			setUpload({
 				status: "error",
 				message: error instanceof Error ? error.message : String(error),
 			});
 		}
-	}
-
-	async function saveDraft(importId: string) {
-		setPublish({ status: "saving" });
-		let data: unknown;
-		try {
-			data = JSON.parse(catalogueJson);
-		} catch {
-			setPublish({ status: "error", message: "not valid JSON" });
-			return;
-		}
-		const res = await fetch("/api/admin/catalogue/versions", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ product: "PLANNER", data, importId }),
-		});
-		const body = await res.json();
-		if (!res.ok) {
-			setPublish({
-				status: "error",
-				message: JSON.stringify(body.issues ?? body.error),
-			});
-			return;
-		}
-		setPublish({ status: "draft", id: body.id });
-	}
-
-	async function publishDraft(id: string) {
-		setPublish({ status: "publishing" });
-		const res = await fetch(`/api/admin/catalogue/versions/${id}/publish`, {
-			method: "POST",
-		});
-		const body = await res.json();
-		if (!res.ok) {
-			setPublish({ status: "error", message: body.error });
-			return;
-		}
-		setPublish({ status: "published", id });
 	}
 
 	return (
@@ -218,13 +144,19 @@ export default function ImportPage() {
 
 				{local.status === "done" && (
 					<>
-						<Draft
-							draft={local.draft}
-							onDownload={() => download(local.patch, local.file.name)}
-						/>
+						<Draft draft={local.draft} />
 
 						<div className="space-y-3 rounded-lg border border-neutral-200 p-4">
-							<h2 className="font-medium text-sm">Publish from this job</h2>
+							<h2 className="font-medium text-sm">Keep this job</h2>
+							<p className="text-neutral-500 text-sm">
+								Uploading stores the file and re-parses it on the server, which
+								is the only copy allowed to become a catalogue. Turning the
+								modules above into families is a separate, deliberate step in{" "}
+								<Link href="/admin/catalogue" className="underline">
+									Catalogue
+								</Link>
+								— geometry can't invent a price, so that stays a human's call.
+							</p>
 							{upload.status === "idle" && (
 								<button
 									type="button"
@@ -251,53 +183,10 @@ export default function ImportPage() {
 							{upload.status === "error" && (
 								<p className="text-red-700 text-sm">{upload.message}</p>
 							)}
-
 							{upload.status === "done" && (
-								<div className="space-y-2">
-									<p className="text-neutral-500 text-xs">
-										Server-parsed import {upload.importId}. Edit the catalogue
-										below against the module table above, then save as a draft.
-									</p>
-									<textarea
-										value={catalogueJson}
-										onChange={(e) => setCatalogueJson(e.target.value)}
-										rows={14}
-										className="w-full rounded border border-neutral-300 p-2 font-mono text-xs"
-									/>
-									{publish.status === "idle" && (
-										<button
-											type="button"
-											onClick={() => saveDraft(upload.importId)}
-											className="rounded-full border border-neutral-300 px-4 py-2 text-sm hover:border-neutral-500"
-										>
-											Save as draft
-										</button>
-									)}
-									{publish.status === "saving" && (
-										<p className="text-neutral-500 text-sm">Saving…</p>
-									)}
-									{publish.status === "error" && (
-										<p className="text-red-700 text-sm">{publish.message}</p>
-									)}
-									{publish.status === "draft" && (
-										<button
-											type="button"
-											onClick={() => publishDraft(publish.id)}
-											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white"
-										>
-											Publish draft {publish.id}
-										</button>
-									)}
-									{publish.status === "publishing" && (
-										<p className="text-neutral-500 text-sm">Publishing…</p>
-									)}
-									{publish.status === "published" && (
-										<p className="text-green-700 text-sm">
-											Published as version {publish.id}. Live catalogue reads
-											will pick it up shortly.
-										</p>
-									)}
-								</div>
+								<p className="text-green-700 text-sm">
+									Stored and parsed as import {upload.importId}.
+								</p>
 							)}
 						</div>
 					</>
@@ -307,28 +196,15 @@ export default function ImportPage() {
 	);
 }
 
-function Draft({
-	draft,
-	onDownload,
-}: {
-	draft: CatalogueDraft;
-	onDownload: () => void;
-}) {
+function Draft({ draft }: { draft: CatalogueDraft }) {
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between gap-4 rounded-lg border border-neutral-200 p-3">
+			<div className="rounded-lg border border-neutral-200 p-3">
 				<p className="text-sm">
 					<span className="font-medium">{draft.modules.length} modules</span>,{" "}
 					{draft.finishes.length} finishes, {draft.hardware.length} hardware
 					items — built from {draft.panelThicknessMm}mm board.
 				</p>
-				<button
-					type="button"
-					onClick={onDownload}
-					className="shrink-0 rounded-full bg-neutral-900 px-4 py-2 text-sm text-white"
-				>
-					Download catalogue patch
-				</button>
 			</div>
 
 			{draft.warnings.length > 0 && (

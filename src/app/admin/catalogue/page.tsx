@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
 import {
 	type PlannerCatalogue,
@@ -46,12 +47,6 @@ type SaveState =
 	| { status: "published" }
 	| { status: "error"; message: string };
 
-function field(hasError: boolean, extra = "") {
-	return `rounded-md border px-2 py-1.5 text-sm ${
-		hasError ? "border-red-400 bg-red-50" : "border-neutral-300"
-	} ${extra}`;
-}
-
 /**
  * These three own their own `<label>` rather than being wrapped in one by the
  * caller: a `<label>` around a component reads as unlabelled to a screen
@@ -85,7 +80,7 @@ function Num({
 				value={Number.isFinite(value) ? value : ""}
 				min={min}
 				onChange={(e) => onChange(Number(e.target.value))}
-				className={field(
+				className={fieldClass(
 					!Number.isFinite(value) || value < min,
 					`${width} tabular-nums`,
 				)}
@@ -121,7 +116,7 @@ function Text({
 				placeholder={placeholder}
 				aria-label={label ? undefined : placeholder}
 				onChange={(e) => onChange(e.target.value)}
-				className={field(!value.trim(), width)}
+				className={fieldClass(!value.trim(), width)}
 			/>
 		</div>
 	);
@@ -148,7 +143,7 @@ function Select<T extends string>({
 				id={id}
 				value={value}
 				onChange={(e) => onChange(e.target.value as T)}
-				className={field(false, "bg-white")}
+				className={fieldClass(false, "bg-white")}
 			>
 				{options.map((o) => (
 					<option key={o.value} value={o.value}>

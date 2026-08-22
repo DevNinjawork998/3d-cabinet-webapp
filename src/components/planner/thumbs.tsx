@@ -1,5 +1,4 @@
-import type { DoorStyle, Family, FinishId } from "@/lib/planner/catalogue";
-import { FINISHES } from "@/lib/planner/catalogue";
+import type { Family } from "@/lib/planner/catalogue";
 
 /** Tiny elevation of a family, drawn from its own proportions. */
 export function FamilyThumb({ family: option }: { family: Family }) {
@@ -52,42 +51,6 @@ export function FamilyThumb({ family: option }: { family: Family }) {
 					/>
 				);
 			})}
-		</svg>
-	);
-}
-
-/** A door style swatch, in the room's chosen colour. */
-function DoorThumb({ style, finish }: { style: DoorStyle; finish: FinishId }) {
-	const hex = FINISHES.find((f) => f.id === finish)?.hex ?? "#ffffff";
-	return (
-		<svg
-			viewBox="0 0 60 50"
-			className="h-10 w-full"
-			role="img"
-			aria-label={`${style.label} door`}
-		>
-			<title>{`${style.label} door`}</title>
-			<rect
-				x={8}
-				y={2}
-				width={44}
-				height={46}
-				fill={hex}
-				stroke="#3f3b36"
-				strokeWidth={1}
-			/>
-			{style.look !== "slab" && (
-				<rect
-					x={15}
-					y={9}
-					width={30}
-					height={32}
-					fill={style.look === "glass" ? "#dfe9ec" : hex}
-					fillOpacity={style.look === "glass" ? 0.8 : 1}
-					stroke="#3f3b36"
-					strokeWidth={0.8}
-				/>
-			)}
 		</svg>
 	);
 }

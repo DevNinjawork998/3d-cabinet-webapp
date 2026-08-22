@@ -153,6 +153,12 @@ export default async function Home() {
 						>
 							FAQ
 						</a>
+						<Link
+							href="/tutorials"
+							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
+						>
+							Tutorials
+						</Link>
 					</div>
 					<div className="flex items-center gap-4">
 						<Link
