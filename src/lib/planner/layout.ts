@@ -1,4 +1,6 @@
 import {
+	CEILING_LIMITS,
+	DEFAULT_CEILING_MM,
 	DEFAULT_ROOM_DEPTH_MM,
 	defaultWidthMm,
 	type Family,
@@ -49,6 +51,8 @@ export type PlannerLayout = {
 	wallWidthMm: number;
 	/** Front-to-back room depth — the customer's, not a catalogue figure. */
 	roomDepthMm: number;
+	/** Floor to ceiling. Also the customer's; see `setCeilingHeight`. */
+	ceilingHeightMm: number;
 	/** Underside of the wall cabinets. They line up, as a real kitchen does. */
 	hangingHeightMm: number;
 	/** Floor row: base and tall units. */
@@ -71,9 +75,11 @@ export const rowFor = (kind: ModuleKind): Row =>
 export const emptyLayout = (
 	wallWidthMm: number,
 	roomDepthMm: number = DEFAULT_ROOM_DEPTH_MM,
+	ceilingHeightMm: number = DEFAULT_CEILING_MM,
 ): PlannerLayout => ({
 	wallWidthMm,
 	roomDepthMm,
+	ceilingHeightMm,
 	hangingHeightMm: WALL_CABINET_FLOOR_MM,
 	floor: [],
 	wall: [],
@@ -608,6 +614,24 @@ export function setRoomDepth(
 	return clamped === layout.roomDepthMm
 		? layout
 		: { ...layout, roomDepthMm: clamped };
+}
+
+/**
+ * Set the floor-to-ceiling height the customer measured. Like room depth this
+ * changes nothing a cabinet is made of — it moves the back wall and the camera
+ * framing, which is what makes a tall unit read as tall.
+ */
+export function setCeilingHeight(
+	layout: PlannerLayout,
+	ceilingHeightMm: number,
+): PlannerLayout {
+	const clamped = Math.min(
+		CEILING_LIMITS.maxMm,
+		Math.max(CEILING_LIMITS.minMm, Math.round(ceilingHeightMm)),
+	);
+	return clamped === layout.ceilingHeightMm
+		? layout
+		: { ...layout, ceilingHeightMm: clamped };
 }
 
 /** How far the run overhangs the wall, if at all. */

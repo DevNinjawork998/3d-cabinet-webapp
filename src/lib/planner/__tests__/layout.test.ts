@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { FAMILIES, family, ROOM_DEPTH_LIMITS, ROOM_TYPES } from "../catalogue";
+import {
+	CEILING_LIMITS,
+	FAMILIES,
+	family,
+	ROOM_DEPTH_LIMITS,
+	ROOM_TYPES,
+} from "../catalogue";
 import {
 	addModule,
 	closeGaps,
@@ -20,6 +26,7 @@ import {
 	removeModules,
 	rowFor,
 	SNAP_MM,
+	setCeilingHeight,
 	setDoor,
 	setDoors,
 	setHangingHeight,
@@ -374,6 +381,30 @@ describe("wall length", () => {
 		const shorter = setWallWidth(next, 1600);
 		expect(overhangMm(shorter)).toBeGreaterThan(0);
 		expect(overhangMm(closeGaps(shorter))).toBe(0);
+	});
+});
+
+describe("ceiling height", () => {
+	it("starts at a real default and can be changed", () => {
+		expect(layout.ceilingHeightMm).toBe(2700);
+		expect(setCeilingHeight(layout, 3000).ceilingHeightMm).toBe(3000);
+	});
+
+	it("clamps a mistyped figure rather than making an unusable room", () => {
+		expect(setCeilingHeight(layout, 10).ceilingHeightMm).toBe(
+			CEILING_LIMITS.minMm,
+		);
+		expect(setCeilingHeight(layout, 999999).ceilingHeightMm).toBe(
+			CEILING_LIMITS.maxMm,
+		);
+	});
+
+	it("leaves the run alone — a lower ceiling never moves a cabinet", () => {
+		const furnished = starterFor("kitchen");
+		const lower = setCeilingHeight(furnished, 2400);
+		expect(lower.floor).toEqual(furnished.floor);
+		expect(lower.wall).toEqual(furnished.wall);
+		expect(lower.roomDepthMm).toBe(furnished.roomDepthMm);
 	});
 });
 

@@ -79,6 +79,17 @@ export const WALL_GAP_MM = 5;
 export const DEFAULT_ROOM_DEPTH_MM = 3600;
 export const ROOM_DEPTH_LIMITS = { minMm: 2000, maxMm: 8000 } as const;
 
+/**
+ * Ceiling height, same reasoning as room depth: it is the customer's room,
+ * not a catalogue figure. It was a hardcoded 2700 inside the 3D scene until
+ * the planner redesign asked for it on the panel — which is right, because a
+ * tall unit against a 2.4m ceiling and the same unit against a 3.2m one are
+ * visibly different rooms, and that difference is the thing the customer is
+ * trying to picture.
+ */
+export const DEFAULT_CEILING_MM = 2700;
+export const CEILING_LIMITS = { minMm: 2200, maxMm: 3200 } as const;
+
 // ---------------------------------------------------------------- kitchen --
 // Real dimensions, invented prices.
 
