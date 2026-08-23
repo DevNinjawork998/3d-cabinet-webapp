@@ -1,12 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRef, useState } from "react";
 import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
 import { doorStyle, FINISHES, roomType } from "@/lib/planner/catalogue";
 import { allPositions, type PlannerLayout } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { AdminLink, PlannerHeader } from "./PlannerHeader";
 
 const PlannerScene = dynamic(() => import("./PlannerScene"), {
 	ssr: false,
@@ -29,6 +29,7 @@ export function QuoteScreen({
 	finish,
 	finishTextures,
 	onBackToStudioAction,
+	onBackToStartAction,
 }: {
 	roomId: RoomTypeId;
 	layout: PlannerLayout;
@@ -37,6 +38,7 @@ export function QuoteScreen({
 	 * over WhatsApp, so it has to show the same board the planner did. */
 	finishTextures: Record<string, string>;
 	onBackToStudioAction: () => void;
+	onBackToStartAction: () => void;
 }) {
 	const room = roomType(roomId);
 	const price = computePlannerPrice(layout, finish);
@@ -61,26 +63,22 @@ export function QuoteScreen({
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
-			<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
-				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
-					Infinite Cabinet · {room.label} planner
-				</Link>
-				<div className="flex items-center gap-4">
-					<button
-						type="button"
-						onClick={onBackToStudioAction}
-						className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] hover:border-neutral-400"
-					>
-						Back to editing
-					</button>
-					<Link
-						href="/admin/login"
-						className="border-neutral-200 border-l pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
-					>
-						Admin
-					</Link>
-				</div>
-			</div>
+			<PlannerHeader
+				trail={[
+					{ label: "Infinite Cabinet", href: "/" },
+					{ label: "Room planner", onClick: onBackToStartAction },
+					{ label: "Quote" },
+				]}
+			>
+				<button
+					type="button"
+					onClick={onBackToStudioAction}
+					className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] hover:border-neutral-400"
+				>
+					Back to editing
+				</button>
+				<AdminLink />
+			</PlannerHeader>
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				<div className="flex flex-1 flex-col gap-4 overflow-y-auto p-8">

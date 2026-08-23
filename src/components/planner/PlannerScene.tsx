@@ -32,10 +32,26 @@ import { MeasureOverlay } from "./MeasureOverlay";
 import { Room } from "./Room";
 
 const m = (mm: number) => mm / 1000;
-const ROOM_HEIGHT_MM = 2700;
+
+/**
+ * The three ways to look at a run. `3d` is the selling angle; the other two
+ * are the drawings a fitter actually works from, which is why the toggle
+ * exists — a customer checking whether the run clears a window wants a
+ * straight-on elevation, not a perspective view that foreshortens it.
+ *
+ * They are camera positions only. The geometry is identical in all three, so
+ * nothing here can disagree with what gets quoted.
+ */
+export type PlannerView = "3d" | "elevation" | "plan";
 
 /** Looking into the corner, the angle a kitchen elevation is usually sold at. */
-const VIEW_DIRECTION = new Vector3(0.25, 0.42, 1).normalize();
+const VIEW_DIRECTION: Record<PlannerView, Vector3> = {
+	"3d": new Vector3(0.25, 0.42, 1).normalize(),
+	elevation: new Vector3(0, 0, 1),
+	// Not exactly straight down: OrbitControls gimbal-locks looking along its
+	// own up axis, and a hair of tilt is cheaper than a custom controls rig.
+	plan: new Vector3(0, 1, 0.02).normalize(),
+};
 
 /**
  * Where this pointer ray crosses the vertical plane the cabinet stands in, in
@@ -68,9 +84,13 @@ function runXFromRay(
 function FitCamera({
 	runWidthMm,
 	roomDepthMm,
+	ceilingHeightMm,
+	view,
 }: {
 	runWidthMm: number;
 	roomDepthMm: number;
+	ceilingHeightMm: number;
+	view: PlannerView;
 }) {
 	const camera = useThree((s) => s.camera) as PerspectiveCamera;
 	const controls = useThree((s) => s.controls) as {
@@ -81,14 +101,33 @@ function FitCamera({
 
 	useEffect(() => {
 		const width = m(runWidthMm);
-		const height = m(ROOM_HEIGHT_MM);
-		const centre = new Vector3(0, height / 2.2, 0);
+		const height = m(ceilingHeightMm);
+		const depth = m(roomDepthMm);
+		// Plan aims between the wall and the middle of the floor. Dead centre
+		// pushes the run off the top edge — in a one-wall planner everything is
+		// at the back — and aiming at the wall itself spends the frame on floor
+		// nobody is looking at.
+		const centre =
+			view === "plan"
+				? new Vector3(0, 0, -depth / 4)
+				: new Vector3(0, height / 2.2, 0);
 		const halfFovV = (camera.fov * Math.PI) / 360;
 		const halfFovH = Math.atan(Math.tan(halfFovV) * aspect);
-		const radius = Math.hypot(width, height, m(roomDepthMm)) / 2;
+		// Only the axes actually facing the camera should decide the zoom.
+		// Including all three in the flat views frames a diagonal nothing is
+		// on, which reads as the drawing sitting in a corner of a mostly empty
+		// canvas.
+		const radius =
+			view === "plan"
+				? Math.hypot(width, depth) / 2
+				: view === "elevation"
+					? Math.hypot(width, height) / 2
+					: Math.hypot(width, height, depth) / 2;
 		const distance = (radius / Math.sin(Math.min(halfFovV, halfFovH))) * 0.95;
 
-		camera.position.copy(centre).addScaledVector(VIEW_DIRECTION, distance);
+		camera.position
+			.copy(centre)
+			.addScaledVector(VIEW_DIRECTION[view], distance);
 		camera.near = 0.1;
 		camera.far = distance * 6;
 		camera.updateProjectionMatrix();
@@ -97,7 +136,15 @@ function FitCamera({
 			controls.target.copy(centre);
 			controls.update();
 		}
-	}, [runWidthMm, roomDepthMm, aspect, camera, controls]);
+	}, [
+		runWidthMm,
+		roomDepthMm,
+		ceilingHeightMm,
+		view,
+		aspect,
+		camera,
+		controls,
+	]);
 
 	return null;
 }
@@ -321,7 +368,7 @@ function Run({
 			    simply not in its path, so the drag received no moves at all and the
 			    cabinet sat still while the pointer went on without it. */}
 			<mesh
-				position={[0, m(ROOM_HEIGHT_MM) / 2, 0]}
+				position={[0, m(layout.ceilingHeightMm) / 2, 0]}
 				onPointerDown={() => onSelect(null, false)}
 				onPointerMove={(e) => {
 					const drag = dragRef.current;
@@ -345,7 +392,9 @@ function Run({
 					onLayoutChange(next);
 				}}
 			>
-				<planeGeometry args={[m(runWidthMm) * 4, m(ROOM_HEIGHT_MM) * 3]} />
+				<planeGeometry
+					args={[m(runWidthMm) * 4, m(layout.ceilingHeightMm) * 3]}
+				/>
 				<meshBasicMaterial transparent opacity={0} depthWrite={false} />
 			</mesh>
 
@@ -596,6 +645,7 @@ export default function PlannerScene({
 	doorTargetId,
 	measureMode = false,
 	measurePoints = [],
+	view = "3d",
 	onLayoutChangeAction,
 	onSelectAction,
 	onMeasurePickAction,
@@ -618,6 +668,10 @@ export default function PlannerScene({
 	/** While true, clicking a cabinet picks a measurement point instead of
 	 * selecting or dragging it. */
 	measureMode?: boolean;
+	/** Which of the three camera set-ups to frame with. Defaults to `3d` so
+	 * the quote screen's little preview keeps the selling angle without
+	 * having to know the toggle exists. */
+	view?: PlannerView;
 	/** The points picked so far — 0, 1, or 2 of them. */
 	measurePoints?: Vec3Mm[];
 	onLayoutChangeAction: (next: PlannerLayout) => void;
@@ -658,7 +712,7 @@ export default function PlannerScene({
 			<Room
 				width={Math.max(m(runWidthMm) + 1.2, 4)}
 				depth={m(layout.roomDepthMm)}
-				height={m(ROOM_HEIGHT_MM)}
+				height={m(layout.ceilingHeightMm)}
 			/>
 
 			<Run
@@ -682,14 +736,21 @@ export default function PlannerScene({
 			<CabinetHitTest hitTestRef={hitTestRef} />
 			{/* `makeDefault` is what lets Run reach these through useThree and
 			    switch orbiting off for the duration of a cabinet drag. */}
+			{/* Orbiting is off in the flat views: the whole point of asking for
+			    an elevation is that it stays square, and one stray drag that
+			    left it at a slight angle would make it useless for eyeballing
+			    whether a run clears a window. Zoom stays on. */}
 			<OrbitControls
 				makeDefault
 				enablePan={false}
+				enableRotate={view === "3d"}
 				maxPolarAngle={Math.PI / 2 - 0.05}
 			/>
 			<FitCamera
 				runWidthMm={Math.max(runWidthMm, rowEndMm(layout, "floor"))}
 				roomDepthMm={layout.roomDepthMm}
+				ceilingHeightMm={layout.ceilingHeightMm}
+				view={view}
 			/>
 		</Canvas>
 	);

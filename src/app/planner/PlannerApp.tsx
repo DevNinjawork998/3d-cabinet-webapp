@@ -118,6 +118,7 @@ export function PlannerApp({
 				finish={finish}
 				finishTextures={finishTextures}
 				onBackToStudioAction={() => setScreen("studio")}
+				onBackToStartAction={() => setScreen("start")}
 			/>
 		);
 	}

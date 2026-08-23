@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import {
+	CEILING_LIMITS,
 	DOOR_STYLES,
 	FINISHES,
 	type FinishId,
@@ -12,6 +13,7 @@ import {
 	ROOM_TYPES,
 	type RoomTypeId,
 	roomType,
+	WALL_HANG_LIMITS,
 } from "@/lib/planner/catalogue";
 import {
 	addModule,
@@ -26,6 +28,7 @@ import {
 	type Positioned,
 	removeModules,
 	rowEndMm,
+	setCeilingHeight,
 	setDoors,
 	setHangingHeight,
 	setRoomDepth,
@@ -42,6 +45,9 @@ import {
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { DimensionField } from "./DimensionField";
+import { AdminLink, PlannerHeader } from "./PlannerHeader";
+import type { PlannerView } from "./PlannerScene";
 import { FamilyThumb } from "./thumbs";
 
 const PlannerScene = dynamic(() => import("./PlannerScene"), {
@@ -52,6 +58,13 @@ const PlannerScene = dynamic(() => import("./PlannerScene"), {
 		</div>
 	),
 });
+
+/** Labels for the view toggle, in the order a fitter reads them. */
+const VIEWS: { id: PlannerView; label: string }[] = [
+	{ id: "3d", label: "3D" },
+	{ id: "elevation", label: "Elevation" },
+	{ id: "plan", label: "Plan" },
+];
 
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
@@ -125,6 +138,7 @@ export function StudioScreen({
 		null,
 	);
 	const [dragFamilyId, setDragFamilyId] = useState<string | null>(null);
+	const [view, setView] = useState<PlannerView>("3d");
 	const [measureMode, setMeasureMode] = useState(false);
 	const [measurePoints, setMeasurePoints] = useState<Vec3Mm[]>([]);
 
@@ -184,42 +198,77 @@ export function StudioScreen({
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
-			<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
-				<Link href="/" className="font-semibold text-sm hover:text-neutral-600">
-					Infinite Cabinet · {room.label} planner
+			<PlannerHeader
+				trail={[
+					{ label: "Infinite Cabinet", href: "/" },
+					{ label: "Room planner", onClick: onBackToStartAction },
+					{ label: "Studio" },
+				]}
+				center={
+					<fieldset
+						aria-label="View"
+						className="hidden min-w-0 items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5 lg:flex"
+					>
+						{VIEWS.map((option) => (
+							<button
+								key={option.id}
+								type="button"
+								onClick={() => setView(option.id)}
+								aria-pressed={view === option.id}
+								className={`rounded-full px-3.5 py-1 text-[13px] transition ${
+									view === option.id
+										? "bg-white font-medium shadow-sm"
+										: "text-neutral-600 hover:text-neutral-900"
+								}`}
+							>
+								{option.label}
+							</button>
+						))}
+					</fieldset>
+				}
+			>
+				<button
+					type="button"
+					onClick={() => {
+						setMeasureMode((on) => !on);
+						setMeasurePoints([]);
+					}}
+					aria-pressed={measureMode}
+					title="Click two points on a cabinet — a corner, an edge, or the surface — to measure between them"
+					className={`rounded-full px-3 py-1 text-[12px] transition ${
+						measureMode
+							? "bg-neutral-900 text-white"
+							: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+					}`}
+				>
+					{measureMode ? "Measuring…" : "Measure"}
+				</button>
+				<button
+					type="button"
+					onClick={onBackToStartAction}
+					className="text-[13px] text-neutral-500 hover:text-neutral-900"
+				>
+					Change room
+				</button>
+				<Link
+					href="/tutorials"
+					target="_blank"
+					className="hidden items-center gap-1.5 text-[13px] text-neutral-500 hover:text-neutral-900 sm:flex"
+				>
+					{/* A play triangle, drawn rather than installed: this is the only
+					    icon on the screen and a library for one glyph is not worth the
+					    bytes on the mobile budget. */}
+					<svg
+						viewBox="0 0 24 24"
+						aria-hidden
+						className="h-3.5 w-3.5 fill-none stroke-current stroke-[1.8]"
+					>
+						<path d="M6 4l14 8-14 8V4z" />
+					</svg>
+					DIY tutorials
 				</Link>
-				<div className="flex items-center gap-4">
-					<button
-						type="button"
-						onClick={() => {
-							setMeasureMode((on) => !on);
-							setMeasurePoints([]);
-						}}
-						aria-pressed={measureMode}
-						title="Click two points on a cabinet — a corner, an edge, or the surface — to measure between them"
-						className={`rounded-full px-3 py-1 text-[12px] transition ${
-							measureMode
-								? "bg-neutral-900 text-white"
-								: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
-						}`}
-					>
-						{measureMode ? "Measuring…" : "Measure"}
-					</button>
-					<button
-						type="button"
-						onClick={onBackToStartAction}
-						className="text-neutral-500 text-xs hover:text-neutral-900"
-					>
-						Change room
-					</button>
-					<Link
-						href="/admin/login"
-						className="border-neutral-200 border-l pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
-					>
-						Admin
-					</Link>
-				</div>
-			</div>
+				<AdminLink />
+			</PlannerHeader>
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				<aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[268px] lg:border-r lg:border-b-0">
@@ -249,77 +298,49 @@ export function StudioScreen({
 						</div>
 
 						<div className="flex flex-col gap-2.5">
-							<div>
-								<div className="flex items-baseline justify-between">
-									<span className="text-[12px] text-neutral-600">
-										Wall length
-									</span>
-									<span className="tabular-nums text-[12px]">
-										{layout.wallWidthMm.toLocaleString("en-MY")} mm
-									</span>
-								</div>
-								<input
-									type="range"
-									className="mt-1 w-full"
-									aria-label="Wall length"
-									min={WALL_LIMITS.minMm}
-									max={WALL_LIMITS.maxMm}
-									step={50}
-									value={layout.wallWidthMm}
-									onChange={(e) =>
-										setLayoutAction((prev) =>
-											setWallWidth(prev, Number(e.target.value)),
-										)
-									}
-								/>
-							</div>
+							<DimensionField
+								label="Wall length"
+								valueMm={layout.wallWidthMm}
+								minMm={WALL_LIMITS.minMm}
+								maxMm={WALL_LIMITS.maxMm}
+								stepMm={50}
+								onChangeAction={(mm) =>
+									setLayoutAction((prev) => setWallWidth(prev, mm))
+								}
+							/>
 
-							<div>
-								<div className="flex items-baseline justify-between">
-									<span className="text-[12px] text-neutral-600">
-										Room depth
-									</span>
-									<span className="tabular-nums text-[12px]">
-										{layout.roomDepthMm.toLocaleString("en-MY")} mm
-									</span>
-								</div>
-								<input
-									type="range"
-									className="mt-1 w-full"
-									aria-label="Room depth"
-									min={ROOM_DEPTH_LIMITS.minMm}
-									max={ROOM_DEPTH_LIMITS.maxMm}
-									step={50}
-									value={layout.roomDepthMm}
-									onChange={(e) =>
-										setLayoutAction((prev) =>
-											setRoomDepth(prev, Number(e.target.value)),
-										)
-									}
-								/>
-							</div>
+							<DimensionField
+								label="Ceiling"
+								valueMm={layout.ceilingHeightMm}
+								minMm={CEILING_LIMITS.minMm}
+								maxMm={CEILING_LIMITS.maxMm}
+								stepMm={50}
+								onChangeAction={(mm) =>
+									setLayoutAction((prev) => setCeilingHeight(prev, mm))
+								}
+							/>
+
+							<DimensionField
+								label="Room depth"
+								valueMm={layout.roomDepthMm}
+								minMm={ROOM_DEPTH_LIMITS.minMm}
+								maxMm={ROOM_DEPTH_LIMITS.maxMm}
+								stepMm={50}
+								onChangeAction={(mm) =>
+									setLayoutAction((prev) => setRoomDepth(prev, mm))
+								}
+							/>
 
 							{room.familyIds.some((id) => family(id)?.kind === "wall") && (
 								<div>
-									<div className="flex items-baseline justify-between">
-										<span className="text-[12px] text-neutral-600">
-											Wall units hang at
-										</span>
-										<span className="tabular-nums text-[12px]">
-											{layout.hangingHeightMm.toLocaleString("en-MY")} mm
-										</span>
-									</div>
-									<input
-										type="range"
-										className="mt-1 w-full"
-										min={1200}
-										max={1800}
-										step={10}
-										value={layout.hangingHeightMm}
-										onChange={(e) =>
-											setLayoutAction((prev) =>
-												setHangingHeight(prev, Number(e.target.value)),
-											)
+									<DimensionField
+										label="Wall units hang at"
+										valueMm={layout.hangingHeightMm}
+										minMm={WALL_HANG_LIMITS.minMm}
+										maxMm={WALL_HANG_LIMITS.maxMm}
+										stepMm={10}
+										onChangeAction={(mm) =>
+											setLayoutAction((prev) => setHangingHeight(prev, mm))
 										}
 									/>
 									<button
@@ -428,6 +449,7 @@ export function StudioScreen({
 						doorTargetId={null}
 						measureMode={measureMode}
 						measurePoints={measurePoints}
+						view={view}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
 						onMeasurePickAction={onMeasurePick}
