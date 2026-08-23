@@ -12,6 +12,23 @@ import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { starterFor } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 
+/**
+ * Design tokens for this page, stated once.
+ *
+ * The base is the incumbent brand: warm paper (`#e9e7e3`), raised warm white
+ * (`#fdfcfb`), ink for actions. What was missing was any accent at all — every
+ * element was the same neutral, so nothing could be emphasised without making
+ * it bigger. `ACCENT` is the one accent on the page and it appears nowhere as
+ * decoration: eyebrow, price figure, links, and the closing band. Nothing else.
+ *
+ * Radius is locked to 12px everywhere — cards, images, buttons — because the
+ * page previously mixed six different values.
+ */
+const ACCENT = "#2c5f47";
+const PAPER = "#e9e7e3";
+const RAISED = "#fdfcfb";
+const RULE = "#d9d5cd";
+
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
 		minimumFractionDigits: 2,
@@ -24,6 +41,31 @@ const ROOM_SUBTITLES: Record<RoomTypeId, string> = {
 	bedroom: "Wardrobes",
 	foyer: "Shoe cabinets & bench",
 };
+
+/**
+ * The tone a room card carries before anyone uploads a photo of it. Kept
+ * inside the brand's own neutral band so four unphotographed cards still read
+ * as one set rather than four placeholders.
+ */
+const ROOM_TONE: Record<RoomTypeId, string> = {
+	kitchen: "#cfc6b6",
+	living: "#c7ccc6",
+	bedroom: "#d3cbc2",
+	foyer: "#c3c8cc",
+};
+
+/**
+ * The bento. Four rooms, four cells, eight tracks: the lead room takes a 2x2
+ * and the rest tile the remainder exactly, so the grid never ends on a hole.
+ * Written out in full because Tailwind only sees class names it can read in
+ * the source.
+ */
+const ROOM_SPAN = [
+	"min-h-[300px] lg:col-span-2 lg:row-span-2 lg:min-h-0",
+	"min-h-[200px] lg:col-span-2 lg:min-h-0",
+	"min-h-[200px] lg:min-h-0",
+	"min-h-[200px] lg:min-h-0",
+];
 
 const HOW_IT_WORKS = [
 	{
@@ -46,7 +88,7 @@ const HOW_IT_WORKS = [
 const FAQS = [
 	{
 		q: "How long does delivery take?",
-		a: "Most orders arrive within 4–6 weeks of confirming your plan, depending on finish and cabinet size.",
+		a: "Most orders arrive within 4-6 weeks of confirming your plan, depending on finish and cabinet size.",
 	},
 	{
 		q: "Can I get cabinets installed too?",
@@ -54,7 +96,7 @@ const FAQS = [
 	},
 	{
 		q: "What are the cabinets made of?",
-		a: "Solid carcasses with a choice of veneer, laminate or painted finishes — see the full range in the planner.",
+		a: "Solid carcasses with a choice of veneer, laminate or painted finishes. The full range is in the planner.",
 	},
 	{
 		q: "Can I change my design after ordering?",
@@ -67,31 +109,36 @@ const FAQS = [
 ];
 
 /**
- * A homepage photo, or the tinted panel that stands in until someone drops
- * one on `/admin/site-content`. Every slot is optional — the page has to look
+ * A homepage photo, or what stands in until someone drops one on
+ * `/admin/site-content`. Every slot is optional, so the page has to look
  * deliberate with no photography at all, which is its state today.
+ *
+ * `fallbackSrc` lets a slot name a real image that ships in the repo rather
+ * than a flat panel. The hero uses it: a photograph of a board the client
+ * actually buys beats a tinted rectangle, and a client upload still wins.
  */
 function Photo({
 	url,
 	alt,
 	className = "",
+	fallbackSrc,
+	fallbackStyle,
 }: {
 	url: string | null;
 	alt: string;
 	className?: string;
+	fallbackSrc?: string;
+	fallbackStyle?: React.CSSProperties;
 }) {
-	if (!url) {
-		return (
-			<div
-				className={`bg-gradient-to-br from-[#e2ddd2] to-[#cdc4b3] ${className}`}
-			/>
-		);
+	const src = url ?? fallbackSrc ?? null;
+	if (!src) {
+		return <div className={className} style={fallbackStyle} aria-hidden />;
 	}
 	// Plain <img>: the photos live on a Blob host next/image isn't configured
 	// for, and adding a remote pattern for a bucket whose domain varies per
 	// deploy is more moving parts than the optimisation is worth here.
 	// biome-ignore lint/performance/noImgElement: see above
-	return <img src={url} alt={alt} className={`object-cover ${className}`} />;
+	return <img src={src} alt={alt} className={`object-cover ${className}`} />;
 }
 
 export default async function Home() {
@@ -119,233 +166,331 @@ export default async function Home() {
 		catalogue,
 	);
 
+	/**
+	 * Every figure here is a claim already made in the FAQ or the planner. None
+	 * of it is invented: a fabricated statistic on a fabricator's homepage is
+	 * the one thing their sales team would have to walk back on a call.
+	 */
+	const FACTS = [
+		{ value: `RM ${rm(kitchenPrice.totalRm)}`, label: "Starter kitchen run" },
+		{ value: "4-6 weeks", label: "Typical delivery" },
+		{ value: "5 years", label: "Warranty on hardware and build" },
+		{ value: "No account", label: "Needed to plan and price" },
+	];
+
 	return (
-		<div className="flex min-h-screen flex-col bg-[#e9e7e3] text-neutral-900">
+		<div
+			className="flex min-h-screen flex-col text-neutral-900"
+			style={{ backgroundColor: PAPER }}
+		>
 			{/* Nav */}
-			<div className="sticky top-0 z-10 border-neutral-200 border-b bg-[#fdfcfb]">
-				<div className="mx-auto flex h-16 max-w-[1180px] items-center justify-between px-8">
-					<span className="font-bold text-[15px] tracking-tight">
+			<header
+				className="sticky top-0 z-10 border-b"
+				style={{ backgroundColor: RAISED, borderColor: RULE }}
+			>
+				<div className="mx-auto flex h-16 max-w-[1180px] items-center justify-between gap-6 px-6 sm:px-8">
+					<span className="shrink-0 font-bold text-[15px] tracking-tight">
 						Infinite Cabinet
 					</span>
 					{/* Tight gap, padding on each link instead: the tap target is the
-					    padded box, not just the glyphs. */}
-					<div className="flex items-center gap-2">
-						<a
-							href="#how"
-							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
-						>
-							How it works
-						</a>
-						<a
-							href="#gallery"
-							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
-						>
-							Gallery
-						</a>
-						<a
-							href="#finishes"
-							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
-						>
-							Finishes
-						</a>
-						<a
-							href="#faq"
-							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
-						>
-							FAQ
-						</a>
+					    padded box, not just the glyphs. Hidden below lg rather than
+					    wrapped to a second line — the CTA is what matters on mobile. */}
+					<nav className="hidden items-center gap-1 lg:flex">
+						{[
+							["How it works", "#how"],
+							["Gallery", "#gallery"],
+							["Finishes", "#finishes"],
+							["FAQ", "#faq"],
+						].map(([label, href]) => (
+							<a
+								key={href}
+								href={href}
+								className="rounded-xl px-3 py-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900"
+							>
+								{label}
+							</a>
+						))}
 						<Link
 							href="/tutorials"
-							className="rounded-lg px-2.5 py-2.5 text-neutral-600 text-[13px] hover:text-neutral-900"
+							className="rounded-xl px-3 py-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900"
 						>
 							Tutorials
 						</Link>
-					</div>
-					<div className="flex items-center gap-4">
+					</nav>
+					<div className="flex shrink-0 items-center gap-4">
 						<Link
 							href="/planner"
-							className="rounded-[9px] bg-neutral-900 px-4.5 py-2.5 font-medium text-[13px] text-white"
+							className="rounded-xl bg-neutral-900 px-4.5 py-2.5 font-medium text-[13px] text-white transition-transform active:translate-y-px"
 						>
 							Start planning
 						</Link>
 						<Link
 							href="/admin/login"
 							target="_blank"
-							className="border-neutral-200 border-l py-2.5 pl-4 text-[12px] text-neutral-400 hover:text-neutral-600"
+							className="hidden border-l py-2.5 pl-4 text-[12px] text-neutral-400 transition-colors hover:text-neutral-600 sm:block"
+							style={{ borderColor: RULE }}
 						>
 							Admin
 						</Link>
 					</div>
 				</div>
-			</div>
+			</header>
 
-			{/* Hero */}
-			<div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-14 px-8 py-18 md:grid-cols-2">
+			{/* Hero — asymmetric split. Four text elements, no more: eyebrow,
+			    headline, subtext, CTAs. The price moved down to the fact strip. */}
+			<section className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-12 px-6 pt-14 pb-16 sm:px-8 lg:grid-cols-[1.15fr_1fr] lg:gap-16 lg:pt-20">
 				{/* min-w-0 on both columns: a grid item's default `min-width:auto`
 				    lets long content push the track wider than its 1fr share. */}
 				<div className="min-w-0">
-					<p className="mb-3.5 font-semibold text-[#8a8478] text-xs uppercase tracking-[0.08em]">
+					<p
+						className="mb-4 font-semibold text-xs uppercase tracking-[0.1em]"
+						style={{ color: ACCENT }}
+					>
 						Free to try · no account needed
 					</p>
-					<h1 className="mb-4.5 text-[44px] leading-[1.1] font-bold tracking-tight text-balance">
-						Design your kitchen in 3D. Order it in one click.
+					<h1 className="mb-5 text-balance font-bold text-[38px] leading-[1.05] tracking-tight sm:text-[46px]">
+						Design your kitchen in 3D. See the price as you build.
 					</h1>
-					<p className="mb-7 max-w-[440px] text-[16px] text-neutral-600 leading-6">
-						Drop real Infinite Cabinet units onto a model of your own room, see
-						it from every angle, and get an instant price. No showroom visit
-						required.
+					<p className="mb-8 max-w-[460px] text-[16px] text-neutral-600 leading-6">
+						Drop real Infinite Cabinet units into your own room, view it from
+						every angle, and send us the plan.
 					</p>
-					<div className="flex items-center gap-5">
+					<div className="flex flex-wrap items-center gap-3">
 						<Link
 							href="/planner"
-							className="rounded-[9px] bg-neutral-900 px-6.5 py-3.5 font-medium text-[14px] text-white"
+							className="rounded-xl bg-neutral-900 px-7 py-3.5 font-medium text-[14px] text-white transition-transform active:translate-y-px"
 						>
 							Start planning
 						</Link>
-						<span className="text-[13px] text-neutral-500">
-							Full kitchens from{" "}
-							<strong className="text-neutral-900">
-								RM {rm(kitchenPrice.totalRm)}
-							</strong>
-						</span>
+						<a
+							href="#how"
+							className="rounded-xl border bg-transparent px-7 py-3.5 font-medium text-[14px] transition-colors active:translate-y-px"
+							style={{ borderColor: RULE, color: ACCENT }}
+						>
+							How it works
+						</a>
 					</div>
 				</div>
 				<div className="min-w-0">
+					{/* The board in the fallback is the supplier decor scan the planner
+					    already ships and already renders on its doors, so the homepage
+					    and the 3D cabinet show the same surface. A client upload to
+					    the hero slot replaces it. */}
 					<Photo
 						url={photo.get(HERO_SLOT) ?? null}
 						alt="A finished Infinite Cabinet kitchen"
-						className="h-[420px] w-full rounded-[14px]"
+						fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
+						className="h-[300px] w-full rounded-xl sm:h-[440px]"
 					/>
 				</div>
-			</div>
+			</section>
 
-			{/* How it works */}
-			<div id="how" className="border-neutral-200 border-y bg-white">
-				<div className="mx-auto max-w-[1180px] px-8 py-16">
-					<h2 className="mb-10 text-center font-semibold text-[26px]">
-						How it works
+			{/* Facts — trust strip, under the hero rather than inside it. */}
+			<section
+				className="border-y"
+				style={{ backgroundColor: RAISED, borderColor: RULE }}
+			>
+				<dl className="mx-auto grid max-w-[1180px] grid-cols-2 gap-x-6 gap-y-8 px-6 py-10 sm:px-8 lg:grid-cols-4">
+					{FACTS.map((fact) => (
+						<div key={fact.label}>
+							<dt
+								className="font-semibold text-[22px] tracking-tight"
+								style={{ color: ACCENT }}
+							>
+								{fact.value}
+							</dt>
+							<dd className="mt-1 text-[13px] text-neutral-500 leading-5">
+								{fact.label}
+							</dd>
+						</div>
+					))}
+				</dl>
+			</section>
+
+			{/* How it works — no cards. Three uneven columns separated by a rule,
+			    which is what the hairline is for. */}
+			<section
+				id="how"
+				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
+			>
+				<h2 className="mb-12 max-w-[520px] font-semibold text-[30px] leading-tight tracking-tight">
+					Three steps from an empty wall to a quote
+				</h2>
+				<div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.2fr_1fr_1fr] lg:gap-12">
+					{HOW_IT_WORKS.map((step) => (
+						<div
+							key={step.title}
+							className="border-t pt-5"
+							style={{ borderColor: ACCENT }}
+						>
+							<h3 className="mb-2.5 font-semibold text-[18px] tracking-tight">
+								{step.title}
+							</h3>
+							<p className="text-[14px] text-neutral-600 leading-6">
+								{step.detail}
+							</p>
+						</div>
+					))}
+				</div>
+			</section>
+
+			{/* Gallery — bento. Four rooms, four cells, kitchen carries the weight. */}
+			<section
+				id="gallery"
+				className="border-y"
+				style={{ backgroundColor: RAISED, borderColor: RULE }}
+			>
+				<div className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8">
+					<h2 className="mb-2 font-semibold text-[30px] leading-tight tracking-tight">
+						Explore by room
 					</h2>
-					<div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
-						{HOW_IT_WORKS.map((step, i) => (
-							<div key={step.title} className="px-4 text-center">
-								<div className="mx-auto mb-4 flex h-9 w-9 items-center justify-center rounded-full bg-neutral-900 font-semibold text-sm text-white">
-									{i + 1}
+					<p className="mb-10 max-w-[520px] text-[15px] text-neutral-600 leading-6">
+						Every room starts from real Infinite Cabinet sizes and a layout
+						already on your wall.
+					</p>
+					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:auto-rows-[224px]">
+						{ROOM_TYPES.map((room, i) => (
+							<Link
+								key={room.id}
+								href={`/planner?room=${room.id}`}
+								className={`group relative flex flex-col justify-end overflow-hidden rounded-xl border transition-transform active:translate-y-px ${ROOM_SPAN[i] ?? "min-h-[200px] lg:min-h-0"}`}
+								style={{ borderColor: RULE }}
+							>
+								<Photo
+									url={photo.get(roomSlot(room.id)) ?? null}
+									alt={`${room.label} cabinets`}
+									className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-[1.03]"
+									// Flat tone rather than the grain tile: at card scale the
+									// grain reads as brushed metal stripes, and four large
+									// striped fields fight the photos that will replace them.
+									fallbackStyle={{
+										position: "absolute",
+										inset: 0,
+										backgroundColor: ROOM_TONE[room.id],
+									}}
+								/>
+								<div className="relative bg-gradient-to-t from-black/70 to-transparent px-5 pt-14 pb-4.5">
+									<p className="font-semibold text-[15px] text-white">
+										{room.label}
+									</p>
+									<p className="mt-0.5 text-[12px] text-white/75">
+										{ROOM_SUBTITLES[room.id]}
+									</p>
 								</div>
-								<h3 className="mb-2 font-semibold text-[16px]">{step.title}</h3>
-								<p className="text-[14px] text-neutral-500 leading-5">
-									{step.detail}
-								</p>
-							</div>
+							</Link>
 						))}
 					</div>
 				</div>
-			</div>
-
-			{/* Gallery */}
-			<div id="gallery" className="mx-auto w-full max-w-[1180px] px-8 py-16">
-				<h2 className="mb-1.5 text-center font-semibold text-[26px]">
-					Explore by room
-				</h2>
-				<p className="mb-9 text-center text-[14px] text-neutral-500">
-					Every room starts from real Infinite Cabinet sizes and a layout
-					already on your wall.
-				</p>
-				<div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-					{ROOM_TYPES.map((room) => (
-						<Link
-							key={room.id}
-							href={`/planner?room=${room.id}`}
-							className="overflow-hidden rounded-xl border border-neutral-200 bg-white"
-						>
-							<Photo
-								url={photo.get(roomSlot(room.id)) ?? null}
-								alt={`${room.label} cabinets`}
-								className="h-[140px] w-full"
-							/>
-							<div className="px-4 py-3.5">
-								<p className="font-semibold text-[14px]">{room.label}</p>
-								<p className="mt-0.5 text-[12px] text-neutral-500">
-									{ROOM_SUBTITLES[room.id]}
-								</p>
-							</div>
-						</Link>
-					))}
-				</div>
-			</div>
+			</section>
 
 			{/* Finishes */}
-			<div id="finishes" className="border-neutral-200 border-y bg-white">
-				<div className="mx-auto max-w-[1180px] px-8 py-16">
-					<h2 className="mb-1.5 text-center font-semibold text-[26px]">
-						Finishes &amp; materials
+			<section
+				id="finishes"
+				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
+			>
+				<h2 className="mb-2 font-semibold text-[30px] leading-tight tracking-tight">
+					Finishes &amp; materials
+				</h2>
+				<p className="mb-10 max-w-[520px] text-[15px] text-neutral-600 leading-6">
+					Swap finishes on any cabinet right inside the planner.
+				</p>
+				<div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
+					{catalogue.finishes.map((finish) => {
+						// A swatch photo if one's been uploaded, otherwise the
+						// catalogue's flat colour — which is a perfectly good swatch,
+						// so an empty slot is a fallback rather than a hole.
+						const swatch =
+							photo.get(finishSlot(finish.id)) ??
+							DEFAULT_FINISH_TEXTURES[finish.id];
+						return (
+							<div key={finish.id}>
+								{swatch ? (
+									<Photo
+										url={swatch}
+										alt={finish.label}
+										className="mb-2.5 h-24 w-full rounded-xl border"
+									/>
+								) : (
+									<div
+										className="mb-2.5 h-24 rounded-xl border"
+										style={{
+											borderColor: RULE,
+											backgroundColor: finish.hex,
+											backgroundImage: "url(/grain.png)",
+											// One tile per ~56px keeps the grain fine at swatch
+											// scale; larger and it reads as wide stripes.
+											backgroundSize: "56px",
+											backgroundBlendMode: "multiply",
+										}}
+									/>
+								)}
+								<p className="text-[12px] text-neutral-600">{finish.label}</p>
+							</div>
+						);
+					})}
+				</div>
+			</section>
+
+			{/* FAQ — sticky headline beside the accordion, so the right column
+			    carries the interaction and the left stays a fixed anchor. */}
+			<section
+				id="faq"
+				className="border-y"
+				style={{ backgroundColor: RAISED, borderColor: RULE }}
+			>
+				<div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-10 px-6 py-20 sm:px-8 lg:grid-cols-[1fr_1.6fr] lg:gap-16">
+					<h2 className="font-semibold text-[30px] leading-tight tracking-tight lg:sticky lg:top-28 lg:self-start">
+						Frequently asked questions
 					</h2>
-					<p className="mb-9 text-center text-[14px] text-neutral-500">
-						Swap finishes on any cabinet right inside the planner.
-					</p>
-					<div className="grid grid-cols-3 gap-5 sm:grid-cols-6">
-						{catalogue.finishes.map((finish) => {
-							// A swatch photo if one's been uploaded, otherwise the
-							// catalogue's flat colour — which is a perfectly good swatch,
-							// so an empty slot is a fallback rather than a hole.
-							const swatch =
-								photo.get(finishSlot(finish.id)) ??
-								DEFAULT_FINISH_TEXTURES[finish.id];
-							return (
-								<div key={finish.id} className="text-center">
-									{swatch ? (
-										<Photo
-											url={swatch}
-											alt={finish.label}
-											className="mb-2 h-16 w-full rounded-lg border border-neutral-200"
-										/>
-									) : (
-										// The same grain the planner puts on its doors, multiplied
-										// over the finish colour — so the swatch and the 3D cabinet
-										// are the same surface, and the file is already cached by
-										// the time the planner loads.
-										<div
-											className="mb-2 h-16 rounded-lg border border-neutral-200"
-											style={{
-												backgroundColor: finish.hex,
-												backgroundImage: "url(/grain.png)",
-												// One tile per ~56px keeps the grain fine at swatch
-												// scale; larger and it reads as wide stripes.
-												backgroundSize: "56px",
-												backgroundBlendMode: "multiply",
-											}}
-										/>
-									)}
-									<p className="text-[12px] text-neutral-600">{finish.label}</p>
-								</div>
-							);
-						})}
+					<div className="flex flex-col">
+						{FAQS.map((item) => (
+							<details
+								key={item.q}
+								className="group border-b py-4.5 [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none"
+								style={{ borderColor: RULE }}
+							>
+								<summary className="flex cursor-pointer items-center justify-between gap-4 font-medium text-[15px]">
+									{item.q}
+									{/* CSS chevron: a rotated corner of a box. No icon library
+									    for one glyph, and no hand-drawn SVG path. */}
+									<span
+										aria-hidden
+										className="mt-[-3px] size-2 shrink-0 rotate-45 border-r-2 border-b-2 transition-transform duration-200 group-open:mt-[3px] group-open:-rotate-135"
+										style={{ borderColor: ACCENT }}
+									/>
+								</summary>
+								<p className="mt-3 max-w-[62ch] text-[14px] text-neutral-600 leading-6">
+									{item.a}
+								</p>
+							</details>
+						))}
 					</div>
 				</div>
-			</div>
+			</section>
 
-			{/* FAQ */}
-			<div id="faq" className="mx-auto w-full max-w-[760px] px-8 py-16">
-				<h2 className="mb-8 text-center font-semibold text-[26px]">
-					Frequently asked questions
-				</h2>
-				<div className="flex flex-col gap-3">
-					{FAQS.map((item) => (
-						<details
-							key={item.q}
-							className="rounded-[10px] border border-neutral-200 bg-white p-4.5 [&_summary]:cursor-pointer [&_summary]:list-none [&_summary::-webkit-details-marker]:hidden"
-						>
-							<summary className="font-medium text-[14px]">{item.q}</summary>
-							<p className="mt-2.5 text-[13px] text-neutral-500 leading-5">
-								{item.a}
-							</p>
-						</details>
-					))}
+			{/* Close. The page previously ended on the FAQ. */}
+			<section style={{ backgroundColor: ACCENT }}>
+				<div className="mx-auto flex max-w-[1180px] flex-col items-start gap-7 px-6 py-16 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
+					<div>
+						<h2 className="max-w-[520px] text-balance font-semibold text-[30px] text-white leading-tight tracking-tight">
+							Your wall, your sizes, your price. In about five minutes.
+						</h2>
+						<p className="mt-3 max-w-[440px] text-[15px] text-white/70 leading-6">
+							Nothing to install and nothing to sign up for.
+						</p>
+					</div>
+					<Link
+						href="/planner"
+						className="shrink-0 rounded-xl bg-white px-7 py-3.5 font-medium text-[14px] text-neutral-900 transition-transform active:translate-y-px"
+					>
+						Start planning
+					</Link>
 				</div>
-			</div>
+			</section>
 
 			{/* Footer */}
-			<div className="mt-auto bg-neutral-900 text-neutral-200">
-				<div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-8 px-8 py-12 sm:grid-cols-[2fr_1fr_1fr]">
+			<footer className="mt-auto bg-neutral-900 text-neutral-200">
+				<div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-8 px-6 py-14 sm:grid-cols-[2fr_1fr_1fr] sm:px-8">
 					<div>
 						<p className="mb-2 font-bold text-[15px] text-white">
 							Infinite Cabinet
@@ -359,44 +504,59 @@ export default async function Home() {
 						<p className="mb-3 font-semibold text-[12px] text-neutral-500 uppercase tracking-[0.06em]">
 							Product
 						</p>
-						<div className="flex flex-col gap-2">
-							<Link href="/planner" className="text-[13px] text-neutral-300">
+						<div className="flex flex-col gap-2.5">
+							<Link
+								href="/planner"
+								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
+							>
 								Start planning
 							</Link>
-							<a href="#gallery" className="text-[13px] text-neutral-300">
+							<a
+								href="#gallery"
+								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
+							>
 								Gallery
 							</a>
-							<a href="#faq" className="text-[13px] text-neutral-300">
+							<a
+								href="#faq"
+								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
+							>
 								FAQ
 							</a>
+							<Link
+								href="/tutorials"
+								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
+							>
+								Tutorials
+							</Link>
 						</div>
 					</div>
 					<div>
 						<p className="mb-3 font-semibold text-[12px] text-neutral-500 uppercase tracking-[0.06em]">
 							Contact
 						</p>
-						<div className="flex flex-col gap-2">
+						<div className="flex flex-col gap-2.5">
 							<a
 								href="mailto:hello@infinitecabinet.com"
-								className="text-[13px] text-neutral-300"
+								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
 								hello@infinitecabinet.com
 							</a>
 							<Link
 								href="/admin/login"
-								className="text-[13px] text-neutral-500"
+								className="text-[13px] text-neutral-500 transition-colors hover:text-neutral-300"
 							>
 								Admin sign in
 							</Link>
 						</div>
 					</div>
 				</div>
-				<div className="border-neutral-800 border-t px-8 py-4.5 text-center">
+				<div className="border-neutral-800 border-t px-6 py-4.5 text-center sm:px-8">
 					<p className="text-[12px] text-neutral-500">
 						© 2026 Infinite Cabinet. All rights reserved.
 					</p>
 				</div>
-			</div>
+			</footer>
 		</div>
 	);
 }
