@@ -10,6 +10,7 @@ import {
 	GLASS_COLOR,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
+import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 
 /**
  * One cabinet, generated from its family and the size the customer chose.
@@ -70,6 +71,7 @@ export function Cabinet({
 	runWidthMm,
 	floorHeightMm,
 	finishHex,
+	finishPhoto,
 	selected,
 	highlighted,
 	onPointerDown,
@@ -90,6 +92,10 @@ export function Cabinet({
 	/** Underside above the floor, so a whole wall row can be raised together. */
 	floorHeightMm: number;
 	finishHex: string;
+	/** The uploaded decor photo for this finish. When present it *is* the
+	 * front's surface — the real scan of the board — and `finishHex` only
+	 * still drives the shaker inset. */
+	finishPhoto: string | null;
 	selected: boolean;
 	/** A door is being dragged over this one right now, or the measuring tool
 	 * is hovering it. */
@@ -160,6 +166,7 @@ export function Cabinet({
 				(drawers > 0 ? (
 					<Drawers
 						count={drawers}
+						finishPhoto={finishPhoto}
 						door={door}
 						width={w}
 						height={carcassH}
@@ -172,6 +179,7 @@ export function Cabinet({
 				) : (
 					<Doors
 						count={family.geometry?.doorLeaves || doorLeavesFor(widthMm)}
+						finishPhoto={finishPhoto}
 						door={door}
 						width={w}
 						height={carcassH}
@@ -215,6 +223,11 @@ function Carcass({
 	emissive: string;
 	emphasis: number;
 }) {
+	// Melamine board takes the grain as sheen only. With the figure on, the
+	// inside of an open carcass reads as slatted timber, which is both wrong and
+	// louder than the doors it sits behind.
+	const figure = useGrain("vertical", width, height, "sheen");
+
 	const panel = (
 		key: string,
 		args: [number, number, number],
@@ -226,6 +239,7 @@ function Carcass({
 			<meshStandardMaterial
 				color={interior ? CARCASS_INTERIOR_COLOR : CARCASS_COLOR}
 				roughness={0.85}
+				{...figure}
 				emissive={emissive}
 				emissiveIntensity={emphasis}
 			/>
@@ -302,6 +316,8 @@ function Front({
 	height,
 	position,
 	finishHex,
+	finishPhoto,
+	grain,
 	emissive,
 	emphasis,
 }: {
@@ -310,9 +326,22 @@ function Front({
 	height: number;
 	position: [number, number, number];
 	finishHex: string;
+	finishPhoto: string | null;
+	/** Up a door, across a drawer front — the way the veneer is actually cut. */
+	grain: GrainDirection;
 	emissive: string;
 	emphasis: number;
 }) {
+	const surface = useFrontSurface(
+		finishPhoto,
+		grain,
+		width,
+		height,
+		finishHex,
+		// Fractional part of the door's own x, so two doors side by side are cut
+		// from different parts of the sheet and a run stops looking cloned.
+		Math.abs(position[0] * 1.37) % 1,
+	);
 	const frame = m(FRAME_MM);
 	const panelW = Math.max(width - frame * 2, width * 0.2);
 	const panelH = Math.max(height - frame * 2, height * 0.2);
@@ -322,8 +351,8 @@ function Front({
 			<mesh>
 				<boxGeometry args={[width, height, m(FRONT_THICKNESS_MM)]} />
 				<meshStandardMaterial
-					color={finishHex}
 					roughness={0.5}
+					{...surface}
 					emissive={emissive}
 					emissiveIntensity={emphasis}
 				/>
@@ -352,6 +381,7 @@ function Front({
 						<meshStandardMaterial
 							color={insetShade(finishHex)}
 							roughness={0.6}
+							roughnessMap={surface.roughnessMap}
 						/>
 					)}
 					<Edges
@@ -401,6 +431,7 @@ function Doors({
 	y,
 	z,
 	finishHex,
+	finishPhoto,
 	emissive,
 	emphasis,
 }: {
@@ -411,6 +442,7 @@ function Doors({
 	y: number;
 	z: number;
 	finishHex: string;
+	finishPhoto: string | null;
 	emissive: string;
 	emphasis: number;
 }) {
@@ -431,6 +463,8 @@ function Doors({
 							height={height - gap * 2}
 							position={[x, y + height / 2, z]}
 							finishHex={finishHex}
+							finishPhoto={finishPhoto}
+							grain="vertical"
 							emissive={emissive}
 							emphasis={emphasis}
 						/>
@@ -457,6 +491,7 @@ function Drawers({
 	y,
 	z,
 	finishHex,
+	finishPhoto,
 	emissive,
 	emphasis,
 }: {
@@ -467,6 +502,7 @@ function Drawers({
 	y: number;
 	z: number;
 	finishHex: string;
+	finishPhoto: string | null;
 	emissive: string;
 	emphasis: number;
 }) {
@@ -485,6 +521,8 @@ function Drawers({
 							height={drawerH}
 							position={[0, centreY, z]}
 							finishHex={finishHex}
+							finishPhoto={finishPhoto}
+							grain="horizontal"
 							emissive={emissive}
 							emphasis={emphasis}
 						/>

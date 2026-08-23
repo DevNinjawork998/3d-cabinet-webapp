@@ -76,8 +76,12 @@ export const NAMING_RULES: { pattern: RegExp; role: PartRole }[] = [
 ];
 
 export function roleFromName(name: string): PartRole | null {
+	// Underscores are word separators to a drafter and word *characters* to a
+	// regex, so `\bdoor\b` never matches `Door_L_`. Swapping them for spaces
+	// once here fixes every rule at once instead of contorting each pattern.
+	const probe = name.replace(/_/g, " ");
 	for (const rule of NAMING_RULES) {
-		if (rule.pattern.test(name)) return rule.role;
+		if (rule.pattern.test(probe)) return rule.role;
 	}
 	return null;
 }

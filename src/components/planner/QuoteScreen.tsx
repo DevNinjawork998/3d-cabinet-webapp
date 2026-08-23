@@ -27,11 +27,15 @@ export function QuoteScreen({
 	roomId,
 	layout,
 	finish,
+	finishTextures,
 	onBackToStudioAction,
 }: {
 	roomId: RoomTypeId;
 	layout: PlannerLayout;
 	finish: FinishId;
+	/** Finish id → uploaded decor photo. The quote screenshot is what goes out
+	 * over WhatsApp, so it has to show the same board the planner did. */
+	finishTextures: Record<string, string>;
 	onBackToStudioAction: () => void;
 }) {
 	const room = roomType(roomId);
@@ -183,6 +187,7 @@ export function QuoteScreen({
 						<PlannerScene
 							layout={layout}
 							finish={finish}
+							finishTextures={finishTextures}
 							selectedIds={new Set()}
 							doorTargetId={null}
 							onLayoutChangeAction={() => {}}

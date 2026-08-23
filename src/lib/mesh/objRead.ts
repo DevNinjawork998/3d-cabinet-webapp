@@ -8,7 +8,7 @@
  * for design intent, never a runtime asset. The browser only ever sees the
  * published catalogue.
  *
- * We read `o` names and `v` positions and nothing else. Faces, normals and UVs
+ * We read part names and `v` positions and nothing else. Faces, normals and UVs
  * are the bulk of the file and none of them tell us anything a bounding box
  * doesn't: every cabinet part is a rectangular panel. Skipping them keeps a
  * 20 MB export as cheap as a 1 MB one.
@@ -62,6 +62,34 @@ export function baseName(name: string): string {
 }
 
 /**
+ * The name of the part a line starts, or null if the line does not start one.
+ *
+ * Blender writes `o <name>`. SketchUp writes no `o` lines at all — it uses
+ * groups, and puts the whole component path on them:
+ *
+ *     g Mesh9 UEnd__L_1 Base_Cabinet Model
+ *
+ * The leading `Mesh<n>` is the exporter's own counter and the trailing tokens
+ * are the parents the component sits under. Nested components add anonymous
+ * `Group<n>` wrappers on the way down:
+ *
+ *     g Mesh38 Group16 Group13 Hafele_Axilo_48_Leg_Leveller_2_1 Base_Cabinet Model
+ *
+ * so "the token after the mesh id" is not good enough — it would name that leg
+ * `Group16`. The first token the drafter actually typed is the first one that
+ * is neither a mesh id nor an anonymous group.
+ */
+export function partNameFrom(line: string): string | null {
+	if (line.startsWith("o ")) return line.slice(2).trim() || null;
+	if (!line.startsWith("g ")) return null;
+
+	const tokens = line.slice(2).trim().split(/\s+/).filter(Boolean);
+	if (tokens.length === 0) return null;
+	const named = tokens.find((t) => !/^(mesh|group)\d+$/i.test(t));
+	return named ?? tokens[0];
+}
+
+/**
  * `G-Object.041` is what the exporter calls geometry with no name of its own —
  * in the sample job, the adjustable feet. It carries no design intent we can
  * read, so it never reaches the catalogue.
@@ -73,10 +101,21 @@ export function readObj(text: string): ObjRead {
 	let version = "unknown";
 	let current: { name: string; lo: Vec3; hi: Vec3 } | null = null;
 
+	// A file that has `o` records uses them; `g` is only consulted when there
+	// are none. Some exporters write both, and the `g` there is a material or
+	// smoothing group rather than a part — splitting on it would shatter every
+	// panel into fragments.
+	const hasObjects = /^o /m.test(text);
+
 	for (const line of text.split("\n")) {
-		if (line.startsWith("o ")) {
+		const name = hasObjects
+			? line.startsWith("o ")
+				? partNameFrom(line)
+				: null
+			: partNameFrom(line);
+		if (name !== null) {
 			current = {
-				name: line.slice(2).trim(),
+				name,
 				lo: [Infinity, Infinity, Infinity],
 				hi: [-Infinity, -Infinity, -Infinity],
 			};

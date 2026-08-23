@@ -8,6 +8,7 @@ import {
 } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
+import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { starterFor } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 
@@ -286,7 +287,9 @@ export default async function Home() {
 							// A swatch photo if one's been uploaded, otherwise the
 							// catalogue's flat colour — which is a perfectly good swatch,
 							// so an empty slot is a fallback rather than a hole.
-							const swatch = photo.get(finishSlot(finish.id));
+							const swatch =
+								photo.get(finishSlot(finish.id)) ??
+								DEFAULT_FINISH_TEXTURES[finish.id];
 							return (
 								<div key={finish.id} className="text-center">
 									{swatch ? (
@@ -296,9 +299,20 @@ export default async function Home() {
 											className="mb-2 h-16 w-full rounded-lg border border-neutral-200"
 										/>
 									) : (
+										// The same grain the planner puts on its doors, multiplied
+										// over the finish colour — so the swatch and the 3D cabinet
+										// are the same surface, and the file is already cached by
+										// the time the planner loads.
 										<div
 											className="mb-2 h-16 rounded-lg border border-neutral-200"
-											style={{ backgroundColor: finish.hex }}
+											style={{
+												backgroundColor: finish.hex,
+												backgroundImage: "url(/grain.png)",
+												// One tile per ~56px keeps the grain fine at swatch
+												// scale; larger and it reads as wide stripes.
+												backgroundSize: "56px",
+												backgroundBlendMode: "multiply",
+											}}
 										/>
 									)}
 									<p className="text-[12px] text-neutral-600">{finish.label}</p>

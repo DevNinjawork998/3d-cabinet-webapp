@@ -99,3 +99,40 @@ export async function PATCH(
 
 	return NextResponse.json({ design: updated });
 }
+
+/**
+ * Removes a design and the file behind it.
+ *
+ * Archiving is the reversible option and stays the default the UI leads with;
+ * this is for a row that should never have existed — a wrong file, a
+ * duplicate, a test upload. Both the row and the blob go, because a blob no
+ * row points at is unreachable: nothing else in the app can find it again, so
+ * leaving it behind is a bill and not a backup.
+ *
+ * The blob is deleted *after* the row, deliberately. If the delete fails
+ * partway, an orphaned file is a rounding error on the storage bill, whereas a
+ * row pointing at a file that is already gone breaks every page that renders
+ * the design.
+ */
+export async function DELETE(
+	_request: Request,
+	{ params }: { params: Promise<{ id: string }> },
+) {
+	const { id } = await params;
+
+	const existing = await prisma.cabinetDesign.findUnique({ where: { id } });
+	if (!existing) {
+		return NextResponse.json({ error: "not_found" }, { status: 404 });
+	}
+
+	await prisma.cabinetDesign.delete({ where: { id } });
+
+	try {
+		await deleteMeshFile(existing.blobPathname);
+	} catch {
+		// The row is already gone, which is what the admin asked for. Losing the
+		// blob cleanup is not worth failing the request over.
+	}
+
+	return NextResponse.json({ deleted: id });
+}

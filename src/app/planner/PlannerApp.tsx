@@ -32,11 +32,16 @@ const initialRooms = (): Record<RoomTypeId, PlannerLayout> =>
 export function PlannerApp({
 	initialRoomId,
 	catalogue,
+	finishTextures,
 }: {
 	initialRoomId: RoomTypeId;
 	/** The live published catalogue — swapped into the module-level palette
 	 * before anything below reads it. See `setActivePlannerCatalogue`. */
 	catalogue: PlannerCatalogue;
+	/** Finish id → uploaded decor photo, for the finishes that have one. The
+	 * same upload that gives the landing page its swatch, so the strip and the
+	 * cabinet show the same board. */
+	finishTextures: Record<string, string>;
 }) {
 	setActivePlannerCatalogue(catalogue);
 
@@ -111,6 +116,7 @@ export function PlannerApp({
 				roomId={roomId}
 				layout={layout}
 				finish={finish}
+				finishTextures={finishTextures}
 				onBackToStudioAction={() => setScreen("studio")}
 			/>
 		);
@@ -127,6 +133,7 @@ export function PlannerApp({
 			setLayoutAction={setLayout}
 			finish={finish}
 			setFinishAction={setFinish}
+			finishTextures={finishTextures}
 			selectedIds={selectedIds}
 			setSelectedIdsAction={setSelectedIds}
 			onGoToQuoteAction={() => setScreen("quote")}

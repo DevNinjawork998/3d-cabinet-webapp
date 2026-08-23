@@ -27,6 +27,7 @@ import {
 } from "@/lib/planner/layout";
 import { snapToCabinet, type Vec3Mm } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
+import { useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
 import { Room } from "./Room";
 
@@ -209,6 +210,7 @@ function CabinetHitTest({
 function Run({
 	layout,
 	finishHex,
+	finishPhoto,
 	selectedIds,
 	doorTargetId,
 	measureMode,
@@ -219,6 +221,8 @@ function Run({
 }: {
 	layout: PlannerLayout;
 	finishHex: string;
+	/** The uploaded decor photo for this finish, if the client has supplied one. */
+	finishPhoto: string | null;
 	selectedIds: ReadonlySet<string>;
 	/** The carcass a door is currently being dragged over, if any. */
 	doorTargetId: string | null;
@@ -367,6 +371,7 @@ function Run({
 							: position.family.floorHeightMm
 					}
 					finishHex={finishHex}
+					finishPhoto={finishPhoto}
 					selected={selectedIds.has(position.placed.id)}
 					highlighted={
 						position.placed.id === doorTargetId ||
@@ -560,7 +565,10 @@ function Worktop({
 								m(span.depthMm + overhangMm),
 							]}
 						/>
-						<meshStandardMaterial color={WORKTOP_COLOR} roughness={0.4} />
+						<WorktopMaterial
+							width={m(widthMm)}
+							depth={m(span.depthMm + overhangMm)}
+						/>
 					</mesh>
 				);
 			})}
@@ -568,9 +576,22 @@ function Worktop({
 	);
 }
 
+/**
+ * The slab's own surface. Same tile as everything else, but as sheen only —
+ * with the figure on, a dark worktop reads as decking. What is left is an
+ * uneven catch of light along the run, which is what honed stone does.
+ */
+function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
+	const figure = useGrain("horizontal", width, depth, "sheen");
+	return (
+		<meshStandardMaterial color={WORKTOP_COLOR} roughness={0.4} {...figure} />
+	);
+}
+
 export default function PlannerScene({
 	layout,
 	finish,
+	finishTextures = {},
 	selectedIds,
 	doorTargetId,
 	measureMode = false,
@@ -583,6 +604,15 @@ export default function PlannerScene({
 }: {
 	layout: PlannerLayout;
 	finish: FinishId;
+	/** Finish id → uploaded decor photo, for the finishes that have one.
+	 *
+	 * Optional and defaulted: a finish with no photo already falls back to the
+	 * generated grain, so an absent map should mean "nobody has photographed
+	 * these yet" and never a thrown render. This is a public page where a dead
+	 * canvas is a lost lead — and it does go missing in practice, when HMR
+	 * swaps this module into a tab whose parents are still the previous build.
+	 */
+	finishTextures?: Record<string, string>;
 	selectedIds: ReadonlySet<string>;
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
@@ -604,6 +634,7 @@ export default function PlannerScene({
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
 		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
+	const finishPhoto = finishTextures[finish] ?? null;
 	const [hoverPoint, setHoverPoint] = useState<Vec3Mm | null>(null);
 
 	return (
@@ -617,8 +648,12 @@ export default function PlannerScene({
 			onPointerMissed={() => onSelectAction(null, false)}
 		>
 			<color attach="background" args={["#f4f2ee"]} />
-			<ambientLight intensity={1.5} />
-			<directionalLight position={[4, 7, 6]} intensity={2} />
+			{/* Was 1.5 + 2.0, which clipped every mid-tone: Rhone Oak rendered
+			    near-white and the grain with it. Dropped until the catalogue's
+			    own finish colours survive to the screen, since that screenshot is
+			    what goes out over WhatsApp. */}
+			<ambientLight intensity={0.85} />
+			<directionalLight position={[4, 7, 6]} intensity={1.35} />
 
 			<Room
 				width={Math.max(m(runWidthMm) + 1.2, 4)}
@@ -629,6 +664,7 @@ export default function PlannerScene({
 			<Run
 				layout={layout}
 				finishHex={finishHex}
+				finishPhoto={finishPhoto}
 				selectedIds={selectedIds}
 				doorTargetId={doorTargetId}
 				measureMode={measureMode}

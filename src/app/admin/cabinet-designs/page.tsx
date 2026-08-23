@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
@@ -13,6 +14,7 @@ import {
 	ROOMS,
 	type Room,
 } from "@/lib/catalogue/cabinetDesignLabels";
+import type { DesignMeasurement } from "@/lib/mesh/measureDesign";
 
 type Status = "PUBLISHED" | "ARCHIVED";
 
@@ -87,6 +89,16 @@ function emptyForm(): Form {
 	};
 }
 
+/**
+ * Admin-only, and loaded on demand — this is the one component in the app that
+ * loads a mesh, and it must never reach a customer's bundle. See the file
+ * itself for why the planner's no-loaded-models rule does not apply here.
+ */
+const DesignViewer = dynamic(
+	() => import("@/components/admin/DesignViewer").then((m) => m.DesignViewer),
+	{ ssr: false },
+);
+
 export default function CabinetDesignsPage() {
 	const router = useRouter();
 	const [designs, setDesigns] = useState<CabinetDesign[]>([]);
@@ -104,6 +116,11 @@ export default function CabinetDesignsPage() {
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [missing, setMissing] = useState<Set<string>>(new Set());
+	/** What the design file said, once it has been read. */
+	const [measured, setMeasured] = useState<DesignMeasurement | null>(null);
+	const [measureError, setMeasureError] = useState<string | null>(null);
+	/** Id of the row whose Delete is armed, so only one row is ever primed. */
+	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
 	async function load() {
 		setLoading(true);
@@ -133,9 +150,57 @@ export default function CabinetDesignsPage() {
 		setFormStatus("PUBLISHED");
 		setFile(null);
 		setExistingFilename(null);
+		setMeasured(null);
+		setMeasureError(null);
 		setError(null);
 		setMissing(new Set());
 		setPanelOpen(true);
+	}
+
+	/**
+	 * Takes the chosen file and reads its dimensions straight out of the
+	 * geometry, so the admin confirms numbers rather than typing them off a
+	 * drawing. Only fills fields that are still empty — re-attaching a file to
+	 * an existing design must not quietly overwrite a size someone corrected.
+	 *
+	 * A `.zip` is not read here. The library stores a design; it does not
+	 * extract one, and unzipping in the browser to measure is work this form
+	 * does not need. Those keep the manual fields.
+	 */
+	async function acceptFile(f: File) {
+		setFile(f);
+		setMeasured(null);
+		setMeasureError(null);
+
+		if (!f.name.toLowerCase().endsWith(".obj")) return;
+
+		try {
+			// Loaded on demand: the reader must never be in the bundle a customer
+			// downloads.
+			const { measureDesign } = await import("@/lib/mesh/measureDesign");
+			const result = measureDesign(await f.text());
+			if (!result) {
+				setMeasureError(
+					"Could not find any geometry in that .obj, so the dimensions are yours to fill in.",
+				);
+				return;
+			}
+			setMeasured(result);
+			setForm((prev) => ({
+				...prev,
+				name: prev.name || f.name.replace(/\.[^.]+$/, ""),
+				category:
+					prev.category === "BASE_CABINET" ? result.category : prev.category,
+				w: prev.w || String(result.widthMm),
+				h: prev.h || String(result.heightMm),
+				d: prev.d || String(result.depthMm),
+			}));
+			setMissing(new Set());
+		} catch (error) {
+			setMeasureError(
+				`Could not read that .obj: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 	}
 
 	function editItem(d: CabinetDesign) {
@@ -191,6 +256,26 @@ export default function CabinetDesignsPage() {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ status }),
 		});
+		load();
+	}
+
+	/**
+	 * Deletes for good — the row and the file behind it.
+	 *
+	 * Two clicks, not one, and the first is only ever armed for a single row:
+	 * `confirmingDelete` holds an id rather than a boolean, so arming one row
+	 * disarms any other. Archiving already covers "hide this from customers",
+	 * so anyone reaching here means it.
+	 */
+	async function removeItem(d: CabinetDesign) {
+		setConfirmingDelete(null);
+		const res = await fetch(`/api/admin/cabinet-designs/${d.id}`, {
+			method: "DELETE",
+		});
+		if (!res.ok) {
+			setError(`Could not delete ${d.name}.`);
+			return;
+		}
 		load();
 	}
 
@@ -309,7 +394,6 @@ export default function CabinetDesignsPage() {
 	return (
 		<div className="flex min-h-screen flex-col bg-[#f4f3f1] text-neutral-900">
 			<AdminHeader />
-
 			<main className="mx-auto flex w-full max-w-[1320px] flex-1 flex-col gap-5 p-7">
 				<div className="flex items-end justify-between gap-4">
 					<div>
@@ -394,16 +478,19 @@ export default function CabinetDesignsPage() {
 				<div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
 					<div className="overflow-x-auto">
 						<table className="w-full table-fixed text-left text-sm">
+							{/* table-fixed, so these are the real widths and content that
+							    does not fit is clipped rather than pushing out. The last
+							    column carries three actions and needs the room. */}
 							<colgroup>
-								<col className="w-[22%]" />
-								<col className="w-[12%]" />
-								<col className="w-[10%]" />
-								<col className="w-[13%]" />
-								<col className="w-[10%]" />
-								<col className="w-[9%]" />
+								<col className="w-[19%]" />
 								<col className="w-[10%]" />
 								<col className="w-[8%]" />
-								<col className="w-[6%]" />
+								<col className="w-[13%]" />
+								<col className="w-[9%]" />
+								<col className="w-[8%]" />
+								<col className="w-[9%]" />
+								<col className="w-[8%]" />
+								<col className="w-[16%]" />
 							</colgroup>
 							<thead>
 								<tr className="border-neutral-200 border-b bg-[#f7f6f4]">
@@ -420,7 +507,7 @@ export default function CabinetDesignsPage() {
 									].map((h) => (
 										<th
 											key={h}
-											className="whitespace-nowrap px-4 py-2.5 font-medium text-[11px] text-neutral-500 uppercase tracking-wide"
+											className="whitespace-nowrap px-4 py-2.5 text-left font-medium text-[11px] text-neutral-500 uppercase tracking-wide"
 										>
 											{h}
 										</th>
@@ -431,7 +518,12 @@ export default function CabinetDesignsPage() {
 								{filtered.map((d) => (
 									<tr key={d.id} className="border-neutral-100 border-b">
 										<td className="overflow-hidden px-4 py-2.5">
-											<div className="flex min-w-0 items-center gap-2.5">
+											<button
+												type="button"
+												onClick={() => editItem(d)}
+												title={`Open ${d.name} — view the model and edit its details`}
+												className="flex min-w-0 w-full items-center gap-2.5 text-left"
+											>
 												<span
 													className="h-8 w-10 flex-shrink-0 rounded-md shadow-[inset_0_0_0_1px_rgba(0,0,0,.06)]"
 													style={{
@@ -444,7 +536,7 @@ export default function CabinetDesignsPage() {
 														{d.filename}
 													</p>
 												</div>
-											</div>
+											</button>
 										</td>
 										<td className="truncate px-3 py-2.5 text-neutral-700">
 											{CATEGORY_LABELS[d.category]}
@@ -482,25 +574,64 @@ export default function CabinetDesignsPage() {
 										<td className="px-3 py-2.5 text-neutral-400">
 											{new Date(d.updatedAt).toLocaleDateString()}
 										</td>
-										<td className="whitespace-nowrap px-4 py-2.5 text-right">
-											<button
-												type="button"
-												onClick={() => editItem(d)}
-												className="text-neutral-600 text-xs underline"
-											>
-												Edit
-											</button>
-											<button
-												type="button"
-												onClick={() => toggleArchive(d)}
-												className={`ml-3 text-xs underline ${
-													d.status === "PUBLISHED"
-														? "text-amber-700"
-														: "text-green-700"
-												}`}
-											>
-												{d.status === "PUBLISHED" ? "Archive" : "Publish"}
-											</button>
+										{/* Armed state: Cancel sits last, under the pointer that
+										    just armed the row, so clicking twice in the same place
+										    backs out rather than deletes. Note the armed state
+										    survives a same-route navigation, because React keeps the
+										    state — worth knowing, since a row was lost during
+										    testing and that is the most likely way. Labels are short
+										    because this has to fit the same column as the three
+										    links it replaces. */}
+										<td className="px-4 py-2.5">
+											{confirmingDelete === d.id ? (
+												<div className="flex items-center justify-end gap-3 whitespace-nowrap">
+													<span className="text-[11px] text-neutral-500">
+														Sure?
+													</span>
+													<button
+														type="button"
+														onClick={() => removeItem(d)}
+														className="font-medium text-red-700 text-xs underline"
+													>
+														Delete
+													</button>
+													<button
+														type="button"
+														onClick={() => setConfirmingDelete(null)}
+														className="font-medium text-neutral-700 text-xs underline"
+													>
+														Cancel
+													</button>
+												</div>
+											) : (
+												<div className="flex items-center justify-end gap-3 whitespace-nowrap">
+													<button
+														type="button"
+														onClick={() => editItem(d)}
+														className="text-neutral-600 text-xs underline"
+													>
+														Edit
+													</button>
+													<button
+														type="button"
+														onClick={() => toggleArchive(d)}
+														className={`text-xs underline ${
+															d.status === "PUBLISHED"
+																? "text-amber-700"
+																: "text-green-700"
+														}`}
+													>
+														{d.status === "PUBLISHED" ? "Archive" : "Publish"}
+													</button>
+													<button
+														type="button"
+														onClick={() => setConfirmingDelete(d.id)}
+														className="text-neutral-400 text-xs underline hover:text-red-700"
+													>
+														Delete
+													</button>
+												</div>
+											)}
 										</td>
 									</tr>
 								))}
@@ -550,6 +681,8 @@ export default function CabinetDesignsPage() {
 												onClick={() => {
 													setFile(null);
 													setExistingFilename(null);
+													setMeasured(null);
+													setMeasureError(null);
 												}}
 												className="mt-2.5 text-amber-700 text-xs underline"
 											>
@@ -569,7 +702,7 @@ export default function CabinetDesignsPage() {
 													className="hidden"
 													onChange={(e) => {
 														const f = e.target.files?.[0];
-														if (f) setFile(f);
+														if (f) acceptFile(f);
 													}}
 												/>
 											</label>
@@ -580,6 +713,44 @@ export default function CabinetDesignsPage() {
 									)}
 								</div>
 							</div>
+
+							{(file || (editingId && existingFilename)) && (
+								<DesignViewer
+									source={
+										file ??
+										(editingId
+											? `/api/admin/cabinet-designs/${editingId}/file`
+											: null)
+									}
+									className="h-56 w-full"
+								/>
+							)}
+
+							{measured && (
+								<p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-900">
+									Read from the file:{" "}
+									<strong>
+										{measured.widthMm} × {measured.heightMm} ×{" "}
+										{measured.depthMm} mm
+									</strong>
+									{measured.doors > 0 && `, ${measured.doors} door`}
+									{measured.drawers > 0 && `, ${measured.drawers} drawer`}
+									{measured.floorHeightMm >= 1200 &&
+										`, hung at ${measured.floorHeightMm}mm`}
+									. {measured.partCount} parts. Check the fields below before
+									saving — they are a reading, not a spec.
+									{measured.notes.map((n) => (
+										<span key={n} className="mt-1 block text-amber-800">
+											{n}
+										</span>
+									))}
+								</p>
+							)}
+							{measureError && (
+								<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+									{measureError}
+								</p>
+							)}
 
 							<div>
 								<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">

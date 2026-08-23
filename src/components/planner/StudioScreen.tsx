@@ -94,6 +94,7 @@ export function StudioScreen({
 	layout,
 	setLayoutAction,
 	finish,
+	finishTextures,
 	setFinishAction,
 	selectedIds,
 	setSelectedIdsAction,
@@ -107,6 +108,8 @@ export function StudioScreen({
 		next: PlannerLayout | ((prev: PlannerLayout) => PlannerLayout),
 	) => void;
 	finish: FinishId;
+	/** Finish id → uploaded decor photo. Passed straight through to the scene. */
+	finishTextures: Record<string, string>;
 	setFinishAction: (id: FinishId) => void;
 	selectedIds: readonly string[];
 	setSelectedIdsAction: (ids: readonly string[]) => void;
@@ -420,6 +423,7 @@ export function StudioScreen({
 					<PlannerScene
 						layout={layout}
 						finish={finish}
+						finishTextures={finishTextures}
 						selectedIds={selectedSet}
 						doorTargetId={null}
 						measureMode={measureMode}
