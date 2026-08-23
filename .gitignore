@@ -44,3 +44,10 @@ yarn-error.log*
 next-env.d.ts
 
 graphify-out
+
+# Installed agent skills: vendored third-party content (Leonxlnx/taste-skill,
+# no upstream licence shipped) plus a machine-local symlink farm under
+# .claude/skills. `.agents/skills/skills.md` is ours and stays tracked.
+.agents/skills/*/
+.claude/skills/
+skills-lock.json
