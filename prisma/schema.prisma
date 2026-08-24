@@ -41,17 +41,17 @@ model CatalogueImport {
 /// one row per product may have status PUBLISHED — enforced by a partial
 /// unique index added by hand in the migration SQL (see migration.sql).
 model CatalogueVersion {
-  id          String          @id @default(cuid())
+  id          String           @id @default(cuid())
   product     Product
   version     Int
-  status      CatalogueStatus @default(DRAFT)
+  status      CatalogueStatus  @default(DRAFT)
   data        Json
   note        String?
   importId    String?
   import      CatalogueImport? @relation(fields: [importId], references: [id])
   createdBy   String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   publishedBy String?
   publishedAt DateTime?
 
@@ -122,4 +122,43 @@ model SiteImage {
   sizeBytes    Int
   uploadedBy   String
   updatedAt    DateTime @updatedAt
+}
+
+enum TutorialStatus {
+  PROCESSING
+  READY
+  ERRORED
+  ARCHIVED
+}
+
+/// One DIY tutorial video. The bytes live at Mux, never here and never in
+/// Blob: video needs range requests, transcoding and an adaptive bitrate
+/// ladder, and the Blob store is private-access-only so it can only be read
+/// back through a function that does none of those things.
+///
+/// `muxUploadId` is the key rather than `muxAssetId` because it is the only id
+/// that exists at the moment the row is created — the asset is minted
+/// asynchronously once Mux finishes ingesting, and `/status` fills the rest in.
+model Tutorial {
+  id          String         @id @default(cuid())
+  title       String
+  /// Optional: the design makes the video and title the only required fields,
+  /// so a tutorial can ship before someone writes the blurb.
+  description String         @default("")
+  /// Validated against CATEGORY_IDS in lib/tutorials.ts, not a Prisma enum:
+  /// this vocabulary is data, and an enum makes adding one a migration.
+  category    String
+  level       String
+  sortOrder   Int            @default(0)
+  muxUploadId String         @unique
+  muxAssetId  String?
+  playbackId  String?
+  /// Read off the asset once Mux has it, so nobody hand-types "8 min".
+  durationSec Int?
+  status      TutorialStatus @default(PROCESSING)
+  uploadedBy  String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([status, sortOrder])
 }
