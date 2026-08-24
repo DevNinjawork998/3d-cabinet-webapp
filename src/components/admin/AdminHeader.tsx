@@ -20,6 +20,7 @@ const TABS = [
 	{ label: "Catalogue", href: "/admin/catalogue" },
 	{ label: "Import design", href: "/admin/import" },
 	{ label: "Site content", href: "/admin/site-content" },
+	{ label: "Tutorials", href: "/admin/tutorials" },
 ];
 
 export function AdminHeader() {
