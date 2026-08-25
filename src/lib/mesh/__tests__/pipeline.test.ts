@@ -218,6 +218,8 @@ describe("extractCatalogue", () => {
 			doorLeaves: 2,
 			drawers: 0,
 			hasBack: true,
+			legs: 0,
+			legHeightMm: 0,
 		});
 
 		const drawerUnit = draft.modules.find((m) => m.geometry.drawers > 0);

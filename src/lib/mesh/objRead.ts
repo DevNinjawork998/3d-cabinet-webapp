@@ -162,3 +162,63 @@ export function readObj(text: string): ObjRead {
 
 /** Dedupe key only. Units are still the file's here, so round fine, not to mm. */
 const key6 = (v: number) => v.toFixed(6);
+
+/**
+ * Strips the counter an exporter adds when it splits one panel across records:
+ * `UEnd__L_1` and `UEnd__L_2` are the same left end panel, `Top1` the same top.
+ *
+ * Deliberately not the same as `baseName`, which removes Blender's `.017`
+ * copy suffix. This removes a *trailing* run of digits, which is what SketchUp
+ * appends, and keeps everything a drafter actually typed — `Door_L_` stays
+ * distinct from `Door_R_`.
+ */
+export const panelName = (name: string) => name.replace(/\d+$/, "");
+
+/**
+ * Unions the records that make up one panel.
+ *
+ * SketchUp writes a single board as several `g` groups, each a planar face, so
+ * every one of them has a zero dimension: the client's `BC 800mm.obj` reads its
+ * shelf as `767 × 0 × 16` and its back as `800 × 0 × 770`. Anything downstream
+ * that asks "is this a solid part" — `geometryOf`, the cut list — then throws
+ * the whole panel away, which is why a cabinet with a shelf, a back and four
+ * legs rendered as an empty box on a plinth.
+ *
+ * Unioning the boxes recovers the real board: `767 × 534 × 16`.
+ *
+ * **Only safe on a file that holds one cabinet.** Two cabinets side by side in
+ * a run have same-named panels that touch, so unioning across a whole wall
+ * merges their shelves into one and collapses the file — measured on the
+ * `flat-pack` fixture: 154 parts down to 22, three shelves down to one. The
+ * run-import path has to coalesce *inside* each grouped module instead, after
+ * `groupModules` has decided where one cabinet ends.
+ */
+export function coalesceParts(parts: MeshPart[]): MeshPart[] {
+	const merged = new Map<string, { lo: Vec3; hi: Vec3 }>();
+	const order: string[] = [];
+
+	for (const part of parts) {
+		const key = panelName(part.name);
+		const lo = part.minMm;
+		const hi = part.minMm.map((v, i) => v + part.sizeMm[i]) as Vec3;
+		const found = merged.get(key);
+		if (!found) {
+			merged.set(key, { lo: [...lo] as Vec3, hi: [...hi] as Vec3 });
+			order.push(key);
+			continue;
+		}
+		for (let i = 0; i < 3; i++) {
+			found.lo[i] = Math.min(found.lo[i], lo[i]);
+			found.hi[i] = Math.max(found.hi[i], hi[i]);
+		}
+	}
+
+	return order.map((name) => {
+		const box = merged.get(name) as { lo: Vec3; hi: Vec3 };
+		return {
+			name,
+			minMm: box.lo,
+			sizeMm: box.hi.map((v, i) => v - box.lo[i]) as Vec3,
+		};
+	});
+}

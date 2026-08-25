@@ -1,3 +1,4 @@
+import { CONSTRUCTION } from "@/lib/planner/catalogue";
 import type {
 	Family,
 	Finish,
@@ -36,6 +37,32 @@ export type ConfirmedModule = {
 	depthMm: number;
 	floorHeightMm: number;
 	geometry: CabinetGeometry;
+	/**
+	 * What this rung costs, when the caller already knows.
+	 *
+	 * A mesh import never does — geometry carries no money, which is why the
+	 * default below is still zero. The cabinet-design library does: an admin
+	 * typed the price into the upload form, and making them type it again in
+	 * the catalogue editor is how a cabinet ends up shipping at RM 0. Only ever
+	 * used for a rung that does not exist yet; a price already on the ladder is
+	 * still never overwritten.
+	 */
+	priceRm?: number;
+	/**
+	 * The one room this cabinet belongs in, when the caller knows that too.
+	 *
+	 * Without it, room curation gives every room that already carries this
+	 * `kind` the new family — which is right for a wall export, where nobody
+	 * said what room anything was for, and wrong for a design the admin filed
+	 * under Kitchen. Every room in the seed catalogue carries a `base` or
+	 * `tall` family, so a kitchen base cabinet would otherwise also appear in
+	 * the living room and the foyer.
+	 *
+	 * An id matching no room falls back to the `kind` behaviour rather than
+	 * pinning the family nowhere: an unreachable family is the bug this is
+	 * meant to prevent, not a stricter version of it.
+	 */
+	roomId?: string;
 };
 
 export type ConfirmedFinish = { label: string; hex: string };
@@ -52,6 +79,10 @@ export type MergeReport = {
 	/** `["Base 2 door: +600mm", …]` */
 	newSizes: string[];
 	newFinishes: string[];
+	/** Families that had no fit-out recorded and learned one from this import.
+	 * A real change even when no family and no size was added — it is what the
+	 * scene draws from. */
+	learnedGeometry: string[];
 	/** Rows that matched an existing family at a width it already carries. */
 	unchanged: string[];
 };
@@ -90,10 +121,13 @@ export function matchesFamily(
 	);
 }
 
-/** `Base 900 · 2 door` describes one rung; the family covers the whole ladder. */
+/** `Base 900 · 2 door` describes one rung; the family covers the whole ladder.
+ *
+ * The unit goes with the number: an admin naming a design `BC 800mm` used to
+ * leave `BC mm` behind, because the digits matched and `mm` did not. */
 const stripWidth = (label: string) =>
 	label
-		.replace(/\s*\d{3,4}\s*(·|-)?\s*/, " ")
+		.replace(/\s*\d{3,4}\s*(mm)?\s*(·|-)?\s*/i, " ")
 		.replace(/\s+/g, " ")
 		.trim();
 
@@ -117,29 +151,58 @@ export function mergeIntoCatalogue(
 		newFamilies: [],
 		newSizes: [],
 		newFinishes: [],
+		learnedGeometry: [],
 		unchanged: [],
+	};
+
+	/** family id → the room its module asked for, for the curation step below. */
+	const pinnedRooms = new Map<string, string>();
+	/** Families this merge created. Only these are placed into rooms; see the
+	 * curation step for why touching the others is destructive. */
+	const addedFamilyIds = new Set<string>();
+	const pin = (module: ConfirmedModule, familyId: string) => {
+		if (module.roomId) pinnedRooms.set(familyId, module.roomId);
 	};
 
 	for (const module of confirmed.modules) {
 		const existing = families.find((family) => matchesFamily(module, family));
 
 		if (existing) {
+			pin(module, existing.id);
+			// A family that has never been told what it holds learns it from the
+			// first design that matches it — otherwise a seeded family like
+			// `base-cabinet` keeps rendering the one-shelf default forever, which
+			// is exactly what made an uploaded cabinet look nothing like its
+			// drawing. One that already has a fit-out is left alone: a human may
+			// have corrected it in the editor, and the same rule protects prices.
+			if (!existing.geometry) {
+				existing.geometry = module.geometry;
+				report.learnedGeometry.push(existing.label);
+			}
 			if (existing.sizes.some((size) => size.widthMm === module.widthMm)) {
 				// Already on the ladder. Leave the price alone — it may be a number
 				// the client agreed months ago.
 				report.unchanged.push(`${existing.label} ${module.widthMm}mm`);
 				continue;
 			}
-			existing.sizes.push({ widthMm: module.widthMm, priceRm: 0 });
+			existing.sizes.push({
+				widthMm: module.widthMm,
+				priceRm: module.priceRm ?? 0,
+			});
 			existing.sizes.sort((a, b) => a.widthMm - b.widthMm);
 			report.newSizes.push(`${existing.label}: +${module.widthMm}mm`);
 			continue;
 		}
 
 		const label = stripWidth(module.label) || `${module.kind} cabinet`;
-		const sizes: SizeOption[] = [{ widthMm: module.widthMm, priceRm: 0 }];
+		const sizes: SizeOption[] = [
+			{ widthMm: module.widthMm, priceRm: module.priceRm ?? 0 },
+		];
+		const id = uniqueId(slugify(label) || module.kind, takenIds);
+		pin(module, id);
+		addedFamilyIds.add(id);
 		families.push({
-			id: uniqueId(slugify(label) || module.kind, takenIds),
+			id,
 			label,
 			kind: module.kind,
 			depthMm: module.depthMm,
@@ -149,7 +212,10 @@ export function mergeIntoCatalogue(
 			hasWorktop: module.kind === "base",
 			drawers: module.geometry.drawers,
 			geometry: module.geometry,
-			note: "Imported from a design file — price not yet set.",
+			note:
+				module.priceRm === undefined
+					? "Imported from a design file — price not yet set."
+					: "Imported from a design file.",
 		});
 		report.newFamilies.push(label);
 	}
@@ -166,28 +232,34 @@ export function mergeIntoCatalogue(
 		report.newFinishes.push(finish.label);
 	});
 
-	// Every room offers every family of a kind it already carried. Curating
-	// which cabinet belongs in a bedroom is a merchandising decision, so the
-	// reviewer does it in the catalogue editor; this only makes sure a new
-	// family is reachable rather than orphaned.
-	const kindsOf = (ids: string[]) =>
-		new Set(
-			ids
-				.map((id) => families.find((family) => family.id === id)?.kind)
-				.filter(Boolean),
-		);
+	// Where a newly created family shows up.
+	//
+	// **Only families this merge added are placed.** An earlier version
+	// re-derived every room's whole list by kind, which silently rewrote
+	// curation nobody asked it to touch: because the living room carries a
+	// `base` and a `tall`, one unrelated import handed it the wardrobe, the shoe
+	// cabinet and the shoe bench. Existing membership is now carried through
+	// untouched — this can only ever add.
+	//
+	// A module that named its own room goes into that room and no other.
+	// Without a room — which is every mesh import, since a geometry export knows
+	// nothing about rooms — it falls back to "every room that already carries
+	// this kind", so the family is reachable rather than orphaned. Deciding
+	// which cabinet really belongs in a bedroom is a merchandising call, and the
+	// reviewer makes it in the catalogue editor.
+	const roomIds = new Set<string>(base.roomTypes.map((room) => room.id));
+	const kindOfId = new Map(families.map((family) => [family.id, family.kind]));
 	const roomTypes = base.roomTypes.map((room) => {
-		const kinds = kindsOf(room.familyIds);
-		const familyIds = families
-			.filter(
-				(family) =>
-					kinds.has(family.kind) || room.familyIds.includes(family.id),
-			)
-			.map((family) => family.id);
-		return {
-			...room,
-			familyIds: familyIds.length ? familyIds : room.familyIds,
-		};
+		const kinds = new Set(room.familyIds.map((id) => kindOfId.get(id)));
+		const added = [...addedFamilyIds].filter((id) => {
+			if (room.familyIds.includes(id)) return false;
+			const pinnedTo = pinnedRooms.get(id);
+			if (pinnedTo !== undefined && roomIds.has(pinnedTo)) {
+				return pinnedTo === room.id;
+			}
+			return kinds.has(kindOfId.get(id));
+		});
+		return { ...room, familyIds: [...room.familyIds, ...added] };
 	});
 
 	const next: PlannerCatalogue = {
@@ -195,15 +267,25 @@ export function mergeIntoCatalogue(
 		families,
 		finishes,
 		roomTypes,
+		// A catalogue with no `construction` block of its own is not a catalogue
+		// with no construction: the planner falls back to the seed `CONSTRUCTION`
+		// when the field is absent, and published catalogues today are exactly
+		// that case. This used to fabricate its own defaults here, and they had
+		// drifted from the seed on three of four fields — so merging anything
+		// into a live catalogue quietly moved board thickness 16→18, worktop
+		// 40→30, and the two-leaf threshold 650→600, which alone changes how
+		// many doors a 600mm cabinet is drawn with.
+		//
+		// Only the two values an import actually measures are overridden, and
+		// only when it measured them.
 		construction: {
-			...(base.construction ?? {
-				worktopThicknessMm: 30,
-				doorLeavesThresholdMm: 600,
-				panelThicknessMm: 18,
-				plinthHeightMm: 100,
-			}),
-			panelThicknessMm: confirmed.panelThicknessMm || 18,
-			plinthHeightMm: confirmed.plinthHeightMm,
+			...(base.construction ?? CONSTRUCTION),
+			...(confirmed.panelThicknessMm
+				? { panelThicknessMm: confirmed.panelThicknessMm }
+				: {}),
+			...(confirmed.plinthHeightMm
+				? { plinthHeightMm: confirmed.plinthHeightMm }
+				: {}),
 		},
 	};
 
@@ -219,6 +301,9 @@ export function describeMerge(report: MergeReport): string[] {
 	for (const label of report.newFamilies) lines.push(`New cabinet: ${label}`);
 	for (const size of report.newSizes) lines.push(`New size — ${size}`);
 	for (const finish of report.newFinishes) lines.push(`New finish: ${finish}`);
+	for (const label of report.learnedGeometry) {
+		lines.push(`${label}: recorded what it holds, from the design`);
+	}
 	if (report.unchanged.length) {
 		lines.push(
 			`${report.unchanged.length} already in the catalogue, left untouched`,

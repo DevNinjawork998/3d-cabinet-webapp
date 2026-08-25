@@ -29,6 +29,12 @@ const cabinetGeometrySchema = z.object({
 	doorLeaves: z.number().int().min(0),
 	drawers: z.number().int().min(0),
 	hasBack: z.boolean(),
+	/** Adjustable feet, from the design. Zero draws the plinth the scene has
+	 * always drawn. Defaulted rather than required so every catalogue published
+	 * before designs could describe their feet still validates — the same
+	 * reason `geometry` itself is optional. */
+	legs: z.number().int().min(0).default(0),
+	legHeightMm: z.number().min(0).default(0),
 });
 export type CabinetGeometry = z.infer<typeof cabinetGeometrySchema>;
 

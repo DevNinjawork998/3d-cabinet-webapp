@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { addModule, allPositions, emptyLayout } from "../layout";
+import { addModule, allPositions, emptyLayout, setDoor } from "../layout";
 import {
+	APERTURE_PX,
+	apertureMm,
 	cabinetBoundsMm,
 	cabinetCornersMm,
+	constrainToAxis,
 	distanceMm,
+	dominantAxis,
 	measure,
 	snapToCabinet,
+	type Vec3Mm,
 } from "../measure";
+import { cabinetPartsMm } from "../parts";
 
 const WALL_MM = 4000;
 
@@ -33,7 +39,8 @@ describe("measure", () => {
 		const nearHit = { x: corner.x + 5, y: corner.y - 3, z: corner.z + 2 };
 		const snapped = snapToCabinet(nearHit, position, layout);
 
-		expect(snapped).toEqual(corner);
+		expect(snapped.point).toEqual(corner);
+		expect(snapped.kind).toBe("corner");
 	});
 
 	it("leaves a hit unsnapped once it's outside the tolerance", () => {
@@ -44,6 +51,186 @@ describe("measure", () => {
 		const farHit = { x: corner.x + 500, y: corner.y, z: corner.z };
 		const snapped = snapToCabinet(farHit, position, layout);
 
-		expect(snapped).toEqual(farHit);
+		expect(snapped.point).toEqual(farHit);
+		expect(snapped.kind).toBe("surface");
+	});
+});
+
+describe("snap targets from the cabinet's parts", () => {
+	const layoutWith = (familyId: string) =>
+		addModule(emptyLayout(WALL_MM), familyId, 0);
+
+	/** A part's world-space box, the same way `measure` builds it. */
+	const worldBox = (
+		position: ReturnType<typeof allPositions>[number],
+		layout: ReturnType<typeof emptyLayout>,
+		role: string,
+		index = 0,
+	) => {
+		const bounds = cabinetBoundsMm(position, layout);
+		const part = cabinetPartsMm(
+			position.family,
+			position.widthMm,
+			position.placed.doorStyleId !== null,
+		).find((p) => p.role === role && p.index === index);
+		if (!part) throw new Error(`no ${role}[${index}] on this cabinet`);
+		return {
+			centre: {
+				x: (bounds.minX + bounds.maxX) / 2 + part.centreMm.x,
+				y: bounds.minY + part.centreMm.y,
+				z: (bounds.minZ + bounds.maxZ) / 2 + part.centreMm.z,
+			},
+			size: part.sizeMm,
+		};
+	};
+
+	it("reaches a shelf, which the bounding box alone never could", () => {
+		const layout = layoutWith("base-cabinet");
+		const [position] = allPositions(layout);
+		const shelf = worldBox(position, layout, "shelf");
+
+		const shelfCorner: Vec3Mm = {
+			x: shelf.centre.x - shelf.size.x / 2,
+			y: shelf.centre.y - shelf.size.y / 2,
+			z: shelf.centre.z + shelf.size.z / 2,
+		};
+		const snapped = snapToCabinet(
+			{ x: shelfCorner.x + 3, y: shelfCorner.y + 2, z: shelfCorner.z - 4 },
+			position,
+			layout,
+		);
+
+		expect(snapped.kind).toBe("corner");
+		expect(snapped.role).toBe("shelf");
+		expect(snapped.point.x).toBeCloseTo(shelfCorner.x);
+		expect(snapped.point.y).toBeCloseTo(shelfCorner.y);
+	});
+
+	it("snaps to an edge midpoint when no corner is within reach", () => {
+		const layout = layoutWith("base-cabinet");
+		const [position] = allPositions(layout);
+		const bounds = cabinetBoundsMm(position, layout);
+
+		// Halfway up the cabinet's front-left vertical edge: both its corners are
+		// most of a cabinet-height away, so only the midpoint is in the aperture.
+		const mid: Vec3Mm = {
+			x: bounds.minX,
+			y: (bounds.minY + bounds.maxY) / 2,
+			z: bounds.maxZ,
+		};
+		const snapped = snapToCabinet(
+			{ x: mid.x + 2, y: mid.y + 6, z: mid.z - 1 },
+			position,
+			layout,
+			20,
+		);
+
+		expect(snapped.kind).toBe("midpoint");
+		expect(snapped.point.y).toBeCloseTo(mid.y);
+	});
+
+	it("prefers a corner over a nearer midpoint, the way OSNAP ranks", () => {
+		const layout = layoutWith("base-cabinet");
+		const [position] = allPositions(layout);
+		const bounds = cabinetBoundsMm(position, layout);
+
+		// Sit close to the bottom edge's midpoint but still inside the aperture of
+		// the corner it runs to; the corner has to win regardless.
+		const corner: Vec3Mm = { x: bounds.minX, y: bounds.minY, z: bounds.maxZ };
+		const snapped = snapToCabinet(
+			{ x: corner.x + 30, y: corner.y, z: corner.z },
+			position,
+			layout,
+			60,
+		);
+
+		expect(snapped.kind).toBe("corner");
+	});
+
+	it("only offers door leaves once a door has been chosen", () => {
+		const bare = layoutWith("base-cabinet");
+		const [barePosition] = allPositions(bare);
+		expect(barePosition.placed.doorStyleId).toBeNull();
+
+		const dressed = setDoor(bare, barePosition.placed.id, "slab");
+		const [position] = allPositions(dressed);
+		const leaf = worldBox(position, dressed, "doorLeaf");
+
+		const front: Vec3Mm = {
+			x: leaf.centre.x - leaf.size.x / 2,
+			y: leaf.centre.y - leaf.size.y / 2,
+			z: leaf.centre.z + leaf.size.z / 2,
+		};
+		const snapped = snapToCabinet(
+			{ x: front.x + 4, y: front.y + 4, z: front.z },
+			position,
+			dressed,
+		);
+
+		expect(snapped.role).toBe("doorLeaf");
+		expect(snapped.kind).toBe("corner");
+	});
+
+	it("widening the aperture snaps where a narrow one does not", () => {
+		const layout = layoutWith("base-cabinet");
+		const [position] = allPositions(layout);
+		const [corner] = cabinetCornersMm(position, layout);
+		const hit = { x: corner.x + 25, y: corner.y + 25, z: corner.z };
+
+		expect(snapToCabinet(hit, position, layout, 5).kind).toBe("surface");
+		expect(snapToCabinet(hit, position, layout, 80).kind).toBe("corner");
+	});
+});
+
+describe("apertureMm", () => {
+	// 12px at 3m through a 40° lens on an 800px canvas: the frustum is
+	// 2·3·tan(20°) = 2.184m tall, so a pixel is 2.73mm and twelve are ~32.8.
+	it("converts a pixel aperture to millimetres at that distance", () => {
+		expect(apertureMm(3, 40, 800, 12)).toBeCloseTo(32.757, 2);
+	});
+
+	it("grows with distance — which the old fixed 40mm could not", () => {
+		const near = apertureMm(1, 40, 800);
+		const far = apertureMm(6, 40, 800);
+		expect(far).toBeGreaterThan(near);
+		// Linear in distance, so pulling back to frame a whole run scales it.
+		expect(far / near).toBeCloseTo(6);
+	});
+
+	it("shrinks on a taller viewport and grows with the pixel aperture", () => {
+		expect(apertureMm(3, 40, 1600)).toBeLessThan(apertureMm(3, 40, 800));
+		expect(apertureMm(3, 40, 800, 24)).toBeCloseTo(
+			apertureMm(3, 40, 800, 12) * 2,
+		);
+	});
+
+	it("defaults to a usable aperture rather than zero before layout", () => {
+		expect(apertureMm(3, 40, 0)).toBeGreaterThan(0);
+		expect(APERTURE_PX).toBeGreaterThan(0);
+	});
+});
+
+describe("axis lock", () => {
+	const from: Vec3Mm = { x: 100, y: 200, z: 300 };
+	const mostlyUp: Vec3Mm = { x: 112, y: 1100, z: 297 };
+
+	it("auto zeroes the other two axes exactly, not nearly", () => {
+		const locked = constrainToAxis(from, mostlyUp, "auto");
+		const result = measure(from, locked);
+
+		expect(dominantAxis(from, mostlyUp)).toBe("y");
+		expect(result.heightMm).toBe(900);
+		expect(result.widthMm).toBe(0);
+		expect(result.depthMm).toBe(0);
+	});
+
+	it("free leaves the point alone, so two corners still give W/H/D", () => {
+		expect(constrainToAxis(from, mostlyUp, "free")).toEqual(mostlyUp);
+	});
+
+	it("an explicit axis overrides what auto would have picked", () => {
+		const locked = constrainToAxis(from, mostlyUp, "x");
+		expect(locked).toEqual({ x: 112, y: 200, z: 300 });
+		expect(measure(from, locked).widthMm).toBe(12);
 	});
 });

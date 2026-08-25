@@ -4,6 +4,7 @@ import {
 	catalogueSchemaByProduct,
 	productSchema,
 } from "@/lib/catalogue/schemaByProduct";
+import { createDraftVersion } from "@/lib/catalogue/versions";
 
 export const runtime = "nodejs";
 
@@ -59,31 +60,11 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const createdBy = "admin"; // ponytail: see imports/route.ts
-
-	// Version numbers are assigned at creation, not at publish — a draft that
-	// never gets published just leaves a gap, which is fine; what matters is
-	// they're monotonic and unique per product, which @@unique([product,
-	// version]) backstops. ponytail: read-then-write, not a transaction — a
-	// genuine race needs two people creating a draft for the same product in
-	// the same instant, and the unique constraint turns that into a clean
-	// 500 instead of silent corruption. Wrap in $transaction if this tool
-	// ever gets more than a couple of concurrent admins.
-	const { _max } = await prisma.catalogueVersion.aggregate({
-		where: { product: product.data },
-		_max: { version: true },
-	});
-
-	const draft = await prisma.catalogueVersion.create({
-		data: {
-			product: product.data,
-			version: (_max.version ?? 0) + 1,
-			status: "DRAFT",
-			data: parsed.data,
-			note: body.note,
-			importId: body.importId,
-			createdBy,
-		},
+	const draft = await createDraftVersion({
+		product: product.data,
+		data: parsed.data,
+		note: body.note,
+		importId: body.importId,
 	});
 
 	return NextResponse.json({ id: draft.id, status: draft.status });

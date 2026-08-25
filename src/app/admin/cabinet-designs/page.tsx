@@ -35,7 +35,46 @@ type CabinetDesign = {
 	tags: string | null;
 	finishes: string[];
 	status: Status;
+	/** The planner family this design was pushed into, if it ever was. */
+	familyId: string | null;
 	updatedAt: string;
+};
+
+/**
+ * Where a design actually is, which is not what `status` says.
+ *
+ * `status` (PUBLISHED/ARCHIVED) only filters this table — no customer-facing
+ * page has ever read it, though it was once labelled "visible to customers".
+ * Reaching the planner is a separate act: push the design into the catalogue,
+ * then publish that catalogue version. This derives the truth from both.
+ */
+type Reach = "library" | "queued" | "live";
+
+/** Short enough for a table column. The sentence version is the tooltip —
+ * "Queued — in an unpublished draft" wrapped to three lines in the cell. */
+const REACH_LABEL: Record<Reach, string> = {
+	library: "Library only",
+	queued: "In draft",
+	live: "In planner",
+};
+
+const REACH_HINT: Record<Reach, string> = {
+	library:
+		"In the design library only. No customer can see this — use “Add to planner”.",
+	queued:
+		"Added to a catalogue draft. Publish that draft at /admin/catalogue to make it live.",
+	live: "Live in the published catalogue — customers can place this cabinet.",
+};
+
+const REACH_TONE: Record<Reach, string> = {
+	library: "bg-neutral-100 text-neutral-500",
+	queued: "bg-amber-50 text-amber-700",
+	live: "bg-green-50 text-green-700",
+};
+
+const reachOf = (d: CabinetDesign, plannerFamilyIds: Set<string>): Reach => {
+	if (!d.familyId) return "library";
+	return plannerFamilyIds.has(d.familyId) ? "live" : "queued";
 };
 
 const FINISH_OPTIONS = ["Slab", "Shaker", "Glass"];
@@ -122,6 +161,15 @@ export default function CabinetDesignsPage() {
 	/** Id of the row whose Delete is armed, so only one row is ever primed. */
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
+	/** Families the *published* catalogue carries, for the reach badge. */
+	const [plannerFamilyIds, setPlannerFamilyIds] = useState<Set<string>>(
+		new Set(),
+	);
+	/** Id of the design currently being pushed, so its button can say so. */
+	const [pushing, setPushing] = useState<string | null>(null);
+	/** What the last push did, shown until the next action. */
+	const [pushed, setPushed] = useState<string | null>(null);
+
 	async function load() {
 		setLoading(true);
 		const res = await fetch("/api/admin/cabinet-designs");
@@ -136,6 +184,7 @@ export default function CabinetDesignsPage() {
 		}
 		const body = await res.json();
 		setDesigns(body.designs ?? []);
+		setPlannerFamilyIds(new Set<string>(body.plannerFamilyIds ?? []));
 		setLoading(false);
 	}
 
@@ -269,14 +318,55 @@ export default function CabinetDesignsPage() {
 	 */
 	async function removeItem(d: CabinetDesign) {
 		setConfirmingDelete(null);
+		setPushed(null);
 		const res = await fetch(`/api/admin/cabinet-designs/${d.id}`, {
 			method: "DELETE",
 		});
 		if (!res.ok) {
-			setError(`Could not delete ${d.name}.`);
+			// The guard's own message names the family and says where to remove
+			// it — far more use than "could not delete".
+			const body = await res.json().catch(() => null);
+			setError(body?.message ?? `Could not delete ${d.name}.`);
 			return;
 		}
 		load();
+	}
+
+	/**
+	 * Puts this design into the planner catalogue — as a DRAFT.
+	 *
+	 * The design library used to be a dead end: an admin uploaded, priced and
+	 * "published" a design and no customer could ever see it, because the
+	 * planner reads only the published `CatalogueVersion`. This is the bridge.
+	 *
+	 * It deliberately stops at a draft. Someone reviews the price and where the
+	 * cabinet sits at `/admin/catalogue` and publishes there, because that
+	 * document prices real kitchens.
+	 */
+	async function pushToPlanner(d: CabinetDesign) {
+		setPushing(d.id);
+		setError(null);
+		setPushed(null);
+		try {
+			const res = await fetch(`/api/admin/cabinet-designs/${d.id}/publish`, {
+				method: "POST",
+			});
+			const body = await res.json().catch(() => null);
+			if (!res.ok) {
+				setError(
+					body?.message ?? `Could not add ${d.name} to the planner catalogue.`,
+				);
+				return;
+			}
+			setPushed(
+				body.status === "already_in_catalogue"
+					? `${d.name} is already in the catalogue as "${body.familyLabel}" — nothing to add.`
+					: `${d.name} added to draft v${body.draftVersion} as "${body.familyLabel}". Review the price and publish it at /admin/catalogue.`,
+			);
+			load();
+		} finally {
+			setPushing(null);
+		}
 	}
 
 	async function save() {
@@ -399,8 +489,8 @@ export default function CabinetDesignsPage() {
 					<div>
 						<h1 className="mb-1 font-semibold text-[22px]">Cabinet designs</h1>
 						<p className="text-neutral-500 text-sm">
-							Upload design exports, describe them, and control what customers
-							see in the planner.
+							Upload design exports and describe them. “Add to planner” turns
+							one into a catalogue draft; publishing it is a separate step.
 						</p>
 					</div>
 					<button
@@ -426,6 +516,20 @@ export default function CabinetDesignsPage() {
 					</button>
 				</div>
 
+				{/* Push results and guard refusals both land here. The panel has its
+				    own error line, but a design is pushed and deleted from the table,
+				    where nothing was reporting back. */}
+				{pushed && (
+					<p className="rounded-lg border border-green-300 bg-green-50 px-3 py-2.5 text-[13px] text-green-900">
+						{pushed}
+					</p>
+				)}
+				{error && !panelOpen && (
+					<p className="rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-[13px] text-red-900">
+						{error}
+					</p>
+				)}
+
 				<div className="flex flex-wrap items-center gap-2.5">
 					<input
 						type="text"
@@ -445,7 +549,7 @@ export default function CabinetDesignsPage() {
 								{s === "all"
 									? "All"
 									: s === "PUBLISHED"
-										? "Published"
+										? "Active"
 										: "Archived"}
 							</button>
 						))}
@@ -482,15 +586,15 @@ export default function CabinetDesignsPage() {
 							    does not fit is clipped rather than pushing out. The last
 							    column carries three actions and needs the room. */}
 							<colgroup>
-								<col className="w-[19%]" />
+								<col className="w-[17%]" />
+								<col className="w-[9%]" />
+								<col className="w-[7%]" />
+								<col className="w-[11%]" />
+								<col className="w-[8%]" />
+								<col className="w-[7%]" />
 								<col className="w-[10%]" />
-								<col className="w-[8%]" />
-								<col className="w-[13%]" />
-								<col className="w-[9%]" />
-								<col className="w-[8%]" />
-								<col className="w-[9%]" />
-								<col className="w-[8%]" />
-								<col className="w-[16%]" />
+								<col className="w-[7%]" />
+								<col className="w-[24%]" />
 							</colgroup>
 							<thead>
 								<tr className="border-neutral-200 border-b bg-[#f7f6f4]">
@@ -555,21 +659,19 @@ export default function CabinetDesignsPage() {
 										</td>
 										<td className="px-3 py-2.5">
 											<span
-												className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-medium text-xs ${
-													d.status === "PUBLISHED"
-														? "bg-green-50 text-green-700"
-														: "bg-neutral-100 text-neutral-500"
+												title={REACH_HINT[reachOf(d, plannerFamilyIds)]}
+												className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 font-medium text-xs ${
+													REACH_TONE[reachOf(d, plannerFamilyIds)]
 												}`}
 											>
-												<span
-													className={`h-1.5 w-1.5 rounded-full ${
-														d.status === "PUBLISHED"
-															? "bg-green-700"
-															: "bg-neutral-500"
-													}`}
-												/>
-												{d.status === "PUBLISHED" ? "Published" : "Archived"}
+												<span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+												{REACH_LABEL[reachOf(d, plannerFamilyIds)]}
 											</span>
+											{d.status === "ARCHIVED" && (
+												<span className="ml-1.5 text-[11px] text-neutral-400">
+													archived
+												</span>
+											)}
 										</td>
 										<td className="px-3 py-2.5 text-neutral-400">
 											{new Date(d.updatedAt).toLocaleDateString()}
@@ -612,6 +714,16 @@ export default function CabinetDesignsPage() {
 													>
 														Edit
 													</button>
+													{reachOf(d, plannerFamilyIds) !== "live" && (
+														<button
+															type="button"
+															onClick={() => pushToPlanner(d)}
+															disabled={pushing === d.id}
+															className="text-blue-700 text-xs underline disabled:text-neutral-400"
+														>
+															{pushing === d.id ? "Adding…" : "Add to planner"}
+														</button>
+													)}
 													<button
 														type="button"
 														onClick={() => toggleArchive(d)}
@@ -621,7 +733,7 @@ export default function CabinetDesignsPage() {
 																: "text-green-700"
 														}`}
 													>
-														{d.status === "PUBLISHED" ? "Archive" : "Publish"}
+														{d.status === "PUBLISHED" ? "Archive" : "Restore"}
 													</button>
 													<button
 														type="button"
@@ -934,7 +1046,15 @@ export default function CabinetDesignsPage() {
 
 							<div className="border-neutral-100 border-t pt-4">
 								<p className="mb-2 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Visibility
+									In this library
+								</p>
+								{/* Renamed from "Visibility", which promised something this
+								    flag has never done: no customer-facing page reads it. A
+								    design reaches customers only by being added to the
+								    planner catalogue and that version being published. */}
+								<p className="mb-2 text-[11px] text-neutral-400">
+									Filters this list only. To put a cabinet in front of
+									customers, use “Add to planner”, then publish the catalogue.
 								</p>
 								<div className="flex gap-2">
 									<button
@@ -946,7 +1066,7 @@ export default function CabinetDesignsPage() {
 												: "border-neutral-200 bg-white text-neutral-500"
 										}`}
 									>
-										Published — visible to customers
+										Active — kept in the library
 									</button>
 									<button
 										type="button"
@@ -957,7 +1077,7 @@ export default function CabinetDesignsPage() {
 												: "border-neutral-200 bg-white text-neutral-500"
 										}`}
 									>
-										Archived — hidden
+										Archived — hidden from this list
 									</button>
 								</div>
 							</div>

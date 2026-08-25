@@ -1,10 +1,25 @@
 import { WALL_GAP_MM } from "./catalogue";
 import type { PlannerLayout, Positioned } from "./layout";
+import { cabinetPartsMm, type PartRole, type Vec3Mm } from "./parts";
 
 /**
- * The CAD-style measuring tool: click two points on the cabinets — a
- * corner, a point along an edge, or a bare surface point — and read off the
- * width/height/depth between them plus the straight-line distance.
+ * The CAD-style measuring tool: click two points on the cabinets and read off
+ * the distance between them.
+ *
+ * It follows AutoCAD's object-snap model rather than inventing one, because the
+ * people checking these numbers already know that model:
+ *
+ * - **Snap targets come from the parts, not the box.** An earlier version knew
+ *   only a cabinet's outer bounding box, so a shelf gap, a door reveal and a
+ *   board thickness were all unmeasurable. `parts.ts` now describes every box a
+ *   cabinet is drawn from and this snaps against all of them.
+ * - **Typed snaps, ranked.** A corner outranks an edge midpoint, which outranks
+ *   the bare surface point the ray actually hit — the same priority OSNAP uses,
+ *   and the reason a `SnapKind` is returned rather than a lone point: the
+ *   overlay draws a different glyph for each, so the user sees *what* they
+ *   grabbed before committing to it.
+ * - **A screen-space aperture.** See `apertureMm`.
+ * - **An axis lock.** See `constrainToAxis`.
  *
  * The bounding box below is **not** read from the mesh. It's the exact same
  * placement math `Cabinet.tsx`/`Run` use to position a cabinet in the
@@ -12,10 +27,11 @@ import type { PlannerLayout, Positioned } from "./layout";
  * snap point is guaranteed to sit exactly on the cabinet that's actually
  * drawn. Duplicating the transform is deliberate — pure geometry stays
  * testable against JSON fixtures without touching react-three-fiber, per
- * `lib/planner` being framework-free.
+ * `lib/planner` being framework-free. The cabinet's *interior* is not
+ * duplicated: that comes from `parts.ts`, which the renderer reads too.
  */
 
-export type Vec3Mm = { x: number; y: number; z: number };
+export type { Vec3Mm };
 
 type CabinetBoundsMm = {
 	minX: number;
@@ -53,20 +69,13 @@ export function cabinetBoundsMm(
 	return { minX, maxX, minY, maxY, minZ, maxZ };
 }
 
-/** The 8 corners of the box, x/y/z each low-then-high — index bit order
+/** The 8 corners of a box, x/y/z each low-then-high — index bit order
  * matches `EDGE_INDEX_PAIRS` below (bit 2 = x, bit 1 = y, bit 0 = z). */
-export function cabinetCornersMm(
-	position: Positioned,
-	layout: PlannerLayout,
-): Vec3Mm[] {
-	const { minX, maxX, minY, maxY, minZ, maxZ } = cabinetBoundsMm(
-		position,
-		layout,
-	);
+function cornersOfBox(box: CabinetBoundsMm): Vec3Mm[] {
 	const corners: Vec3Mm[] = [];
-	for (const x of [minX, maxX]) {
-		for (const y of [minY, maxY]) {
-			for (const z of [minZ, maxZ]) {
+	for (const x of [box.minX, box.maxX]) {
+		for (const y of [box.minY, box.maxY]) {
+			for (const z of [box.minZ, box.maxZ]) {
 				corners.push({ x, y, z });
 			}
 		}
@@ -74,7 +83,14 @@ export function cabinetCornersMm(
 	return corners;
 }
 
-/** The 12 edges, as index pairs into `cabinetCornersMm`'s 8-corner list. */
+export function cabinetCornersMm(
+	position: Positioned,
+	layout: PlannerLayout,
+): Vec3Mm[] {
+	return cornersOfBox(cabinetBoundsMm(position, layout));
+}
+
+/** The 12 edges, as index pairs into an 8-corner list. */
 const EDGE_INDEX_PAIRS: ReadonlyArray<readonly [number, number]> = [
 	[0, 1],
 	[2, 3],
@@ -94,31 +110,232 @@ export function distanceMm(a: Vec3Mm, b: Vec3Mm): number {
 	return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-function nearestPointOnSegment(p: Vec3Mm, a: Vec3Mm, b: Vec3Mm): Vec3Mm {
-	const abx = b.x - a.x;
-	const aby = b.y - a.y;
-	const abz = b.z - a.z;
-	const lenSq = abx * abx + aby * aby + abz * abz;
-	if (lenSq === 0) return a;
-	const t = Math.max(
-		0,
-		Math.min(
-			1,
-			((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / lenSq,
-		),
+// ------------------------------------------------------------ snap targets --
+
+/** What a snapped point turned out to be. Ranked in this order. */
+export type SnapKind = "corner" | "midpoint" | "surface";
+
+export type SnapPoint = {
+	point: Vec3Mm;
+	kind: SnapKind;
+	/** Which part it belongs to, or the carcass as a whole. `"carcass"` is also
+	 * what an unsnapped surface point reports — the ray hit the cabinet, we just
+	 * can't say which board without another intersection test. */
+	role: PartRole | "carcass";
+};
+
+export const SNAP_LABEL: Record<SnapKind, string> = {
+	corner: "Corner",
+	midpoint: "Midpoint",
+	surface: "Face",
+};
+
+type WorldPartBox = { role: PartRole | "carcass"; box: CabinetBoundsMm };
+
+/**
+ * Every box of this cabinet in world millimetres — the carcass outline plus
+ * each part `Cabinet.tsx` draws.
+ *
+ * The outer carcass box stays in the list even though its sides are also parts:
+ * two of its opposite corners give exactly the cabinet's W×D×H, which is the
+ * measurement customers take most and the one `measure()` is built around.
+ */
+function worldPartBoxes(
+	position: Positioned,
+	layout: PlannerLayout,
+): WorldPartBox[] {
+	const carcass = cabinetBoundsMm(position, layout);
+	const centreX = (carcass.minX + carcass.maxX) / 2;
+	const floorY = carcass.minY;
+	const centreZ = (carcass.minZ + carcass.maxZ) / 2;
+
+	const parts = cabinetPartsMm(
+		position.family,
+		position.widthMm,
+		position.placed.doorStyleId !== null,
 	);
-	return { x: a.x + abx * t, y: a.y + aby * t, z: a.z + abz * t };
+
+	return [
+		{ role: "carcass", box: carcass },
+		...parts.map(({ role, centreMm, sizeMm }) => ({
+			role,
+			box: {
+				minX: centreX + centreMm.x - sizeMm.x / 2,
+				maxX: centreX + centreMm.x + sizeMm.x / 2,
+				minY: floorY + centreMm.y - sizeMm.y / 2,
+				maxY: floorY + centreMm.y + sizeMm.y / 2,
+				minZ: centreZ + centreMm.z - sizeMm.z / 2,
+				maxZ: centreZ + centreMm.z + sizeMm.z / 2,
+			},
+		})),
+	];
 }
 
-/** How close a click has to land to a corner or edge to snap to it, rather
- * than keeping the raw surface point the ray actually hit. */
-const SNAP_TOLERANCE_MM = 40;
+const midpoint = (a: Vec3Mm, b: Vec3Mm): Vec3Mm => ({
+	x: (a.x + b.x) / 2,
+	y: (a.y + b.y) / 2,
+	z: (a.z + b.z) / 2,
+});
+
+/**
+ * How close a click has to land to a snap target, when no aperture is supplied.
+ *
+ * Only a fallback for callers with no camera — the scene passes `apertureMm()`
+ * instead, and should.
+ */
+export const DEFAULT_SNAP_MM = 40;
+
+/**
+ * Snaps a raw surface hit to the nearest corner, then the nearest edge
+ * midpoint, of any part of the cabinet it landed on.
+ *
+ * Ranked, not nearest-wins: a corner 30mm away beats a midpoint 2mm away,
+ * because that is what OSNAP does and because a corner is the point a
+ * dimension is almost always taken from. Within a rank, closest wins.
+ *
+ * There is deliberately no "nearest point along an edge" rank. The previous
+ * version had one, and it was a quiet source of wrong numbers: the marker for a
+ * point 90mm along a shelf's front edge looked exactly like the marker for that
+ * shelf's corner. With every part's corners and midpoints now reachable, an
+ * arbitrary edge point buys nothing that the surface fallback does not.
+ */
+export function snapToCabinet(
+	hit: Vec3Mm,
+	position: Positioned,
+	layout: PlannerLayout,
+	snapMm: number = DEFAULT_SNAP_MM,
+): SnapPoint {
+	const boxes = worldPartBoxes(position, layout);
+
+	for (const kind of ["corner", "midpoint"] as const) {
+		let best: SnapPoint | null = null;
+		let bestDist = snapMm;
+
+		for (const { role, box } of boxes) {
+			const corners = cornersOfBox(box);
+			const candidates =
+				kind === "corner"
+					? corners
+					: EDGE_INDEX_PAIRS.map(([a, b]) => midpoint(corners[a], corners[b]));
+
+			for (const point of candidates) {
+				const d = distanceMm(hit, point);
+				if (d < bestDist) {
+					bestDist = d;
+					best = { point, kind, role };
+				}
+			}
+		}
+
+		if (best) return best;
+	}
+
+	return { point: hit, kind: "surface", role: "carcass" };
+}
+
+// ---------------------------------------------------------- screen aperture --
+
+/** Roughly AutoCAD's default OSNAP aperture, in CSS pixels. */
+export const APERTURE_PX = 12;
+
+/**
+ * How many world millimetres `aperturePx` screen pixels cover, at a point
+ * `distanceM` from a perspective camera.
+ *
+ * The snap tolerance has to be a screen distance, not a world one. A fixed
+ * 40mm — which this used to be — is sub-pixel when the camera is pulled back to
+ * frame a 4m run, so nothing snaps and every pick is a raw surface point; and
+ * it is enormous when zoomed into one carcass, so a click near a shelf grabs a
+ * corner 39mm away instead. That is the whole "the two dots landed somewhere
+ * odd" complaint, and it is why CAD measures the aperture in pixels.
+ *
+ * Perspective only. Every planner view — 3D, elevation and plan — frames with
+ * the same `PerspectiveCamera` at a different radius, so one formula covers all
+ * three; an orthographic view would need its own.
+ */
+export function apertureMm(
+	distanceM: number,
+	fovDeg: number,
+	viewportHeightPx: number,
+	aperturePx: number = APERTURE_PX,
+): number {
+	if (viewportHeightPx <= 0) return DEFAULT_SNAP_MM;
+	const visibleHeightM = 2 * distanceM * Math.tan((fovDeg * Math.PI) / 360);
+	return aperturePx * (visibleHeightM / viewportHeightPx) * 1000;
+}
+
+// ---------------------------------------------------------------- axis lock --
+
+/**
+ * Which axis a measurement is constrained to.
+ *
+ * `"auto"` is the default and does what SketchUp's inference does: once the
+ * first point is down, the second is pulled onto whichever axis dominates, so
+ * a roughly-vertical pick becomes exactly a height. Without it the two points
+ * sit on different planes, the readout reports three numbers, and the user is
+ * left doing the constraining by hand.
+ *
+ * `"free"` is the escape hatch and has to stay: two opposite corners of a
+ * cabinet give its W×D×H in one measurement, and that needs all three axes.
+ */
+export type MeasureAxis = "auto" | "free" | "x" | "y" | "z";
+
+export const MEASURE_AXES: readonly MeasureAxis[] = [
+	"auto",
+	"x",
+	"y",
+	"z",
+	"free",
+];
+
+export const AXIS_LABEL: Record<MeasureAxis, string> = {
+	auto: "Auto",
+	free: "Free",
+	x: "Width",
+	y: "Height",
+	z: "Depth",
+};
+
+/** Whichever of x/y/z the step from `from` to `to` is mostly along. Ties go to
+ * the earlier axis, which only happens on an exact diagonal. */
+export function dominantAxis(from: Vec3Mm, to: Vec3Mm): "x" | "y" | "z" {
+	const dx = Math.abs(to.x - from.x);
+	const dy = Math.abs(to.y - from.y);
+	const dz = Math.abs(to.z - from.z);
+	if (dx >= dy && dx >= dz) return "x";
+	return dy >= dz ? "y" : "z";
+}
+
+/**
+ * `to`, moved onto the axis lock: the locked axis keeps its value and the other
+ * two are taken from `from`, so the two deltas are exactly zero rather than
+ * nearly zero.
+ */
+export function constrainToAxis(
+	from: Vec3Mm,
+	to: Vec3Mm,
+	axis: MeasureAxis,
+): Vec3Mm {
+	if (axis === "free") return to;
+	const locked = axis === "auto" ? dominantAxis(from, to) : axis;
+	return {
+		x: locked === "x" ? to.x : from.x,
+		y: locked === "y" ? to.y : from.y,
+		z: locked === "z" ? to.z : from.z,
+	};
+}
+
+// ------------------------------------------------------------- the readout --
 
 /** Below this, an axis delta is stray noise (unsnapped surface points never
  * land on exactly the same x/y/z), not a dimension the user meant to read —
  * a pure-height pick shouldn't also report a 3mm "width". Shared by the 3D
  * dashed leg (`MeasureOverlay`) and the W/H/D chips (`StudioScreen`) so both
- * agree on what counts as "no dimension on this axis". */
+ * agree on what counts as "no dimension on this axis".
+ *
+ * Only reachable in `"free"` mode now: under a lock the other two deltas are
+ * exactly zero and there is nothing to filter. It stays because free mode is
+ * where two surface points can still land a few millimetres apart. */
 const AXIS_NOISE_TOLERANCE_MM = 5;
 
 /** An axis also doesn't count as a dimension if it's small *relative to the
@@ -137,45 +354,6 @@ export function isAxisSignificant(valueMm: number, maxAxisMm: number): boolean {
 		valueMm >= AXIS_NOISE_TOLERANCE_MM &&
 		valueMm >= maxAxisMm * AXIS_RELATIVE_NOISE_FRACTION
 	);
-}
-
-/**
- * Snaps a raw surface hit to the nearest vertex or edge of the cabinet it
- * landed on, within `snapMm`. A corner wins over an edge through it — a
- * vertex is never farther from the hit than the edges meeting there — so
- * edges are only checked once no corner is already close enough.
- */
-export function snapToCabinet(
-	hit: Vec3Mm,
-	position: Positioned,
-	layout: PlannerLayout,
-	snapMm: number = SNAP_TOLERANCE_MM,
-): Vec3Mm {
-	const corners = cabinetCornersMm(position, layout);
-
-	let best = hit;
-	let bestDist = snapMm;
-
-	for (const corner of corners) {
-		const d = distanceMm(hit, corner);
-		if (d < bestDist) {
-			bestDist = d;
-			best = corner;
-		}
-	}
-
-	if (best === hit) {
-		for (const [ai, bi] of EDGE_INDEX_PAIRS) {
-			const p = nearestPointOnSegment(hit, corners[ai], corners[bi]);
-			const d = distanceMm(hit, p);
-			if (d < bestDist) {
-				bestDist = d;
-				best = p;
-			}
-		}
-	}
-
-	return best;
 }
 
 /** One colour per axis — shared between the 3D dashed legs (`MeasureOverlay`)

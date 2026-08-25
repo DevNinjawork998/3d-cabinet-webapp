@@ -25,32 +25,27 @@ import { Box3, Vector3 } from "three";
 /** Fit any model into a box about this big, whatever units it was drawn in. */
 const FRAME_SIZE = 2;
 
-const isZip = (name: string) => name.toLowerCase().endsWith(".zip");
-
 /**
  * The `.obj` text, from whichever shape the design arrived in.
  *
- * The upload form accepts `.obj` *or* a `.zip` of the whole export folder, so
- * the viewer has to handle both or half the things an admin can attach show
- * "no geometry". `lib/mesh/archive.ts` already knows how to find the `.obj`
- * inside an archive — this only has to decide which case it is looking at.
+ * Both cases end up as bytes, so both go through `objTextFromBytes` — the same
+ * reader the publish route uses, which spots an archive by its magic number
+ * rather than its name. A stored design keeps its original filename in the
+ * blob's content disposition, so the name is not something a fetch can rely on.
+ *
+ * Imported lazily: `lib/mesh` pulls in fflate, and this whole component is
+ * already behind a dynamic import to keep it out of the customer bundle.
  */
 async function objTextFrom(source: File | string): Promise<string> {
+	const { objTextFromBytes } = await import("@/lib/mesh/archive");
+
 	if (typeof source === "string") {
 		const res = await fetch(source);
 		if (!res.ok) throw new Error("could not fetch the design file");
-		// A stored design keeps its original filename in the URL's disposition,
-		// so a zip is recognised by its bytes rather than its name.
-		const bytes = new Uint8Array(await res.arrayBuffer());
-		const zipped = bytes[0] === 0x50 && bytes[1] === 0x4b;
-		if (!zipped) return new TextDecoder().decode(bytes);
-		const { readArchive } = await import("@/lib/mesh/archive");
-		return readArchive(bytes).objText;
+		return objTextFromBytes(new Uint8Array(await res.arrayBuffer()));
 	}
 
-	if (!isZip(source.name)) return source.text();
-	const { readArchive } = await import("@/lib/mesh/archive");
-	return readArchive(new Uint8Array(await source.arrayBuffer())).objText;
+	return objTextFromBytes(new Uint8Array(await source.arrayBuffer()));
 }
 
 /**

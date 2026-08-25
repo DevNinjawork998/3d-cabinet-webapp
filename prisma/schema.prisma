@@ -101,11 +101,18 @@ model CabinetDesign {
   tags         String?
   finishes     String[]
   status       CabinetDesignStatus @default(PUBLISHED)
+  /// The planner family this design was pushed into, once it has been.
+  /// Null means the design is library-only and no customer can see it.
+  /// Not a relation: families live inside a CatalogueVersion's JSON, not in a
+  /// table, so this is a soft reference the publish route writes and the
+  /// delete guard reads.
+  familyId     String?
   uploadedBy   String
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
 
   @@index([status])
+  @@index([familyId])
 }
 
 /// One marketing photo, keyed by the homepage slot it fills (`hero`,

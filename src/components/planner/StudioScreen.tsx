@@ -40,9 +40,13 @@ import {
 } from "@/lib/planner/layout";
 import {
 	AXIS_COLOR,
+	AXIS_LABEL,
 	isAxisSignificant,
+	MEASURE_AXES,
+	type MeasureAxis,
 	measure,
-	type Vec3Mm,
+	SNAP_LABEL,
+	type SnapPoint,
 } from "@/lib/planner/measure";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { DimensionField } from "./DimensionField";
@@ -140,7 +144,11 @@ export function StudioScreen({
 	const [dragFamilyId, setDragFamilyId] = useState<string | null>(null);
 	const [view, setView] = useState<PlannerView>("3d");
 	const [measureMode, setMeasureMode] = useState(false);
-	const [measurePoints, setMeasurePoints] = useState<Vec3Mm[]>([]);
+	const [measurePoints, setMeasurePoints] = useState<SnapPoint[]>([]);
+	// Which axis the second pick is pulled onto. `auto` infers it from the
+	// direction of the pick, which is what turns a roughly-vertical pair of
+	// clicks into a clean height instead of three numbers to squint at.
+	const [measureAxis, setMeasureAxis] = useState<MeasureAxis>("auto");
 
 	const select = (id: string | null, additive: boolean) => {
 		if (id === null) return setSelectedIdsAction([]);
@@ -185,12 +193,12 @@ export function StudioScreen({
 	// A third click starts a fresh measurement rather than adding a third
 	// point — two points is the whole tool, like a real CAD measuring
 	// command: pick, pick, read the result, pick again to start over.
-	const onMeasurePick = (point: Vec3Mm) => {
-		setMeasurePoints((prev) => (prev.length >= 2 ? [point] : [...prev, point]));
+	const onMeasurePick = (snap: SnapPoint) => {
+		setMeasurePoints((prev) => (prev.length >= 2 ? [snap] : [...prev, snap]));
 	};
 	const measurement =
 		measurePoints.length === 2
-			? measure(measurePoints[0], measurePoints[1])
+			? measure(measurePoints[0].point, measurePoints[1].point)
 			: null;
 	const maxMeasuredAxisMm = measurement
 		? Math.max(measurement.widthMm, measurement.heightMm, measurement.depthMm)
@@ -234,7 +242,7 @@ export function StudioScreen({
 						setMeasurePoints([]);
 					}}
 					aria-pressed={measureMode}
-					title="Click two points on a cabinet — a corner, an edge, or the surface — to measure between them"
+					title="Click two points on a cabinet — a corner, an edge midpoint, or the surface — to measure between them"
 					className={`rounded-full px-3 py-1 text-[12px] transition ${
 						measureMode
 							? "bg-neutral-900 text-white"
@@ -449,6 +457,7 @@ export function StudioScreen({
 						doorTargetId={null}
 						measureMode={measureMode}
 						measurePoints={measurePoints}
+						measureAxis={measureAxis}
 						view={view}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
@@ -469,48 +478,80 @@ export function StudioScreen({
 					</div>
 
 					{measureMode && (
-						<div className="absolute top-3.5 right-3.5 flex items-center gap-2 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
-							{measurement ? (
-								<span className="flex items-center gap-2 text-[12px] text-neutral-800">
-									<span>{Math.round(measurement.distanceMm)}mm</span>
-									<DimChip
-										axis="x"
-										valueMm={measurement.widthMm}
-										maxAxisMm={maxMeasuredAxisMm}
-									/>
-									<DimChip
-										axis="y"
-										valueMm={measurement.heightMm}
-										maxAxisMm={maxMeasuredAxisMm}
-									/>
-									<DimChip
-										axis="z"
-										valueMm={measurement.depthMm}
-										maxAxisMm={maxMeasuredAxisMm}
-									/>
-								</span>
-							) : (
-								<span className="text-[12px] text-neutral-500">
-									{measurePoints.length === 0
-										? "Click a point to start measuring"
-										: "Click a second point"}
-								</span>
-							)}
+						<div className="absolute top-3.5 right-3.5 flex flex-col items-end gap-1.5 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
+							<fieldset className="flex items-center gap-0.5">
+								<legend className="sr-only">Constrain the measurement</legend>
+								{MEASURE_AXES.map((axis) => (
+									<button
+										key={axis}
+										type="button"
+										onClick={() => setMeasureAxis(axis)}
+										aria-pressed={measureAxis === axis}
+										className={`rounded px-1.5 py-0.5 text-[11px] transition ${
+											measureAxis === axis
+												? "bg-neutral-900 text-white"
+												: "text-neutral-500 hover:bg-neutral-100"
+										}`}
+									>
+										{AXIS_LABEL[axis]}
+									</button>
+								))}
+							</fieldset>
+
+							<div className="flex items-center gap-2">
+								{measurement ? (
+									<span className="flex items-center gap-2 text-[12px] text-neutral-800">
+										<span>{Math.round(measurement.distanceMm)}mm</span>
+										<DimChip
+											axis="x"
+											valueMm={measurement.widthMm}
+											maxAxisMm={maxMeasuredAxisMm}
+										/>
+										<DimChip
+											axis="y"
+											valueMm={measurement.heightMm}
+											maxAxisMm={maxMeasuredAxisMm}
+										/>
+										<DimChip
+											axis="z"
+											valueMm={measurement.depthMm}
+											maxAxisMm={maxMeasuredAxisMm}
+										/>
+									</span>
+								) : (
+									<span className="text-[12px] text-neutral-500">
+										{measurePoints.length === 0
+											? "Click a point to start measuring"
+											: "Click a second point"}
+									</span>
+								)}
+								{measurePoints.length > 0 && (
+									<button
+										type="button"
+										onClick={() => setMeasurePoints([])}
+										className="text-[12px] text-[#2b6cb0] hover:underline"
+									>
+										Clear
+									</button>
+								)}
+							</div>
+
+							{/* What each end actually landed on. The glyph in the scene
+							    says the same thing, but a marker seen edge-on is easy to
+							    misread and a wrong snap is a wrong number. */}
 							{measurePoints.length > 0 && (
-								<button
-									type="button"
-									onClick={() => setMeasurePoints([])}
-									className="text-[12px] text-[#2b6cb0] hover:underline"
-								>
-									Clear
-								</button>
+								<p className="text-[11px] text-neutral-400">
+									{measurePoints
+										.map((snap) => SNAP_LABEL[snap.kind])
+										.join(" → ")}
+								</p>
 							)}
 						</div>
 					)}
 
 					<p className="absolute right-3.5 bottom-3.5 hidden max-w-[260px] text-right text-[12px] text-[#8a8580] leading-4 lg:block">
 						{measureMode
-							? "Click two points on a cabinet — corner, edge or surface — to measure between them."
+							? "Click two points on a cabinet — a corner, an edge midpoint or the surface. Auto locks the second point to the axis you are measuring along; Free reads all three at once."
 							: "Click a cabinet to change its size or front. Drag it along the wall to move it."}
 					</p>
 				</div>

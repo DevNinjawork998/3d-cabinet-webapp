@@ -2,6 +2,8 @@ import { Line } from "@react-three/drei";
 import {
 	AXIS_COLOR,
 	isAxisSignificant,
+	type SnapKind,
+	type SnapPoint,
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 
@@ -33,6 +35,13 @@ const PREVIEW_COLOR = "#d97706";
  * number and its line are still visually paired, just never distorted by
  * perspective or foreshortening.
  *
+ * Each marker's **shape** says what it snapped to, the way AutoCAD's OSNAP
+ * glyphs do: a cube for a corner, an octahedron for an edge midpoint, a sphere
+ * for a bare point on a face. Without it a corner snap and a surface point
+ * 12mm off that corner look identical, and the user only finds out which they
+ * got by reading a number that is quietly 12mm wrong. The shape is deliberately
+ * the signal rather than the colour — colour is already carrying the axis.
+ *
  * Rendered as a sibling of `Run`, not a child — the points passed in are
  * already in the scene's outer world space (see `Run`'s `onMeasurePick`),
  * so no group offset belongs here.
@@ -41,43 +50,80 @@ export function MeasureOverlay({
 	points,
 	previewPoint,
 }: {
-	points: Vec3Mm[];
-	/** Where the next click would land, so the user sees the target before
+	points: SnapPoint[];
+	/** What the next click would land on, so the user sees the target before
 	 * committing to it. `null` when the pointer isn't over a cabinet. */
-	previewPoint?: Vec3Mm | null;
+	previewPoint?: SnapPoint | null;
 }) {
 	const [a, b] = points;
 
 	return (
 		<>
-			{points.map((p, i) => (
-				<mesh
+			{points.map((snap, i) => (
+				<Marker
 					// biome-ignore lint/suspicious/noArrayIndexKey: points are only appended/cleared, never reordered
 					key={i}
-					position={[m(p.x), m(p.y), m(p.z)]}
-				>
-					<sphereGeometry args={[0.012, 16, 16]} />
-					<meshBasicMaterial color={MARKER_COLOR} depthTest={false} />
-				</mesh>
+					snap={snap}
+					color={MARKER_COLOR}
+					size={0.012}
+				/>
 			))}
 
 			{previewPoint && (
-				<mesh
-					position={[m(previewPoint.x), m(previewPoint.y), m(previewPoint.z)]}
-				>
-					<sphereGeometry args={[0.017, 16, 16]} />
-					<meshBasicMaterial
-						color={PREVIEW_COLOR}
-						transparent
-						opacity={0.6}
-						depthTest={false}
-					/>
-				</mesh>
+				<Marker
+					snap={previewPoint}
+					color={PREVIEW_COLOR}
+					size={0.017}
+					opacity={0.6}
+				/>
 			)}
 
-			{a && b && <DimensionChain a={a} b={b} />}
+			{a && b && <DimensionChain a={a.point} b={b.point} />}
 		</>
 	);
+}
+
+/** One glyph per snap kind. `depthTest={false}` throughout so a marker on the
+ * far side of a carcass is still visible — a measurement you cannot see one end
+ * of is worse than no measurement. */
+function Marker({
+	snap,
+	color,
+	size,
+	opacity = 1,
+}: {
+	snap: SnapPoint;
+	color: string;
+	size: number;
+	opacity?: number;
+}) {
+	return (
+		<mesh position={[m(snap.point.x), m(snap.point.y), m(snap.point.z)]}>
+			<Glyph kind={snap.kind} size={size} />
+			<meshBasicMaterial
+				color={color}
+				transparent={opacity < 1}
+				opacity={opacity}
+				depthTest={false}
+			/>
+		</mesh>
+	);
+}
+
+function Glyph({ kind, size }: { kind: SnapKind; size: number }) {
+	if (kind === "corner") {
+		// A cube reads as a square from any angle, which is AutoCAD's endpoint
+		// marker and the strongest "you are exactly on a vertex" signal there is.
+		const edge = size * 1.7;
+		return <boxGeometry args={[edge, edge, edge]} />;
+	}
+	if (kind === "midpoint") {
+		// Stands in for OSNAP's midpoint triangle: an octahedron shows a
+		// triangular silhouette from every camera position, which a flat triangle
+		// would not, and costs no billboarding.
+		return <octahedronGeometry args={[size * 1.4]} />;
+	}
+	return <sphereGeometry args={[size, 16, 16]} />;
 }
 
 /** The corner where the "move along X" leg ends and "move along Y" begins,

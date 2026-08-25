@@ -29,6 +29,7 @@ export function ImageSlot({
 	url,
 	height,
 	radius = 10,
+	onChangeAction,
 }: {
 	slotKey: string;
 	label?: string;
@@ -37,6 +38,18 @@ export function ImageSlot({
 	url: string | null;
 	height: number;
 	radius?: number;
+	/**
+	 * Called after a write, for a caller holding its own copy of the slots.
+	 *
+	 * `router.refresh()` below is enough for a server component — `site-content`
+	 * re-runs its query and the new URL arrives as a prop. The catalogue editor
+	 * is a client component that fetched the slots itself, so a route refresh
+	 * leaves its state untouched and the slot would look empty until a reload.
+	 *
+	 * Named with the `Action` suffix because this file is a client entry and
+	 * Next 16 requires it of function props there.
+	 */
+	onChangeAction?: () => void;
 }) {
 	const router = useRouter();
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +95,7 @@ export function ImageSlot({
 			}
 			setState({ status: "idle" });
 			router.refresh();
+			onChangeAction?.();
 		} catch (e) {
 			setState({
 				status: "error",
@@ -97,6 +111,7 @@ export function ImageSlot({
 		});
 		setState({ status: "idle" });
 		router.refresh();
+		onChangeAction?.();
 	}
 
 	return (

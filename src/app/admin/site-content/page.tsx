@@ -85,9 +85,10 @@ export default async function SiteContentPage() {
 						Finishes &amp; materials
 					</p>
 					<p className="mb-3 text-[12px] text-neutral-500">
-						Close-up swatch photos shown on the homepage. A slot per finish in
-						the live catalogue — leave one empty to show its flat colour
-						instead.
+						The real board, used in two places: the swatch on the homepage and
+						the door surface in the 3D planner. A slot per finish in the live
+						catalogue — leave one empty to show its flat colour instead. These
+						are also editable beside each finish in Catalogue.
 					</p>
 					<div className="grid grid-cols-3 gap-3.5 sm:grid-cols-6">
 						{catalogue.finishes.map((finish) => (

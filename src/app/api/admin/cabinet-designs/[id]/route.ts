@@ -6,6 +6,7 @@ import {
 	fetchMeshFile,
 	sha256Hex,
 } from "@/lib/catalogue/meshBlob";
+import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,14 @@ export async function PATCH(
  * partway, an orphaned file is a rounding error on the storage bill, whereas a
  * row pointing at a file that is already gone breaks every page that renders
  * the design.
+ *
+ * **A design that is live in the planner cannot be deleted here.** Families
+ * live inside a `CatalogueVersion`'s JSON, not in a table, so Postgres cannot
+ * enforce this with a foreign key — deleting the row would leave a family in
+ * the live catalogue that nothing points at, priced and visible to customers,
+ * with no way left to find where it came from. That is exactly how the
+ * "Testing123" family outlived its design. Remove it at `/admin/catalogue` and
+ * publish, then delete here.
  */
 export async function DELETE(
 	_request: Request,
@@ -123,6 +132,25 @@ export async function DELETE(
 	const existing = await prisma.cabinetDesign.findUnique({ where: { id } });
 	if (!existing) {
 		return NextResponse.json({ error: "not_found" }, { status: 404 });
+	}
+
+	if (existing.familyId) {
+		// Only the *published* catalogue blocks a delete. A family sitting in an
+		// unpublished draft has never been seen by a customer, and the draft can
+		// simply be discarded.
+		const { data: live } = await getPublishedPlannerCatalogue();
+		const family = live.families.find((f) => f.id === existing.familyId);
+		if (family) {
+			return NextResponse.json(
+				{
+					error: "in_planner",
+					familyId: family.id,
+					familyLabel: family.label,
+					message: `This design is live in the planner as "${family.label}". Remove that cabinet at /admin/catalogue and publish, then delete this design.`,
+				},
+				{ status: 409 },
+			);
+		}
 	}
 
 	await prisma.cabinetDesign.delete({ where: { id } });

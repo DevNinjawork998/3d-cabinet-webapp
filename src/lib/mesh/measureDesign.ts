@@ -1,6 +1,7 @@
-import { kindOf } from "./extract";
+import type { CabinetGeometry, ModuleKind } from "./extract";
+import { geometryOf, kindOf } from "./extract";
 import { normalise } from "./normalise";
-import { readObj } from "./objRead";
+import { coalesceParts, readObj } from "./objRead";
 import { boundsOf, classify } from "./roles";
 
 /**
@@ -38,6 +39,18 @@ export type DesignMeasurement = {
 	/** Underside above the floor. A wall unit's is what makes it a wall unit. */
 	floorHeightMm: number;
 	category: DesignCategory;
+	/**
+	 * What the planner needs to draw this cabinet: shelf, leaf and drawer
+	 * counts, and whether it is backed. `Cabinet.tsx` reads exactly this off
+	 * the family, so a design pushed into the catalogue renders with its own
+	 * fit-out rather than the old one-shelf default.
+	 */
+	geometry: CabinetGeometry;
+	/** `base` | `wall` | `tall` — the planner's own vocabulary, which decides
+	 * how the cabinet is placed. `category` below is the library's, which is
+	 * finer (it separates a drawer base from a base) and is what the admin
+	 * picked in the form. */
+	kind: ModuleKind;
 	drawers: number;
 	doors: number;
 	/** Named parts found. Zero means we read nothing and the numbers are junk. */
@@ -53,7 +66,14 @@ export function measureDesign(objText: string): DesignMeasurement | null {
 	const obj = readObj(objText);
 	if (obj.parts.length === 0) return null;
 
-	const { parts, panelThicknessMm, notes } = normalise(obj.parts);
+	// One file, one cabinet — so the records an exporter split a panel into can
+	// be safely unioned back together. Without this every board reads as a flat
+	// face with a zero dimension, `isSolid` discards it, and a cabinet with a
+	// shelf, a back and four feet measures as an empty box. Only sound here:
+	// across a whole run it would merge neighbouring cabinets' panels.
+	const { parts, panelThicknessMm, notes } = normalise(
+		coalesceParts(obj.parts),
+	);
 	const classified = classify(parts, boundsOf(parts, panelThicknessMm));
 
 	const axis = (i: 0 | 1 | 2) => {
@@ -65,12 +85,9 @@ export function measureDesign(objText: string): DesignMeasurement | null {
 	const depth = axis(1);
 	const height = axis(2);
 
-	const count = (role: string) =>
-		classified.filter(
-			(c) => c.role === role && c.part.sizeMm.every((d) => d > 0),
-		).length;
-	const drawers = count("drawerFront");
-	const doors = count("door");
+	const geometry = geometryOf(classified);
+	const drawers = geometry.drawers;
+	const doors = geometry.doorLeaves;
 
 	const kind = kindOf(mm(height.lo), mm(height.size));
 	const category: DesignCategory =
@@ -95,6 +112,8 @@ export function measureDesign(objText: string): DesignMeasurement | null {
 		depthMm: mm(depth.size),
 		floorHeightMm: mm(height.lo),
 		category,
+		geometry,
+		kind,
 		drawers,
 		doors,
 		partCount: parts.length,

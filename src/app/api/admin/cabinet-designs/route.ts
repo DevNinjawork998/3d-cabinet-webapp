@@ -6,6 +6,7 @@ import {
 	fetchMeshFile,
 	sha256Hex,
 } from "@/lib/catalogue/meshBlob";
+import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 
 export const runtime = "nodejs";
 
@@ -33,16 +34,29 @@ const createSchema = z.object({
 	status: z.enum(["PUBLISHED", "ARCHIVED"]).default("PUBLISHED"),
 });
 
+/**
+ * The library, plus the family ids the published catalogue actually carries.
+ *
+ * The second half is what lets the page say something true about each design.
+ * `status` (PUBLISHED/ARCHIVED) only filters this table — it has never
+ * controlled anything a customer sees, despite once being labelled "visible to
+ * customers". Where a design really is depends on whether its `familyId` is in
+ * the live catalogue, and that answer lives in a different table entirely.
+ */
 export async function GET() {
-	const designs = await prisma.cabinetDesign.findMany({
-		orderBy: { updatedAt: "desc" },
+	const [designs, catalogue] = await Promise.all([
+		prisma.cabinetDesign.findMany({ orderBy: { updatedAt: "desc" } }),
+		getPublishedPlannerCatalogue(),
+	]);
+	return NextResponse.json({
+		designs,
+		plannerFamilyIds: catalogue.data.families.map((f) => f.id),
 	});
-	return NextResponse.json({ designs });
 }
 
-/** Uploads store metadata only — no server-side geometry parsing here, unlike
- * catalogue/imports. This is a flat reference catalog, not the versioned
- * pricing catalogue. */
+/** Uploads store metadata only. Geometry is parsed when a design is pushed
+ * into the planner (`[id]/publish`), not on the way in — the library holds
+ * designs that may never become catalogue entries. */
 export async function POST(request: Request) {
 	const body = await request.json();
 	const parsed = createSchema.safeParse(body);

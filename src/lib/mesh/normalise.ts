@@ -34,6 +34,24 @@ const BOARD_MAX_MM = 25;
 const smallest = (part: MeshPart) =>
 	Math.min(...part.sizeMm.filter((d) => d > 0));
 
+const largest = (part: MeshPart) => Math.max(...part.sizeMm);
+
+/**
+ * A part flat enough for its thin axis to say something about which way is up.
+ *
+ * Sheet goods are extreme: a 767mm shelf on 16mm board is a ratio of 0.02. A
+ * leg leveller is 57 × 57 × 100, a ratio of 0.57 — it is not thin in any
+ * meaningful direction, and letting it vote is what tipped the client's base
+ * cabinet onto its side once panels were read as solid boxes. Four legs
+ * outvoted three horizontal boards.
+ */
+const PLATE_RATIO = 0.25;
+
+const isPlate = (part: MeshPart) => {
+	const big = largest(part);
+	return big > 0 && smallest(part) / big <= PLATE_RATIO;
+};
+
 /**
  * The modal smallest-dimension across every part, in the units it would have
  * at this scale. That number is the board thickness, and board thickness is a
@@ -118,8 +136,12 @@ export function inferUpAxis(parts: MeshPart[]): {
 	const spans = axes.map((axis) => spanOf(parts, axis));
 	const depthAxis = spans.indexOf(Math.min(...spans)) as 0 | 1 | 2;
 
+	// Panels only. Hardware is not a board and has no grain direction to read.
+	const plates = parts.filter(isPlate);
+	const voters = plates.length > 0 ? plates : parts;
+
 	const votes = [0, 0, 0];
-	for (const part of parts) {
+	for (const part of voters) {
 		const thin = smallest(part);
 		if (!Number.isFinite(thin)) continue;
 		const axis = part.sizeMm.indexOf(thin);

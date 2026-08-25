@@ -5,11 +5,19 @@ import {
 	CARCASS_INTERIOR_COLOR,
 	CONSTRUCTION,
 	type DoorStyle,
-	doorLeavesFor,
 	type Family,
 	GLASS_COLOR,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
+import type { ExposedSides } from "@/lib/planner/exposure";
+import { FULLY_EXPOSED } from "@/lib/planner/exposure";
+import {
+	cabinetPartsMm,
+	FRONT_THICKNESS_MM,
+	isInteriorPart,
+	type PartBoxMm,
+	standOf,
+} from "@/lib/planner/parts";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 
 /**
@@ -54,9 +62,6 @@ function insetShade(hex: string): string {
 const EDGE_COLOR = "#3f3b36";
 const EDGE_OPACITY = 0.55;
 
-/** Gap around each door so a run reads as separate fronts, not one slab. */
-const DOOR_GAP_MM = 4;
-const FRONT_THICKNESS_MM = 18;
 const HANDLE_LENGTH_MM = 128;
 const HANDLE_THICKNESS_MM = 14;
 /** Width of the stile/rail frame on a shaker or glazed front. */
@@ -74,6 +79,7 @@ export function Cabinet({
 	finishPhoto,
 	selected,
 	highlighted,
+	exposed = FULLY_EXPOSED,
 	onPointerDown,
 	onPointerMove,
 	onPointerOut,
@@ -100,6 +106,10 @@ export function Cabinet({
 	/** A door is being dragged over this one right now, or the measuring tool
 	 * is hovering it. */
 	highlighted?: boolean;
+	/** Which of this cabinet's outer sides nothing sits against, so the end of
+	 * a run can be veneered the way a fitter really finishes it. Defaults to
+	 * both, which is what a cabinet drawn on its own wears. */
+	exposed?: ExposedSides;
 	onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
 	onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
 	onPointerOut?: (e: ThreeEvent<PointerEvent>) => void;
@@ -120,17 +130,28 @@ export function Cabinet({
 	const carcassH = h - plinth;
 	const base = m(floorHeightMm);
 
-	// What the design file said this cabinet holds. A family imported before
-	// geometry was recorded — or a hand-written one — keeps the old look: one
-	// shelf, leaves derived from width.
-	const shelves = family.geometry
-		? family.geometry.shelves + family.geometry.fixedShelves
-		: 1;
-	const drawers = family.geometry?.drawers ?? family.drawers;
+	// Every box this cabinet is drawn from, in millimetres. The same call the
+	// measuring tool makes, so a dimension line can never disagree with the
+	// cabinet it is drawn against — see `lib/planner/parts.ts`.
+	const parts = cabinetPartsMm(family, widthMm, door !== null);
+	const stand = standOf(family);
+	const carcassParts = parts.filter(
+		(part) =>
+			part.role !== "doorLeaf" &&
+			part.role !== "drawerFront" &&
+			part.role !== "leg",
+	);
+	const legParts = parts.filter((part) => part.role === "leg");
+	const leaves = parts.filter((part) => part.role === "doorLeaf");
+	const drawerFronts = parts.filter((part) => part.role === "drawerFront");
 
-	const frontZ = d / 2 + m(FRONT_THICKNESS_MM) / 2;
 	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
 	const emissive = highlighted ? "#15803d" : "#2b6cb0";
+
+	// Same trick the doors use: a fraction derived from where the cabinet sits,
+	// so two end panels in one room are cut from different parts of the sheet
+	// rather than being the same photograph twice.
+	const sheetOffset = Math.abs(centreX * 1.37) % 1;
 
 	return (
 		<group
@@ -140,51 +161,69 @@ export function Cabinet({
 			onPointerMove={onPointerMove}
 			onPointerOut={onPointerOut}
 		>
-			{/* Plinth: the recessed kick under a floor-standing unit. */}
-			{plinth > 0 && (
+			{/* Plinth: the recessed kick under a floor-standing unit. A design
+			    that recorded its own feet stands on those instead — they come
+			    through `cabinetPartsMm` as `leg` parts. */}
+			{stand.legs === 0 && plinth > 0 && (
 				<mesh position={[0, plinth / 2, -m(30)]}>
 					<boxGeometry args={[w - t, plinth, d - m(60)]} />
 					<meshStandardMaterial color="#3a3835" roughness={0.9} />
 				</mesh>
 			)}
 
-			{/* Carcass: five panels rather than one box, so the inside is visible
-			    when there is no door on it yet. */}
+			{/* The feet the design was drawn with. Cylinders, because a leveller
+			    is round and a box here reads as a stubby plinth leg. */}
+			{legParts.map((leg) => (
+				<mesh
+					key={`leg-${leg.index}`}
+					position={[m(leg.centreMm.x), m(leg.centreMm.y), m(leg.centreMm.z)]}
+				>
+					<cylinderGeometry
+						args={[
+							m(leg.sizeMm.x) / 2,
+							m(leg.sizeMm.x) / 2,
+							m(leg.sizeMm.y),
+							12,
+						]}
+					/>
+					<meshStandardMaterial
+						color={HARDWARE_COLOR}
+						roughness={0.5}
+						metalness={0.35}
+					/>
+				</mesh>
+			))}
+
+			{/* Carcass: separate panels rather than one box, so the inside is
+			    visible when there is no door on it yet. */}
 			<Carcass
+				parts={carcassParts}
 				width={w}
 				depth={d}
 				height={carcassH}
-				thickness={t}
-				y={plinth}
-				shelves={shelves}
-				hasBack={family.geometry?.hasBack ?? true}
+				exposed={exposed}
+				finishHex={finishHex}
+				finishPhoto={finishPhoto}
+				sheetOffset={sheetOffset}
 				emissive={emissive}
 				emphasis={emphasis}
 			/>
 
 			{door &&
-				(drawers > 0 ? (
+				(drawerFronts.length > 0 ? (
 					<Drawers
-						count={drawers}
+						parts={drawerFronts}
 						finishPhoto={finishPhoto}
 						door={door}
-						width={w}
-						height={carcassH}
-						y={plinth}
-						z={frontZ}
 						finishHex={finishHex}
 						emissive={emissive}
 						emphasis={emphasis}
 					/>
 				) : (
 					<Doors
-						count={family.geometry?.doorLeaves || doorLeavesFor(widthMm)}
+						parts={leaves}
 						finishPhoto={finishPhoto}
 						door={door}
-						width={w}
-						height={carcassH}
-						y={plinth}
-						z={frontZ}
 						finishHex={finishHex}
 						emissive={emissive}
 						emphasis={emphasis}
@@ -203,23 +242,28 @@ export function Cabinet({
  * the same six boxes otherwise.
  */
 function Carcass({
+	parts,
 	width,
 	depth,
 	height,
-	thickness,
-	y,
-	shelves,
-	hasBack,
+	exposed,
+	finishHex,
+	finishPhoto,
+	sheetOffset,
 	emissive,
 	emphasis,
 }: {
+	parts: PartBoxMm[];
+	/** Only the grain needs these — the panels carry their own sizes. */
 	width: number;
 	depth: number;
 	height: number;
-	thickness: number;
-	y: number;
-	shelves: number;
-	hasBack: boolean;
+	/** Which outer sides nothing sits against, from `exposedSides`. */
+	exposed: ExposedSides;
+	finishHex: string;
+	finishPhoto: string | null;
+	/** Where in the decor sheet this cabinet's end panel is cut from. */
+	sheetOffset: number;
 	emissive: string;
 	emphasis: number;
 }) {
@@ -228,85 +272,59 @@ function Carcass({
 	// louder than the doors it sits behind.
 	const figure = useGrain("vertical", width, height, "sheen");
 
-	const panel = (
-		key: string,
-		args: [number, number, number],
-		position: [number, number, number],
-		interior = false,
-	) => (
-		<mesh key={key} position={position}>
-			<boxGeometry args={args} />
-			<meshStandardMaterial
-				color={interior ? CARCASS_INTERIOR_COLOR : CARCASS_COLOR}
-				roughness={0.85}
-				{...figure}
-				emissive={emissive}
-				emissiveIntensity={emphasis}
-			/>
-			<Edges
-				threshold={15}
-				color={EDGE_COLOR}
-				transparent
-				opacity={EDGE_OPACITY}
-			/>
-		</mesh>
+	// The end of a run is veneered to match the doors — it is the one carcass
+	// panel anyone ever sees, and in the default 3/4 view it faces the camera.
+	// The panel is seen across its depth and up its height, so those are the
+	// dimensions the sheet is cut to, not the carcass width.
+	const veneer = useFrontSurface(
+		finishPhoto,
+		"vertical",
+		depth,
+		height,
+		finishHex,
+		sheetOffset,
 	);
 
-	const midY = y + height / 2;
+	/** A side panel with nothing against it, on a finish we have a board for.
+	 * Without a photo there is nothing to veneer with, and the melamine look
+	 * is what the scene has always had. */
+	const isVeneered = (part: PartBoxMm) =>
+		finishPhoto !== null &&
+		part.role === "side" &&
+		(part.index === 0 ? exposed.left : exposed.right);
+
 	return (
 		<>
-			{panel(
-				"left",
-				[thickness, height, depth],
-				[-width / 2 + thickness / 2, midY, 0],
-			)}
-			{panel(
-				"right",
-				[thickness, height, depth],
-				[width / 2 - thickness / 2, midY, 0],
-			)}
-			{panel("bottom", [width, thickness, depth], [0, y + thickness / 2, 0])}
-			{panel(
-				"top",
-				[width, thickness, depth],
-				[0, y + height - thickness / 2, 0],
-			)}
-			{hasBack &&
-				panel(
-					"back",
-					[width, height, thickness],
-					[0, midY, -depth / 2 + thickness / 2],
-					true,
-				)}
-			{shelfHeights(shelves, y, height, thickness).map((shelfY, i) =>
-				panel(
-					`shelf-${i}`,
-					[width - thickness * 2, thickness, depth - thickness * 2],
-					[0, shelfY, 0],
-					true,
-				),
-			)}
+			{parts.map((part) => (
+				<mesh
+					key={`${part.role}-${part.index}`}
+					position={[
+						m(part.centreMm.x),
+						m(part.centreMm.y),
+						m(part.centreMm.z),
+					]}
+				>
+					<boxGeometry
+						args={[m(part.sizeMm.x), m(part.sizeMm.y), m(part.sizeMm.z)]}
+					/>
+					<meshStandardMaterial
+						color={
+							isInteriorPart(part.role) ? CARCASS_INTERIOR_COLOR : CARCASS_COLOR
+						}
+						roughness={0.85}
+						{...(isVeneered(part) ? veneer : figure)}
+						emissive={emissive}
+						emissiveIntensity={emphasis}
+					/>
+					<Edges
+						threshold={15}
+						color={EDGE_COLOR}
+						transparent
+						opacity={EDGE_OPACITY}
+					/>
+				</mesh>
+			))}
 		</>
-	);
-}
-
-/**
- * Shelves split the opening into equal bays, which is how they are actually
- * set out — three shelves make four bays, not three shelves crowded at the
- * bottom. Returns nothing for a cabinet with no shelves, so a drawer bank does
- * not get a stray board through the middle of it.
- */
-function shelfHeights(
-	count: number,
-	y: number,
-	height: number,
-	thickness: number,
-): number[] {
-	if (count <= 0) return [];
-	const clear = height - thickness * 2;
-	return Array.from(
-		{ length: count },
-		(_, i) => y + thickness + (clear * (i + 1)) / (count + 1),
 	);
 }
 
@@ -424,44 +442,37 @@ function Handle({
 }
 
 function Doors({
-	count,
+	parts,
 	door,
-	width,
-	height,
-	y,
-	z,
 	finishHex,
 	finishPhoto,
 	emissive,
 	emphasis,
 }: {
-	count: number;
+	parts: PartBoxMm[];
 	door: DoorStyle;
-	width: number;
-	height: number;
-	y: number;
-	z: number;
 	finishHex: string;
 	finishPhoto: string | null;
 	emissive: string;
 	emphasis: number;
 }) {
-	const gap = m(DOOR_GAP_MM);
-	const doorW = (width - gap * (count + 1)) / count;
-
 	return (
 		<>
-			{Array.from({ length: count }, (_, i) => {
-				const x = -width / 2 + gap + doorW / 2 + i * (doorW + gap);
+			{parts.map((leaf) => {
 				// Handles meet in the middle on a pair, like a real hinged run.
-				const side = count === 1 ? 1 : i === 0 ? 1 : -1;
+				const side = parts.length === 1 || leaf.index === 0 ? 1 : -1;
+				const x = m(leaf.centreMm.x);
+				const y = m(leaf.centreMm.y);
+				const z = m(leaf.centreMm.z);
+				const leafW = m(leaf.sizeMm.x);
+
 				return (
-					<group key={x}>
+					<group key={leaf.index}>
 						<Front
 							door={door}
-							width={doorW}
-							height={height - gap * 2}
-							position={[x, y + height / 2, z]}
+							width={leafW}
+							height={m(leaf.sizeMm.y)}
+							position={[x, y, z]}
 							finishHex={finishHex}
 							finishPhoto={finishPhoto}
 							grain="vertical"
@@ -470,8 +481,8 @@ function Doors({
 						/>
 						<Handle
 							position={[
-								x + side * (doorW / 2 - m(45)),
-								y + height / 2,
+								x + side * (leafW / 2 - m(45)),
+								y,
 								z + m(FRONT_THICKNESS_MM),
 							]}
 							vertical
@@ -484,42 +495,34 @@ function Doors({
 }
 
 function Drawers({
-	count,
+	parts,
 	door,
-	width,
-	height,
-	y,
-	z,
 	finishHex,
 	finishPhoto,
 	emissive,
 	emphasis,
 }: {
-	count: number;
+	parts: PartBoxMm[];
 	door: DoorStyle;
-	width: number;
-	height: number;
-	y: number;
-	z: number;
 	finishHex: string;
 	finishPhoto: string | null;
 	emissive: string;
 	emphasis: number;
 }) {
-	const gap = m(DOOR_GAP_MM);
-	const drawerH = (height - gap * (count + 1)) / count;
-
 	return (
 		<>
-			{Array.from({ length: count }, (_, i) => {
-				const centreY = y + gap + drawerH / 2 + i * (drawerH + gap);
+			{parts.map((front) => {
+				const x = m(front.centreMm.x);
+				const y = m(front.centreMm.y);
+				const z = m(front.centreMm.z);
+
 				return (
-					<group key={centreY}>
+					<group key={front.index}>
 						<Front
 							door={door}
-							width={width - gap * 2}
-							height={drawerH}
-							position={[0, centreY, z]}
+							width={m(front.sizeMm.x)}
+							height={m(front.sizeMm.y)}
+							position={[x, y, z]}
 							finishHex={finishHex}
 							finishPhoto={finishPhoto}
 							grain="horizontal"
@@ -527,7 +530,7 @@ function Drawers({
 							emphasis={emphasis}
 						/>
 						<Handle
-							position={[0, centreY, z + m(FRONT_THICKNESS_MM)]}
+							position={[x, y, z + m(FRONT_THICKNESS_MM)]}
 							vertical={false}
 						/>
 					</group>

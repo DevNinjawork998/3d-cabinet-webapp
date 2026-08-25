@@ -35,6 +35,12 @@ export type CabinetGeometry = {
 	doorLeaves: number;
 	drawers: number;
 	hasBack: boolean;
+	/** Adjustable feet the cabinet stands on. Zero means it sits on a plinth,
+	 * which is what the scene drew for everything before designs could say
+	 * otherwise. The client's own base cabinet has four Häfele levellers. */
+	legs: number;
+	/** How tall those feet are, so the carcass floats by the right amount. */
+	legHeightMm: number;
 };
 
 export type ModuleSpec = {
@@ -145,17 +151,41 @@ export function kindOf(floorHeightMm: number, heightMm: number): ModuleKind {
 	return "base";
 }
 
-function geometryOf(classified: ClassifiedPart[]): CabinetGeometry {
+/** What this cabinet holds, from the parts that were classified in it.
+ * Exported because `measureDesign` needs the same answer for a lone cabinet —
+ * the fit-out is what tells a six-shelf tall unit from a plain box, and the
+ * planner draws from it. */
+export function geometryOf(classified: ClassifiedPart[]): CabinetGeometry {
 	const solid = classified.filter(({ part }) => isSolid(part));
 	const count = (role: PartRole) => solid.filter((c) => c.role === role).length;
+
+	// Legs are hardware standing on the floor. Height is the axis the model is
+	// tall on (index 2 after `normalise`), which is what separates a leveller
+	// from a handle — a handle is hardware too, but it sits at door height.
+	const floorMm = Math.min(...solid.map(({ part }) => part.minMm[2]));
+	const legParts = solid.filter(
+		({ part, role }) =>
+			role === "hardware" && part.minMm[2] <= floorMm + LEG_FOOTING_MM,
+	);
+	const legHeightMm = legParts.length
+		? Math.round(Math.max(...legParts.map(({ part }) => part.sizeMm[2])))
+		: 0;
+
 	return {
 		shelves: count("shelfAdjustable"),
 		fixedShelves: count("shelfFixed"),
 		doorLeaves: count("door"),
 		drawers: count("drawerFront"),
 		hasBack: count("back") > 0,
+		legs: legParts.length,
+		legHeightMm,
 	};
 }
+
+/** How far above the lowest point a part can start and still be a foot rather
+ * than something mounted on the cabinet. Generous: a leveller is drawn as a
+ * couple of stacked pieces and they do not all reach the floor. */
+const LEG_FOOTING_MM = 30;
 
 /**
  * The most common smallest-dimension across every solid part. Cabinet parts

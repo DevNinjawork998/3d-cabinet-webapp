@@ -61,3 +61,19 @@ export function readArchive(bytes: Uint8Array): MeshArchive {
 }
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
+/**
+ * The `.obj` text, whichever shape the design arrived in.
+ *
+ * The upload forms take a bare `.obj` *or* a `.zip` of the whole export
+ * folder, so every reader has to handle both or half the files an admin can
+ * attach come back empty. The filename is no help — a stored design keeps its
+ * original name in the blob's content disposition and a route only ever has
+ * bytes — so the archive is recognised by its magic number instead.
+ *
+ * `PK\x03\x04` is the local file header every zip starts with.
+ */
+export function objTextFromBytes(bytes: Uint8Array): string {
+	const zipped = bytes[0] === 0x50 && bytes[1] === 0x4b;
+	return zipped ? readArchive(bytes).objText : new TextDecoder().decode(bytes);
+}

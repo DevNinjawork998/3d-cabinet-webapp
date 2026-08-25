@@ -1,14 +1,25 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useId, useMemo, useState } from "react";
+import {
+	Suspense,
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useState,
+} from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
+import { ImageSlot } from "@/components/admin/ImageSlot";
 import { fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
+import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import {
+	type Family,
 	type PlannerCatalogue,
 	plannerCatalogueSchema,
 } from "@/lib/planner/catalogueSchema";
+import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 
 /**
  * Field-level editor for the live planner catalogue.
@@ -56,6 +67,27 @@ type SaveState =
  * reader, since the association is only made when the control is a real
  * descendant element.
  */
+/**
+ * The family's `geometry`, created on first edit.
+ *
+ * It is optional in the schema so catalogues published before design intake
+ * keep validating, which means the editor cannot assume it exists. Defaults
+ * match what `Cabinet.tsx` falls back to when it is absent, so opening a family
+ * and changing one field does not silently restyle the rest of it.
+ */
+function withGeometry(family: Family): NonNullable<Family["geometry"]> {
+	family.geometry ??= {
+		shelves: 1,
+		fixedShelves: 0,
+		doorLeaves: 0,
+		drawers: family.drawers,
+		hasBack: true,
+		legs: 0,
+		legHeightMm: 0,
+	};
+	return family.geometry;
+}
+
 function Num({
 	label,
 	value,
@@ -218,6 +250,31 @@ function CatalogueEditor() {
 	const [save, setSave] = useState<SaveState>({ status: "idle" });
 	const [showJson, setShowJson] = useState(false);
 
+	/**
+	 * Decor photo per finish slot, `finish:<id>` → URL.
+	 *
+	 * Fetched rather than passed in: `/admin/site-content` is a server component
+	 * and reads `siteImage` straight from Postgres, but this page is a client
+	 * component, so it asks the same data through the API instead.
+	 *
+	 * Deliberately *not* part of `draft`. A photo is live the moment it is
+	 * dropped and carries no version, while everything else on this page is
+	 * draft-gated — mixing them into one object would let "Save as draft" imply
+	 * it was holding a photo back.
+	 */
+	const [finishPhotos, setFinishPhotos] = useState<Record<string, string>>({});
+
+	const loadFinishPhotos = useCallback(async () => {
+		const res = await fetch("/api/admin/site-images");
+		if (!res.ok) return;
+		const body = await res.json();
+		const next: Record<string, string> = {};
+		for (const image of body.images ?? []) {
+			next[image.key] = siteImageSrc(image.key, image.updatedAt);
+		}
+		setFinishPhotos(next);
+	}, []);
+
 	// biome-ignore lint/correctness/useExhaustiveDependencies: load on mount only
 	useEffect(() => {
 		(async () => {
@@ -253,6 +310,7 @@ function CatalogueEditor() {
 			setLive(published?.data ?? asked.data);
 			setDraft(JSON.parse(JSON.stringify(asked?.data ?? published.data)));
 		})();
+		loadFinishPhotos();
 	}, []);
 
 	const changes = useMemo(
@@ -452,6 +510,103 @@ function CatalogueEditor() {
 												/>
 												Worktop
 											</label>
+										</div>
+
+										{/* What the planner actually draws inside the carcass.
+										    Until this existed the numbers could only come from a
+										    design-file parse, so a miscounted shelf rendered wrong
+										    for good — there was nowhere to correct it. `geometry`
+										    is optional in the schema, so a family that has none
+										    (everything seeded before design intake) falls back to
+										    the old constants until someone edits it here. */}
+										<div className="mt-3 border-neutral-100 border-t pt-3">
+											<div className="mb-2 flex items-baseline gap-2">
+												<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+													What it holds
+												</p>
+												<span className="text-[11px] text-neutral-400">
+													{family.geometry
+														? "0 door leaves = split by width · 0 legs = plinth"
+														: "not set — showing what the scene falls back to; 0 door leaves = split by width, 0 legs = plinth"}
+												</span>
+											</div>
+											<div className="flex flex-wrap items-end gap-3">
+												<Num
+													label="Shelves"
+													value={family.geometry?.shelves ?? 1}
+													width="w-16"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).shelves = v;
+														})
+													}
+												/>
+												<Num
+													label="Fixed shelves"
+													value={family.geometry?.fixedShelves ?? 0}
+													width="w-16"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).fixedShelves = v;
+														})
+													}
+												/>
+												<Num
+													label="Door leaves"
+													value={family.geometry?.doorLeaves ?? 0}
+													width="w-16"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).doorLeaves = v;
+														})
+													}
+												/>
+												<Num
+													label="Drawer fronts"
+													value={family.geometry?.drawers ?? family.drawers}
+													width="w-16"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).drawers = v;
+														})
+													}
+												/>
+												<label className="flex items-center gap-1.5 pb-2 text-[12px]">
+													<input
+														type="checkbox"
+														checked={family.geometry?.hasBack ?? true}
+														onChange={(e) =>
+															edit((n) => {
+																withGeometry(n.families[fi]).hasBack =
+																	e.target.checked;
+															})
+														}
+													/>
+													Back panel
+												</label>
+												{/* Feet. Zero means the recessed plinth the scene
+												    draws for everything that did not say otherwise. */}
+												<Num
+													label="Legs"
+													value={family.geometry?.legs ?? 0}
+													width="w-16"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).legs = v;
+														})
+													}
+												/>
+												<Num
+													label="Leg height mm"
+													value={family.geometry?.legHeightMm ?? 0}
+													width="w-20"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).legHeightMm = v;
+														})
+													}
+												/>
+											</div>
 										</div>
 
 										<div className="mt-3 border-neutral-100 border-t pt-3">
@@ -686,9 +841,42 @@ function CatalogueEditor() {
 								title="Finishes"
 								subtitle="One colour applies to a whole room, which is how they're sold."
 							>
+								{/* The photo and the colour sit together because they are two
+								    answers to the same question, but they do not travel
+								    together: catalogue edits wait for Publish, a dropped photo
+								    is live at once. Saying so here is cheaper than explaining
+								    a surprise later. */}
+								<p className="mb-3 text-[12px] text-neutral-500">
+									Drop the supplier&rsquo;s board scan on a swatch to use the
+									real material: it becomes the door and end-panel surface in
+									3D, and the swatch on the homepage. Without one, the flat
+									colour is used. Photos go live immediately — they are not part
+									of the draft. Removing an upload falls back to the board
+									shipped with the app, if there is one.
+								</p>
 								<div className="flex flex-col gap-2">
 									{draft.finishes.map((finish, i) => (
 										<div key={finish.id} className="flex items-center gap-2">
+											<div className="w-[54px] shrink-0">
+												{/* An upload wins, but a finish can also have a board
+												    shipped in the repo — Rhone Oak does. Showing only
+												    uploads left that slot looking empty while the
+												    planner was busy rendering with it. Layered the same
+												    way `app/planner/page.tsx` layers them, so this
+												    shows what the 3D is actually using. */}
+												<ImageSlot
+													slotKey={finishSlot(finish.id)}
+													placeholder="Board"
+													url={
+														finishPhotos[finishSlot(finish.id)] ??
+														DEFAULT_FINISH_TEXTURES[finish.id] ??
+														null
+													}
+													height={40}
+													radius={6}
+													onChangeAction={loadFinishPhotos}
+												/>
+											</div>
 											<input
 												type="color"
 												aria-label={`${finish.label} colour`}

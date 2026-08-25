@@ -2,7 +2,7 @@
 
 import { OrbitControls, Shadow } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	Object3D,
 	PerspectiveCamera,
@@ -17,15 +17,24 @@ import {
 	WALL_GAP_MM,
 	WORKTOP_COLOR,
 } from "@/lib/planner/catalogue";
+import { type ExposedSides, exposedSides } from "@/lib/planner/exposure";
 import {
 	allPositions,
 	dropModule,
 	moveModule,
 	type PlannerLayout,
+	type Positioned,
 	positionsOf,
 	rowEndMm,
 } from "@/lib/planner/layout";
-import { snapToCabinet, type Vec3Mm } from "@/lib/planner/measure";
+import {
+	apertureMm,
+	constrainToAxis,
+	type MeasureAxis,
+	type SnapPoint,
+	snapToCabinet,
+	type Vec3Mm,
+} from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
 import { useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
@@ -261,6 +270,8 @@ function Run({
 	selectedIds,
 	doorTargetId,
 	measureMode,
+	measureAxis,
+	measureAnchor,
 	onLayoutChange,
 	onSelect,
 	onMeasurePick,
@@ -276,16 +287,66 @@ function Run({
 	/** While true, clicking a cabinet picks a measurement point instead of
 	 * selecting or dragging it. */
 	measureMode: boolean;
+	/** Which axis the second pick is constrained to. */
+	measureAxis: MeasureAxis;
+	/** The first picked point, once there is one — what the lock measures from.
+	 * `null` while the first point is still being placed, since there is
+	 * nothing to constrain against yet. */
+	measureAnchor: Vec3Mm | null;
 	onLayoutChange: (next: PlannerLayout) => void;
 	/** `additive` comes from shift/ctrl/cmd: add to the selection rather than
 	 * replace it. `null` clears. */
 	onSelect: (id: string | null, additive: boolean) => void;
-	onMeasurePick: (point: Vec3Mm) => void;
-	/** The point the measuring tool would pick right now, so the overlay can
-	 * show it before the click commits. `null` once the pointer leaves. */
-	onMeasureHover: (point: Vec3Mm | null) => void;
+	onMeasurePick: (snap: SnapPoint) => void;
+	/** What the measuring tool would pick right now, so the overlay can show it
+	 * before the click commits. `null` once the pointer leaves. */
+	onMeasureHover: (snap: SnapPoint | null) => void;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
+	const camera = useThree((s) => s.camera);
+	const viewportHeightPx = useThree((s) => s.size.height);
+
+	/**
+	 * The snap under this pointer event.
+	 *
+	 * `e.point` is already in the scene's outer world space — the same space the
+	 * picked points are stored and rendered in — so no group-offset math is
+	 * needed, only a millimetre conversion.
+	 *
+	 * The tolerance comes from `e.distance`, the camera's own distance to what
+	 * the ray hit, so the aperture is a constant number of *pixels* rather than
+	 * a constant number of millimetres. A fixed world tolerance is the reason
+	 * picks used to land in odd places: too small to catch anything when the
+	 * camera is pulled back over a full run, too coarse when zoomed into one
+	 * carcass.
+	 */
+	const snapAt = (
+		e: ThreeEvent<PointerEvent>,
+		position: Positioned,
+	): SnapPoint => {
+		const hitMm: Vec3Mm = {
+			x: e.point.x * 1000,
+			y: e.point.y * 1000,
+			z: e.point.z * 1000,
+		};
+		const fov = (camera as PerspectiveCamera).fov ?? 45;
+		const snap = snapToCabinet(
+			hitMm,
+			position,
+			layout,
+			apertureMm(e.distance, fov, viewportHeightPx),
+		);
+
+		// The lock is applied after the snap, not instead of it: you snap to the
+		// corner you meant, then the constraint slides that point onto the axis
+		// you are measuring along. Same order as picking a point with ORTHO on.
+		return measureAnchor
+			? {
+					...snap,
+					point: constrainToAxis(measureAnchor, snap.point, measureAxis),
+				}
+			: snap;
+	};
 	/**
 	 * The live drag: which cabinet, and where on it the pointer took hold.
 	 *
@@ -354,6 +415,23 @@ function Run({
 		onMeasureHover(null);
 	}, [measureMode, onMeasureHover]);
 
+	// Which cabinets have an outer side on show, keyed by id.
+	//
+	// Computed per row, not across the whole run: `allPositions` concatenates
+	// floor and wall, and judging them together would have a hung wall unit
+	// cover a base unit's end panel — they are at different heights and hide
+	// nothing of each other.
+	const exposure = useMemo(() => {
+		const map = new Map<string, ExposedSides>();
+		for (const row of ["floor", "wall"] as const) {
+			const positions = positionsOf(layout, row);
+			positions.forEach((position, i) => {
+				map.set(position.placed.id, exposedSides(positions, i));
+			});
+		}
+		return map;
+	}, [layout]);
+
 	// The group sits on the wall plane itself: everything in the run is placed
 	// by its back face from here, with a scribe gap so the carcasses do not
 	// z-fight with the wall they stand against.
@@ -407,6 +485,7 @@ function Run({
 					moduleId={position.placed.id}
 					family={position.family}
 					widthMm={position.widthMm}
+					exposed={exposure.get(position.placed.id)}
 					door={
 						position.placed.doorStyleId
 							? (doorStyle(position.placed.doorStyleId) ?? null)
@@ -430,13 +509,8 @@ function Run({
 						measureMode
 							? (e) => {
 									e.stopPropagation();
-									const hitMm: Vec3Mm = {
-										x: e.point.x * 1000,
-										y: e.point.y * 1000,
-										z: e.point.z * 1000,
-									};
 									setMeasureHoverId(position.placed.id);
-									onMeasureHover(snapToCabinet(hitMm, position, layout));
+									onMeasureHover(snapAt(e, position));
 								}
 							: undefined
 					}
@@ -454,16 +528,7 @@ function Run({
 						e.stopPropagation();
 
 						if (measureMode) {
-							// `e.point` is already in the scene's outer world space —
-							// the same space the picked points are stored and rendered
-							// in — so no group-offset math is needed here, only mm
-							// conversion and the snap to this cabinet's own geometry.
-							const hitMm: Vec3Mm = {
-								x: e.point.x * 1000,
-								y: e.point.y * 1000,
-								z: e.point.z * 1000,
-							};
-							onMeasurePick(snapToCabinet(hitMm, position, layout));
+							onMeasurePick(snapAt(e, position));
 							return;
 						}
 
@@ -645,6 +710,7 @@ export default function PlannerScene({
 	doorTargetId,
 	measureMode = false,
 	measurePoints = [],
+	measureAxis = "auto",
 	view = "3d",
 	onLayoutChangeAction,
 	onSelectAction,
@@ -673,10 +739,13 @@ export default function PlannerScene({
 	 * having to know the toggle exists. */
 	view?: PlannerView;
 	/** The points picked so far — 0, 1, or 2 of them. */
-	measurePoints?: Vec3Mm[];
+	measurePoints?: SnapPoint[];
+	/** Which axis the second pick is constrained to. Defaults to `auto`, which
+	 * is what makes a roughly-vertical pick read as a clean height. */
+	measureAxis?: MeasureAxis;
 	onLayoutChangeAction: (next: PlannerLayout) => void;
 	onSelectAction: (id: string | null, additive: boolean) => void;
-	onMeasurePickAction?: (point: Vec3Mm) => void;
+	onMeasurePickAction?: (snap: SnapPoint) => void;
 	pickerRef: React.RefObject<
 		((clientX: number, clientY: number) => number) | null
 	>;
@@ -689,7 +758,11 @@ export default function PlannerScene({
 	const finishHex =
 		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
 	const finishPhoto = finishTextures[finish] ?? null;
-	const [hoverPoint, setHoverPoint] = useState<Vec3Mm | null>(null);
+	const [hoverPoint, setHoverPoint] = useState<SnapPoint | null>(null);
+	// Only the first point anchors the lock; with two down the next click starts
+	// a fresh measurement, which has nothing to constrain against.
+	const measureAnchor =
+		measurePoints.length === 1 ? measurePoints[0].point : null;
 
 	return (
 		<Canvas
@@ -722,6 +795,8 @@ export default function PlannerScene({
 				selectedIds={selectedIds}
 				doorTargetId={doorTargetId}
 				measureMode={measureMode}
+				measureAxis={measureAxis}
+				measureAnchor={measureAnchor}
 				onLayoutChange={onLayoutChangeAction}
 				onSelect={onSelectAction}
 				onMeasurePick={onMeasurePickAction ?? (() => {})}

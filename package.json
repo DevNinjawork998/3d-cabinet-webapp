@@ -34,12 +34,12 @@
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.9",
+		"@biomejs/biome": "^2.5.10",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^20.19.43",
 		"@types/pg": "^8.23.1",
 		"@types/react": "^19.2.18",
-		"@types/react-dom": "^19.2.4",
+		"@types/react-dom": "^19.2.5",
 		"@types/three": "^0.185.4",
 		"dotenv": "^17.4.2",
 		"prisma": "^7.9.1",
