@@ -37,8 +37,28 @@ type CabinetDesign = {
 	status: Status;
 	/** The planner family this design was pushed into, if it ever was. */
 	familyId: string | null;
+	/** The derived render mesh, written when the design is pushed. Null means
+	 * the conversion found nothing drawable, so the planner falls back to
+	 * procedural geometry for this cabinet. */
+	meshBytes: number | null;
+	meshGroups: { role: string; triangles: number }[] | null;
 	updatedAt: string;
 };
+
+/**
+ * What the planner will draw for this design, in one line.
+ *
+ * The push already reports this once, in a toast, and a toast is gone by the
+ * time anyone wonders why a cabinet looks generic. This is the version that
+ * stays on the row.
+ */
+function meshSummary(d: CabinetDesign): string | null {
+	if (!d.familyId) return null;
+	if (!d.meshGroups?.length) return "no mesh — drawn procedurally";
+	const triangles = d.meshGroups.reduce((n, g) => n + g.triangles, 0);
+	const size = d.meshBytes ? ` · ${Math.round(d.meshBytes / 1024)} KB` : "";
+	return `${triangles.toLocaleString()} tris${size}`;
+}
 
 /**
  * Where a design actually is, which is not what `status` says.
@@ -138,6 +158,164 @@ const DesignViewer = dynamic(
 	{ ssr: false },
 );
 
+/**
+ * One file in a multi-file upload.
+ *
+ * The client draws one export per width — BC 600, BC 800, BC 900 — and those are
+ * three rungs of one size ladder. Uploading them one at a time meant re-typing
+ * the room, category and description three times and reviewing three separate
+ * catalogue drafts, for what is one decision.
+ *
+ * Only the genuinely per-rung fields live here. Everything shared stays in
+ * `form`, filled once for the batch.
+ */
+type BatchRow = {
+	file: File;
+	measured: DesignMeasurement | null;
+	measureError: string | null;
+	name: string;
+	sku: string;
+	price: string;
+	/** Filled once the row has been through the API. */
+	result: "pending" | "saved" | string;
+};
+
+const LABEL_CLASS =
+	"mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide";
+const SELECT_CLASS =
+	"w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm";
+
+/**
+ * The per-file half of a multi-file upload.
+ *
+ * Only SKU and price are per row, because only SKU and price genuinely differ
+ * between BC 600, BC 800 and BC 900 — everything else about them is the same
+ * cabinet. Dimensions are shown but not editable: they were read off the
+ * geometry, and a batch is the wrong place to second-guess a measurement.
+ * Upload a file on its own if a number needs correcting.
+ */
+function BatchFields({
+	batch,
+	setBatch,
+	category,
+	room,
+	description,
+	tags,
+	setField,
+}: {
+	batch: BatchRow[];
+	setBatch: (rows: BatchRow[]) => void;
+	category: Category;
+	room: Room;
+	description: string;
+	tags: string;
+	setField: (key: keyof Form, value: string) => void;
+}) {
+	const update = (i: number, patch: Partial<BatchRow>) =>
+		setBatch(batch.map((row, n) => (n === i ? { ...row, ...patch } : row)));
+
+	return (
+		<>
+			<div className="flex flex-col gap-2">
+				<p className={LABEL_CLASS}>
+					{batch.length} designs — one catalogue draft
+				</p>
+				{batch.map((row, i) => (
+					<div
+						key={row.file.name}
+						className="rounded-lg border border-neutral-200 p-2.5"
+					>
+						<div className="flex items-baseline justify-between gap-2">
+							<p className="truncate font-medium text-[13px]">
+								{row.file.name}
+							</p>
+							<p className="shrink-0 text-[11px] text-neutral-500 tabular-nums">
+								{row.measured
+									? `${row.measured.widthMm} × ${row.measured.heightMm} × ${row.measured.depthMm} mm`
+									: (row.measureError ?? "not read")}
+							</p>
+						</div>
+						<div className="mt-1.5 flex gap-2">
+							<input
+								value={row.sku}
+								onChange={(e) => update(i, { sku: e.target.value })}
+								placeholder="SKU"
+								className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+							/>
+							<input
+								value={row.price}
+								onChange={(e) => update(i, { price: e.target.value })}
+								placeholder="RM"
+								inputMode="decimal"
+								className="w-24 rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+							/>
+						</div>
+						{row.result !== "pending" && (
+							<p
+								className={`mt-1.5 text-[11px] ${
+									row.result === "saved" ? "text-green-700" : "text-amber-700"
+								}`}
+							>
+								{row.result === "saved" ? "saved" : row.result}
+							</p>
+						)}
+					</div>
+				))}
+			</div>
+
+			<div className="grid grid-cols-2 gap-3">
+				<div>
+					<p className={LABEL_CLASS}>Category</p>
+					<select
+						value={category}
+						onChange={(e) => setField("category", e.target.value)}
+						className={SELECT_CLASS}
+					>
+						{CATEGORIES.map((c) => (
+							<option key={c} value={c}>
+								{CATEGORY_LABELS[c]}
+							</option>
+						))}
+					</select>
+				</div>
+				<div>
+					<p className={LABEL_CLASS}>Room type</p>
+					<select
+						value={room}
+						onChange={(e) => setField("room", e.target.value)}
+						className={SELECT_CLASS}
+					>
+						{ROOMS.map((r) => (
+							<option key={r} value={r}>
+								{ROOM_LABELS[r]}
+							</option>
+						))}
+					</select>
+				</div>
+			</div>
+
+			<div>
+				<p className={LABEL_CLASS}>Description</p>
+				<textarea
+					value={description}
+					onChange={(e) => setField("description", e.target.value)}
+					rows={2}
+					className="w-full rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+				/>
+			</div>
+
+			<div>
+				<p className={LABEL_CLASS}>Tags</p>
+				<input
+					value={tags}
+					onChange={(e) => setField("tags", e.target.value)}
+					className="w-full rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+				/>
+			</div>
+		</>
+	);
+}
+
 export default function CabinetDesignsPage() {
 	const router = useRouter();
 	const [designs, setDesigns] = useState<CabinetDesign[]>([]);
@@ -158,6 +336,8 @@ export default function CabinetDesignsPage() {
 	/** What the design file said, once it has been read. */
 	const [measured, setMeasured] = useState<DesignMeasurement | null>(null);
 	const [measureError, setMeasureError] = useState<string | null>(null);
+	/** Non-null while several files are being described at once. */
+	const [batch, setBatch] = useState<BatchRow[] | null>(null);
 	/** Id of the row whose Delete is armed, so only one row is ever primed. */
 	const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
@@ -203,6 +383,7 @@ export default function CabinetDesignsPage() {
 		setMeasureError(null);
 		setError(null);
 		setMissing(new Set());
+		setBatch(null);
 		setPanelOpen(true);
 	}
 
@@ -216,6 +397,75 @@ export default function CabinetDesignsPage() {
 	 * extract one, and unzipping in the browser to measure is work this form
 	 * does not need. Those keep the manual fields.
 	 */
+	/** A SKU that is at least unique among the files in this batch. The admin
+	 * still owns it — this only saves typing three near-identical codes. */
+	const skuFrom = (name: string) =>
+		name
+			.replace(/\.[^.]+$/, "")
+			.toUpperCase()
+			.replace(/[^A-Z0-9]+/g, "-")
+			.replace(/^-|-$/g, "");
+
+	/**
+	 * The entry point for the file input, which now takes several.
+	 *
+	 * One file keeps the existing single-design form, untouched — that is still
+	 * the common case and it has the 3D preview, the finish picker and the edit
+	 * path hanging off it. Two or more switch to the batch table, because
+	 * filling that form three times is the thing this exists to remove.
+	 */
+	async function acceptFiles(files: File[]) {
+		if (files.length === 0) return;
+		if (files.length === 1) {
+			setBatch(null);
+			await acceptFile(files[0]);
+			return;
+		}
+
+		setFile(null);
+		setMeasured(null);
+		setMeasureError(null);
+		setError(null);
+
+		const { measureDesign } = await import("@/lib/mesh/measureDesign");
+		const rows: BatchRow[] = [];
+		for (const file of files) {
+			let measured: DesignMeasurement | null = null;
+			let measureError: string | null = null;
+			if (file.name.toLowerCase().endsWith(".obj")) {
+				try {
+					measured = measureDesign(await file.text());
+					if (!measured) measureError = "no geometry found";
+				} catch (error) {
+					measureError = error instanceof Error ? error.message : String(error);
+				}
+			} else {
+				// Same reason the single form does not read one: the library stores
+				// a design, it does not extract one.
+				measureError = "zip — dimensions not read";
+			}
+			rows.push({
+				file,
+				measured,
+				measureError,
+				name: file.name.replace(/\.[^.]+$/, ""),
+				sku: skuFrom(file.name),
+				price: "",
+				result: "pending",
+			});
+		}
+
+		// Widest first is the order a ladder reads in, and it makes a missing
+		// rung obvious at a glance.
+		rows.sort(
+			(a, b) => (a.measured?.widthMm ?? 0) - (b.measured?.widthMm ?? 0),
+		);
+		setBatch(rows);
+		// The category is shared, so take it from the first file that had one.
+		const read = rows.find((row) => row.measured)?.measured;
+		if (read) setForm((prev) => ({ ...prev, category: read.category }));
+	}
+
 	async function acceptFile(f: File) {
 		setFile(f);
 		setMeasured(null);
@@ -358,15 +608,167 @@ export default function CabinetDesignsPage() {
 				);
 				return;
 			}
-			setPushed(
+			const summary =
 				body.status === "already_in_catalogue"
 					? `${d.name} is already in the catalogue as "${body.familyLabel}" — nothing to add.`
-					: `${d.name} added to draft v${body.draftVersion} as "${body.familyLabel}". Review the price and publish it at /admin/catalogue.`,
-			);
+					: `${d.name} added to draft v${body.draftVersion} as "${body.familyLabel}". Review the price and publish it at /admin/catalogue.`;
+			// The mesh is what the customer will actually look at, so a design
+			// that fell back to procedural geometry has to say so here rather
+			// than reporting a clean success and rendering a generic box.
+			setPushed(body.meshNote ? `${summary} ${body.meshNote}` : summary);
 			load();
 		} finally {
 			setPushing(null);
 		}
+	}
+
+	/** Uploads one file and creates its row. Returns the new design id, or the
+	 * reason it could not be created — per row, because one bad file in a batch
+	 * of three must not lose the other two. */
+	async function createOne(
+		row: BatchRow,
+		shared: {
+			category: Category;
+			room: Room;
+			description: string;
+			tags: string;
+		},
+	): Promise<{ id: string } | { error: string }> {
+		const { upload } = await import("@vercel/blob/client");
+		const importId = crypto.randomUUID();
+		// Must match MESH_PATHNAME in lib/catalogue/meshBlob.ts, which the shared
+		// token route enforces. That module is server-only, so the shape is
+		// repeated here rather than imported. Keep the two in step.
+		const pathname = `mesh/${importId}/${row.file.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+
+		let blob: { url: string; pathname: string };
+		try {
+			const result = await upload(pathname, row.file, {
+				access: "private",
+				handleUploadUrl: "/api/admin/catalogue/uploads/token",
+			});
+			blob = { url: result.url, pathname: result.pathname };
+		} catch (error) {
+			return {
+				error: `upload failed: ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+
+		const res = await fetch("/api/admin/cabinet-designs", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				blobUrl: blob.url,
+				blobPathname: blob.pathname,
+				filename: row.file.name,
+				name: row.name,
+				category: shared.category,
+				room: shared.room,
+				widthMm: row.measured?.widthMm ?? 0,
+				heightMm: row.measured?.heightMm ?? 0,
+				depthMm: row.measured?.depthMm ?? 0,
+				priceRm: Number(row.price) || 0,
+				sku: row.sku,
+				description: shared.description || undefined,
+				tags: shared.tags || undefined,
+				finishes: [],
+				status: "PUBLISHED",
+			}),
+		});
+
+		const body = await res.json().catch(() => null);
+		if (!res.ok) {
+			return {
+				error:
+					body?.error === "duplicate"
+						? "this exact file is already in the library"
+						: body?.error === "sku_taken"
+							? "that SKU is already taken"
+							: (body?.message ?? `could not save (${res.status})`),
+			};
+		}
+		return { id: body.design?.id ?? body.id };
+	}
+
+	/**
+	 * Saves every file in the batch, then pushes them all into **one** catalogue
+	 * draft.
+	 *
+	 * The single draft is the whole point: three widths of one cabinet are three
+	 * rungs of one ladder, and reviewing them as three stacked drafts is both
+	 * more work and harder to judge.
+	 */
+	async function saveBatch() {
+		if (!batch) return;
+
+		const missingPrice = batch.some((row) => !row.price.trim());
+		const missingSku = batch.some((row) => !row.sku.trim());
+		if (missingPrice || missingSku) {
+			setError(
+				"Every design needs its own SKU and price — those are the two things that differ per width.",
+			);
+			return;
+		}
+
+		setSaving(true);
+		setError(null);
+		setPushed(null);
+
+		const shared = {
+			category: form.category,
+			room: form.room,
+			description: form.description,
+			tags: form.tags,
+		};
+
+		const rows = [...batch];
+		const ids: string[] = [];
+		for (const [i, row] of rows.entries()) {
+			if (row.result === "saved") continue;
+			const result = await createOne(row, shared);
+			if ("error" in result) {
+				rows[i] = { ...row, result: result.error };
+			} else {
+				rows[i] = { ...row, result: "saved" };
+				ids.push(result.id);
+			}
+			setBatch([...rows]);
+		}
+
+		if (ids.length === 0) {
+			setError("None of those files could be saved — see the rows above.");
+			setSaving(false);
+			return;
+		}
+
+		const res = await fetch("/api/admin/cabinet-designs/publish", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ ids }),
+		});
+		const body = await res.json().catch(() => null);
+		setSaving(false);
+		load();
+
+		if (!res.ok) {
+			setError(
+				body?.message ??
+					`Saved ${ids.length} design${ids.length === 1 ? "" : "s"}, but could not add them to the catalogue.`,
+			);
+			return;
+		}
+
+		const notes: string[] = body.meshNotes ?? [];
+		setPushed(
+			[
+				body.status === "already_in_catalogue"
+					? `${ids.length} design${ids.length === 1 ? "" : "s"} saved — already in the catalogue, nothing to add.`
+					: `${ids.length} design${ids.length === 1 ? "" : "s"} saved and added to draft v${body.draftVersion}. Review the prices and publish it at /admin/catalogue.`,
+				...notes,
+			].join(" "),
+		);
+		setPanelOpen(false);
+		setBatch(null);
 	}
 
 	async function save() {
@@ -672,6 +1074,22 @@ export default function CabinetDesignsPage() {
 													archived
 												</span>
 											)}
+											{meshSummary(d) && (
+												<span
+													className={`mt-0.5 block text-[11px] ${
+														d.meshGroups?.length
+															? "text-neutral-400"
+															: "text-amber-700"
+													}`}
+													title={
+														d.meshGroups
+															?.map((g) => `${g.role} ${g.triangles}`)
+															.join(" · ") ?? undefined
+													}
+												>
+													{meshSummary(d)}
+												</span>
+											)}
 										</td>
 										<td className="px-3 py-2.5 text-neutral-400">
 											{new Date(d.updatedAt).toLocaleDateString()}
@@ -811,281 +1229,316 @@ export default function CabinetDesignsPage() {
 												<input
 													type="file"
 													accept=".obj,.zip"
+													// Several at once: one export per width is how the
+													// client draws a size ladder, and they belong in
+													// one catalogue draft. Editing an existing design
+													// still replaces exactly one file.
+													multiple={!editingId}
 													className="hidden"
 													onChange={(e) => {
-														const f = e.target.files?.[0];
-														if (f) acceptFile(f);
+														const files = Array.from(e.target.files ?? []);
+														if (files.length > 0) acceptFiles(files);
 													}}
 												/>
 											</label>
 											<p className="mt-2.5 text-[11px] text-neutral-400">
-												.obj, or .zip with its textures — up to 40 MB
+												.obj, or .zip with its textures — up to 40 MB.
+												{!editingId &&
+													" Pick several to add a whole size ladder at once."}
 											</p>
 										</>
 									)}
 								</div>
 							</div>
 
-							{(file || (editingId && existingFilename)) && (
-								<DesignViewer
-									source={
-										file ??
-										(editingId
-											? `/api/admin/cabinet-designs/${editingId}/file`
-											: null)
-									}
-									className="h-56 w-full"
+							{batch ? (
+								<BatchFields
+									batch={batch}
+									setBatch={setBatch}
+									category={form.category}
+									room={form.room}
+									description={form.description}
+									tags={form.tags}
+									setField={setField}
 								/>
-							)}
-
-							{measured && (
-								<p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-900">
-									Read from the file:{" "}
-									<strong>
-										{measured.widthMm} × {measured.heightMm} ×{" "}
-										{measured.depthMm} mm
-									</strong>
-									{measured.doors > 0 && `, ${measured.doors} door`}
-									{measured.drawers > 0 && `, ${measured.drawers} drawer`}
-									{measured.floorHeightMm >= 1200 &&
-										`, hung at ${measured.floorHeightMm}mm`}
-									. {measured.partCount} parts. Check the fields below before
-									saving — they are a reading, not a spec.
-									{measured.notes.map((n) => (
-										<span key={n} className="mt-1 block text-amber-800">
-											{n}
-										</span>
-									))}
-								</p>
-							)}
-							{measureError && (
-								<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-									{measureError}
-								</p>
-							)}
-
-							<div>
-								<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Cabinet name
-								</p>
-								<input
-									type="text"
-									value={form.name}
-									onChange={(e) => setField("name", e.target.value)}
-									placeholder="e.g. Drawer base 400"
-									className={fieldClass(missing.has("name"), "w-full")}
-								/>
-								{missing.has("name") && (
-									<p className="mt-1 text-[11px] text-red-600">Required</p>
-								)}
-							</div>
-
-							<div className="grid grid-cols-2 gap-3">
-								<div>
-									<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-										Category
-									</p>
-									<select
-										value={form.category}
-										onChange={(e) =>
-											setField("category", e.target.value as Category)
-										}
-										className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm"
-									>
-										{CATEGORIES.map((c) => (
-											<option key={c} value={c}>
-												{CATEGORY_LABELS[c]}
-											</option>
-										))}
-									</select>
-								</div>
-								<div>
-									<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-										Room type
-									</p>
-									<select
-										value={form.room}
-										onChange={(e) => setField("room", e.target.value as Room)}
-										className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm"
-									>
-										{ROOMS.map((r) => (
-											<option key={r} value={r}>
-												{ROOM_LABELS[r]}
-											</option>
-										))}
-									</select>
-								</div>
-							</div>
-
-							<div>
-								<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Dimensions (W × H × D, mm)
-								</p>
-								<div className="grid grid-cols-3 gap-2">
-									<div>
-										<input
-											type="number"
-											value={form.w}
-											onChange={(e) => setField("w", e.target.value)}
-											placeholder="W"
-											className={fieldClass(missing.has("w"), "w-full")}
+							) : (
+								<>
+									{(file || (editingId && existingFilename)) && (
+										<DesignViewer
+											source={
+												file ??
+												(editingId
+													? `/api/admin/cabinet-designs/${editingId}/file`
+													: null)
+											}
+											className="h-56 w-full"
 										/>
-										{missing.has("w") && (
-											<p className="mt-1 text-[11px] text-red-600">Required</p>
-										)}
-									</div>
-									<div>
-										<input
-											type="number"
-											value={form.h}
-											onChange={(e) => setField("h", e.target.value)}
-											placeholder="H"
-											className={fieldClass(missing.has("h"), "w-full")}
-										/>
-										{missing.has("h") && (
-											<p className="mt-1 text-[11px] text-red-600">Required</p>
-										)}
-									</div>
-									<div>
-										<input
-											type="number"
-											value={form.d}
-											onChange={(e) => setField("d", e.target.value)}
-											placeholder="D"
-											className={fieldClass(missing.has("d"), "w-full")}
-										/>
-										{missing.has("d") && (
-											<p className="mt-1 text-[11px] text-red-600">Required</p>
-										)}
-									</div>
-								</div>
-							</div>
-
-							<div className="grid grid-cols-2 gap-3">
-								<div>
-									<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-										Price (RM)
-									</p>
-									<input
-										type="number"
-										value={form.price}
-										onChange={(e) => setField("price", e.target.value)}
-										placeholder="0.00"
-										className={fieldClass(missing.has("price"), "w-full")}
-									/>
-									{missing.has("price") && (
-										<p className="mt-1 text-[11px] text-red-600">Required</p>
 									)}
-								</div>
-								<div>
-									<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-										SKU
-									</p>
-									<input
-										type="text"
-										value={form.sku}
-										onChange={(e) => setField("sku", e.target.value)}
-										placeholder="ICB-0000"
-										className={fieldClass(
-											missing.has("sku"),
-											"w-full font-mono",
-										)}
-									/>
-									{missing.has("sku") && (
-										<p className="mt-1 text-[11px] text-red-600">Required</p>
+
+									{measured && (
+										<p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-900">
+											Read from the file:{" "}
+											<strong>
+												{measured.widthMm} × {measured.heightMm} ×{" "}
+												{measured.depthMm} mm
+											</strong>
+											{measured.doors > 0 && `, ${measured.doors} door`}
+											{measured.drawers > 0 && `, ${measured.drawers} drawer`}
+											{measured.floorHeightMm >= 1200 &&
+												`, hung at ${measured.floorHeightMm}mm`}
+											. {measured.partCount} parts. Check the fields below
+											before saving — they are a reading, not a spec.
+											{measured.notes.map((n) => (
+												<span key={n} className="mt-1 block text-amber-800">
+													{n}
+												</span>
+											))}
+										</p>
 									)}
-								</div>
-							</div>
+									{measureError && (
+										<p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+											{measureError}
+										</p>
+									)}
 
-							<div>
-								<p className="mb-1.5 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Front / finish options
-								</p>
-								<div className="flex flex-wrap gap-1.5">
-									{FINISH_OPTIONS.map((label) => (
-										<button
-											key={label}
-											type="button"
-											onClick={() => toggleFinish(label)}
-											className={chipClass(form.finishes.includes(label))}
-										>
-											{label}
-										</button>
-									))}
-								</div>
-							</div>
+									<div>
+										<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											Cabinet name
+										</p>
+										<input
+											type="text"
+											value={form.name}
+											onChange={(e) => setField("name", e.target.value)}
+											placeholder="e.g. Drawer base 400"
+											className={fieldClass(missing.has("name"), "w-full")}
+										/>
+										{missing.has("name") && (
+											<p className="mt-1 text-[11px] text-red-600">Required</p>
+										)}
+									</div>
 
-							<div>
-								<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Description
-								</p>
-								<textarea
-									value={form.description}
-									onChange={(e) => setField("description", e.target.value)}
-									placeholder="Shown to customers in the planner detail view"
-									rows={3}
-									className="w-full resize-y rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
-								/>
-							</div>
+									<div className="grid grid-cols-2 gap-3">
+										<div>
+											<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+												Category
+											</p>
+											<select
+												value={form.category}
+												onChange={(e) =>
+													setField("category", e.target.value as Category)
+												}
+												className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm"
+											>
+												{CATEGORIES.map((c) => (
+													<option key={c} value={c}>
+														{CATEGORY_LABELS[c]}
+													</option>
+												))}
+											</select>
+										</div>
+										<div>
+											<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+												Room type
+											</p>
+											<select
+												value={form.room}
+												onChange={(e) =>
+													setField("room", e.target.value as Room)
+												}
+												className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm"
+											>
+												{ROOMS.map((r) => (
+													<option key={r} value={r}>
+														{ROOM_LABELS[r]}
+													</option>
+												))}
+											</select>
+										</div>
+									</div>
 
-							<div>
-								<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									Tags
-								</p>
-								<input
-									type="text"
-									value={form.tags}
-									onChange={(e) => setField("tags", e.target.value)}
-									placeholder="e.g. soft-close, corner, best-seller"
-									className="w-full rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
-								/>
-								<p className="mt-1 text-[11px] text-neutral-400">
-									Comma-separated. Used for search only, not shown to customers.
-								</p>
-							</div>
+									<div>
+										<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											Dimensions (W × H × D, mm)
+										</p>
+										<div className="grid grid-cols-3 gap-2">
+											<div>
+												<input
+													type="number"
+													value={form.w}
+													onChange={(e) => setField("w", e.target.value)}
+													placeholder="W"
+													className={fieldClass(missing.has("w"), "w-full")}
+												/>
+												{missing.has("w") && (
+													<p className="mt-1 text-[11px] text-red-600">
+														Required
+													</p>
+												)}
+											</div>
+											<div>
+												<input
+													type="number"
+													value={form.h}
+													onChange={(e) => setField("h", e.target.value)}
+													placeholder="H"
+													className={fieldClass(missing.has("h"), "w-full")}
+												/>
+												{missing.has("h") && (
+													<p className="mt-1 text-[11px] text-red-600">
+														Required
+													</p>
+												)}
+											</div>
+											<div>
+												<input
+													type="number"
+													value={form.d}
+													onChange={(e) => setField("d", e.target.value)}
+													placeholder="D"
+													className={fieldClass(missing.has("d"), "w-full")}
+												/>
+												{missing.has("d") && (
+													<p className="mt-1 text-[11px] text-red-600">
+														Required
+													</p>
+												)}
+											</div>
+										</div>
+									</div>
 
-							<div className="border-neutral-100 border-t pt-4">
-								<p className="mb-2 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-									In this library
-								</p>
-								{/* Renamed from "Visibility", which promised something this
-								    flag has never done: no customer-facing page reads it. A
-								    design reaches customers only by being added to the
-								    planner catalogue and that version being published. */}
-								<p className="mb-2 text-[11px] text-neutral-400">
-									Filters this list only. To put a cabinet in front of
-									customers, use “Add to planner”, then publish the catalogue.
-								</p>
-								<div className="flex gap-2">
-									<button
-										type="button"
-										onClick={() => setFormStatus("PUBLISHED")}
-										className={`flex-1 rounded-lg border px-3 py-2.5 text-left text-[12.5px] font-medium ${
-											formStatus === "PUBLISHED"
-												? "border-green-700 bg-green-50 text-green-700"
-												: "border-neutral-200 bg-white text-neutral-500"
-										}`}
-									>
-										Active — kept in the library
-									</button>
-									<button
-										type="button"
-										onClick={() => setFormStatus("ARCHIVED")}
-										className={`flex-1 rounded-lg border px-3 py-2.5 text-left text-[12.5px] font-medium ${
-											formStatus === "ARCHIVED"
-												? "border-amber-700 bg-amber-50 text-amber-700"
-												: "border-neutral-200 bg-white text-neutral-500"
-										}`}
-									>
-										Archived — hidden from this list
-									</button>
-								</div>
-							</div>
+									<div className="grid grid-cols-2 gap-3">
+										<div>
+											<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+												Price (RM)
+											</p>
+											<input
+												type="number"
+												value={form.price}
+												onChange={(e) => setField("price", e.target.value)}
+												placeholder="0.00"
+												className={fieldClass(missing.has("price"), "w-full")}
+											/>
+											{missing.has("price") && (
+												<p className="mt-1 text-[11px] text-red-600">
+													Required
+												</p>
+											)}
+										</div>
+										<div>
+											<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+												SKU
+											</p>
+											<input
+												type="text"
+												value={form.sku}
+												onChange={(e) => setField("sku", e.target.value)}
+												placeholder="ICB-0000"
+												className={fieldClass(
+													missing.has("sku"),
+													"w-full font-mono",
+												)}
+											/>
+											{missing.has("sku") && (
+												<p className="mt-1 text-[11px] text-red-600">
+													Required
+												</p>
+											)}
+										</div>
+									</div>
 
-							{error && (
-								<p className="rounded border border-red-300 bg-red-50 p-2.5 text-red-900 text-sm">
-									{error}
-								</p>
+									<div>
+										<p className="mb-1.5 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											Front / finish options
+										</p>
+										<div className="flex flex-wrap gap-1.5">
+											{FINISH_OPTIONS.map((label) => (
+												<button
+													key={label}
+													type="button"
+													onClick={() => toggleFinish(label)}
+													className={chipClass(form.finishes.includes(label))}
+												>
+													{label}
+												</button>
+											))}
+										</div>
+									</div>
+
+									<div>
+										<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											Description
+										</p>
+										<textarea
+											value={form.description}
+											onChange={(e) => setField("description", e.target.value)}
+											placeholder="Shown to customers in the planner detail view"
+											rows={3}
+											className="w-full resize-y rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+										/>
+									</div>
+
+									<div>
+										<p className="mb-1 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											Tags
+										</p>
+										<input
+											type="text"
+											value={form.tags}
+											onChange={(e) => setField("tags", e.target.value)}
+											placeholder="e.g. soft-close, corner, best-seller"
+											className="w-full rounded-lg border border-neutral-300 px-2.5 py-2 text-sm"
+										/>
+										<p className="mt-1 text-[11px] text-neutral-400">
+											Comma-separated. Used for search only, not shown to
+											customers.
+										</p>
+									</div>
+
+									<div className="border-neutral-100 border-t pt-4">
+										<p className="mb-2 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
+											In this library
+										</p>
+										{/* Renamed from "Visibility", which promised something this
+									    flag has never done: no customer-facing page reads it. A
+									    design reaches customers only by being added to the
+									    planner catalogue and that version being published. */}
+										<p className="mb-2 text-[11px] text-neutral-400">
+											Filters this list only. To put a cabinet in front of
+											customers, use “Add to planner”, then publish the
+											catalogue.
+										</p>
+										<div className="flex gap-2">
+											<button
+												type="button"
+												onClick={() => setFormStatus("PUBLISHED")}
+												className={`flex-1 rounded-lg border px-3 py-2.5 text-left text-[12.5px] font-medium ${
+													formStatus === "PUBLISHED"
+														? "border-green-700 bg-green-50 text-green-700"
+														: "border-neutral-200 bg-white text-neutral-500"
+												}`}
+											>
+												Active — kept in the library
+											</button>
+											<button
+												type="button"
+												onClick={() => setFormStatus("ARCHIVED")}
+												className={`flex-1 rounded-lg border px-3 py-2.5 text-left text-[12.5px] font-medium ${
+													formStatus === "ARCHIVED"
+														? "border-amber-700 bg-amber-50 text-amber-700"
+														: "border-neutral-200 bg-white text-neutral-500"
+												}`}
+											>
+												Archived — hidden from this list
+											</button>
+										</div>
+									</div>
+
+									{error && (
+										<p className="rounded border border-red-300 bg-red-50 p-2.5 text-red-900 text-sm">
+											{error}
+										</p>
+									)}
+								</>
 							)}
 						</div>
 
@@ -1099,15 +1552,17 @@ export default function CabinetDesignsPage() {
 							</button>
 							<button
 								type="button"
-								onClick={save}
+								onClick={batch ? saveBatch : save}
 								disabled={saving}
 								className="rounded-lg bg-neutral-900 px-4.5 py-2.5 font-medium text-sm text-white disabled:opacity-50"
 							>
 								{saving
 									? "Saving…"
-									: editingId
-										? "Save changes"
-										: "Upload design"}
+									: batch
+										? `Upload ${batch.length} and add to planner`
+										: editingId
+											? "Save changes"
+											: "Upload design"}
 							</button>
 						</div>
 					</div>

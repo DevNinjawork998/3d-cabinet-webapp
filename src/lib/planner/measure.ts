@@ -115,13 +115,41 @@ export function distanceMm(a: Vec3Mm, b: Vec3Mm): number {
 /** What a snapped point turned out to be. Ranked in this order. */
 export type SnapKind = "corner" | "midpoint" | "surface";
 
+/**
+ * What the drafted mesh calls its groups.
+ *
+ * Mirrors `MeshGroupRole` in `lib/mesh/renderMesh.ts`, duplicated rather than
+ * imported: `lib/planner` is framework-free and depends on nothing, and the
+ * dependency between these two folders already runs the other way
+ * (`lib/mesh/extract.ts` imports `catalogueSchema`). Six string literals are a
+ * cheaper coupling than a cycle.
+ */
+export type DesignPartRole =
+	| "carcass"
+	| "door"
+	| "drawerFront"
+	| "shelf"
+	| "hardware"
+	| "other";
+
+/**
+ * One box of a cabinet drawn from its design file, in the cabinet's own frame:
+ * x centred on the width, y up from the underside, z centred on the depth. The
+ * same frame `cabinetPartsMm` reports in, so both go through one mapping.
+ */
+export type DesignPartBox = {
+	role: DesignPartRole;
+	minMm: Vec3Mm;
+	maxMm: Vec3Mm;
+};
+
 export type SnapPoint = {
 	point: Vec3Mm;
 	kind: SnapKind;
 	/** Which part it belongs to, or the carcass as a whole. `"carcass"` is also
 	 * what an unsnapped surface point reports — the ray hit the cabinet, we just
 	 * can't say which board without another intersection test. */
-	role: PartRole | "carcass";
+	role: PartRole | DesignPartRole;
 };
 
 export const SNAP_LABEL: Record<SnapKind, string> = {
@@ -130,24 +158,53 @@ export const SNAP_LABEL: Record<SnapKind, string> = {
 	surface: "Face",
 };
 
-type WorldPartBox = { role: PartRole | "carcass"; box: CabinetBoundsMm };
+type WorldPartBox = { role: PartRole | DesignPartRole; box: CabinetBoundsMm };
 
 /**
  * Every box of this cabinet in world millimetres — the carcass outline plus
- * each part `Cabinet.tsx` draws.
+ * each part that is actually drawn.
  *
  * The outer carcass box stays in the list even though its sides are also parts:
  * two of its opposite corners give exactly the cabinet's W×D×H, which is the
  * measurement customers take most and the one `measure()` is built around.
+ *
+ * `design` is the drafted mesh's own group boxes, when one has loaded. It has
+ * to win over `cabinetPartsMm`, because the scene is drawing the design and a
+ * dimension line must never be taken against a shelf that is not the shelf on
+ * screen. Absent it — a family with no published mesh, or the frame or two
+ * before the bytes land — the procedural boxes are exactly right, because that
+ * is what is being drawn at that moment.
  */
 function worldPartBoxes(
 	position: Positioned,
 	layout: PlannerLayout,
+	design?: DesignPartBox[] | null,
 ): WorldPartBox[] {
 	const carcass = cabinetBoundsMm(position, layout);
 	const centreX = (carcass.minX + carcass.maxX) / 2;
 	const floorY = carcass.minY;
 	const centreZ = (carcass.minZ + carcass.maxZ) / 2;
+
+	// One mapping from the cabinet's own frame into world millimetres, shared by
+	// both sources so they can never drift apart.
+	const toWorld = (min: Vec3Mm, max: Vec3Mm): CabinetBoundsMm => ({
+		minX: centreX + min.x,
+		maxX: centreX + max.x,
+		minY: floorY + min.y,
+		maxY: floorY + max.y,
+		minZ: centreZ + min.z,
+		maxZ: centreZ + max.z,
+	});
+
+	if (design && design.length > 0) {
+		return [
+			{ role: "carcass", box: carcass },
+			...design.map(({ role, minMm, maxMm }) => ({
+				role,
+				box: toWorld(minMm, maxMm),
+			})),
+		];
+	}
 
 	const parts = cabinetPartsMm(
 		position.family,
@@ -159,14 +216,18 @@ function worldPartBoxes(
 		{ role: "carcass", box: carcass },
 		...parts.map(({ role, centreMm, sizeMm }) => ({
 			role,
-			box: {
-				minX: centreX + centreMm.x - sizeMm.x / 2,
-				maxX: centreX + centreMm.x + sizeMm.x / 2,
-				minY: floorY + centreMm.y - sizeMm.y / 2,
-				maxY: floorY + centreMm.y + sizeMm.y / 2,
-				minZ: centreZ + centreMm.z - sizeMm.z / 2,
-				maxZ: centreZ + centreMm.z + sizeMm.z / 2,
-			},
+			box: toWorld(
+				{
+					x: centreMm.x - sizeMm.x / 2,
+					y: centreMm.y - sizeMm.y / 2,
+					z: centreMm.z - sizeMm.z / 2,
+				},
+				{
+					x: centreMm.x + sizeMm.x / 2,
+					y: centreMm.y + sizeMm.y / 2,
+					z: centreMm.z + sizeMm.z / 2,
+				},
+			),
 		})),
 	];
 }
@@ -204,8 +265,10 @@ export function snapToCabinet(
 	position: Positioned,
 	layout: PlannerLayout,
 	snapMm: number = DEFAULT_SNAP_MM,
+	/** The drafted mesh's group boxes, when the scene is drawing one. */
+	design?: DesignPartBox[] | null,
 ): SnapPoint {
-	const boxes = worldPartBoxes(position, layout);
+	const boxes = worldPartBoxes(position, layout, design);
 
 	for (const kind of ["corner", "midpoint"] as const) {
 		let best: SnapPoint | null = null;

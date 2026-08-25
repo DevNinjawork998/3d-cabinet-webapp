@@ -35,6 +35,8 @@ const withGeometry = (
 		hasBack: true,
 		legs: 0,
 		legHeightMm: 0,
+		legDiameterMm: 0,
+		legInsetMm: 0,
 		...geometry,
 	},
 });
@@ -248,5 +250,47 @@ describe("what a cabinet stands on", () => {
 		const family = withGeometry(wall, { legs: 4, legHeightMm: 100 });
 		expect(standOf(family)).toEqual({ heightMm: 0, legs: 0 });
 		expect(rolesOf(cabinetPartsMm(family, 600, false), "leg")).toHaveLength(0);
+	});
+});
+
+describe("feet the design measured", () => {
+	it("uses the design's own diameter and inset over the constants", () => {
+		// The client's Häfele Axilo 48: 57mm across, 17mm in from the carcass
+		// edge. The constants guess 50 and 35.
+		const family = withGeometry(familyById("base-cabinet"), {
+			legs: 4,
+			legHeightMm: 100,
+			legDiameterMm: 57,
+			legInsetMm: 17,
+		});
+
+		const legs = cabinetPartsMm(family, 800, true).filter(
+			(part) => part.role === "leg",
+		);
+		expect(legs).toHaveLength(4);
+
+		for (const leg of legs) {
+			expect(leg.sizeMm.x).toBe(57);
+			expect(leg.sizeMm.z).toBe(57);
+		}
+		// Outermost foot's outer edge sits 17mm inside the 800 carcass.
+		const outer = Math.max(...legs.map((l) => l.centreMm.x + l.sizeMm.x / 2));
+		expect(outer).toBeCloseTo(400 - 17);
+	});
+
+	it("falls back to the constants, in the position they always drew", () => {
+		const family = withGeometry(familyById("base-cabinet"), {
+			legs: 4,
+			legHeightMm: 100,
+		});
+
+		const legs = cabinetPartsMm(family, 800, true).filter(
+			(part) => part.role === "leg",
+		);
+		for (const leg of legs) expect(leg.sizeMm.x).toBe(LEG_DIAMETER_MM);
+		// The constant changed meaning from centre-inset to edge-inset; the
+		// centre must not have moved.
+		const centre = Math.max(...legs.map((l) => l.centreMm.x));
+		expect(centre).toBeCloseTo(400 - 60);
 	});
 });

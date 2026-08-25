@@ -75,6 +75,43 @@ type SaveState =
  * match what `Cabinet.tsx` falls back to when it is absent, so opening a family
  * and changing one field does not silently restyle the rest of it.
  */
+/** What `/api/admin/cabinet-designs` returns per row, narrowed to the fields
+ * the coverage badge reads. */
+type DesignRow = {
+	id: string;
+	name: string;
+	filename: string;
+	meshBytes: number | null;
+	meshGroups: { role: string; triangles: number }[] | null;
+};
+
+/**
+ * What the planner will actually draw for one rung.
+ *
+ * Three states, and they mean genuinely different things:
+ *
+ * - **drafted** — a design is attached and converted; the customer sees the
+ *   model the drafter made.
+ * - **none** — no design has been pushed for this width, so the planner falls
+ *   back to procedural boxes. Expected, and the thing to close by uploading.
+ * - **missing** — the rung points at a design row that no longer exists. That
+ *   is a published catalogue referencing something that was deleted underneath
+ *   it, which nothing else would ever surface.
+ */
+function rungCoverage(
+	meshDesignId: string | undefined,
+	designs: Record<string, DesignRow>,
+) {
+	if (!meshDesignId) return { state: "none" as const };
+	const design = designs[meshDesignId];
+	if (!design) return { state: "missing" as const };
+	const triangles = (design.meshGroups ?? []).reduce(
+		(n, group) => n + group.triangles,
+		0,
+	);
+	return { state: "drafted" as const, design, triangles };
+}
+
 function withGeometry(family: Family): NonNullable<Family["geometry"]> {
 	family.geometry ??= {
 		shelves: 1,
@@ -84,8 +121,54 @@ function withGeometry(family: Family): NonNullable<Family["geometry"]> {
 		hasBack: true,
 		legs: 0,
 		legHeightMm: 0,
+		// Zero means "not recorded", so `parts.ts` keeps using its own constants
+		// rather than being told the foot really is 0mm across.
+		legDiameterMm: 0,
+		legInsetMm: 0,
 	};
 	return family.geometry;
+}
+
+/**
+ * One rung's coverage badge.
+ *
+ * Deliberately quiet for the common case: with one design in the library,
+ * twenty-nine of these say "no design", and a row of warnings would train the
+ * reader to ignore all of them. Only `missing` is loud, because only `missing`
+ * is broken.
+ */
+function RungCoverage({
+	coverage,
+}: {
+	coverage: ReturnType<typeof rungCoverage>;
+}) {
+	if (coverage.state === "none") {
+		return (
+			<span className="text-[11px] text-neutral-400">
+				no design · drawn procedurally
+			</span>
+		);
+	}
+
+	if (coverage.state === "missing") {
+		return (
+			<span className="text-[11px] text-amber-700">
+				design deleted — falls back to procedural
+			</span>
+		);
+	}
+
+	return (
+		<span
+			className="truncate text-[11px] text-[#166534]"
+			title={coverage.design.filename}
+		>
+			● {coverage.design.name} · {coverage.triangles.toLocaleString()} tris
+			{coverage.design.meshBytes
+				? ` · ${Math.round(coverage.design.meshBytes / 1024)} KB`
+				: ""}
+		</span>
+	);
 }
 
 function Num({
@@ -264,6 +347,30 @@ function CatalogueEditor() {
 	 */
 	const [finishPhotos, setFinishPhotos] = useState<Record<string, string>>({});
 
+	/**
+	 * The design behind each rung, `designId` → row.
+	 *
+	 * A rung's `meshDesignId` says which design the planner draws for it, and
+	 * without this nothing on any admin screen said which rungs are drafted and
+	 * which fall back to procedural boxes. That gap is easy to miss and
+	 * expensive: the client's first look at the planner was a run of seven
+	 * cabinets, none of which had a design, and the fallback leg is what they
+	 * noticed.
+	 *
+	 * Same reasoning as `finishPhotos` for fetching rather than receiving it,
+	 * and same reason for keeping it out of `draft`: it is not editable here.
+	 */
+	const [designs, setDesigns] = useState<Record<string, DesignRow>>({});
+
+	const loadDesigns = useCallback(async () => {
+		const res = await fetch("/api/admin/cabinet-designs");
+		if (!res.ok) return;
+		const body = await res.json();
+		const next: Record<string, DesignRow> = {};
+		for (const design of body.designs ?? []) next[design.id] = design;
+		setDesigns(next);
+	}, []);
+
 	const loadFinishPhotos = useCallback(async () => {
 		const res = await fetch("/api/admin/site-images");
 		if (!res.ok) return;
@@ -311,6 +418,7 @@ function CatalogueEditor() {
 			setDraft(JSON.parse(JSON.stringify(asked?.data ?? published.data)));
 		})();
 		loadFinishPhotos();
+		loadDesigns();
 	}, []);
 
 	const changes = useMemo(
@@ -420,7 +528,9 @@ function CatalogueEditor() {
 										title={family.label || "Untitled cabinet"}
 										subtitle={`${family.kind} · ${family.sizes.length} size${
 											family.sizes.length === 1 ? "" : "s"
-										}`}
+										} · ${
+											family.sizes.filter((s) => s.meshDesignId).length
+										} drawn from a design`}
 										onRemove={() =>
 											edit((n) => {
 												n.families.splice(fi, 1);
@@ -606,6 +716,31 @@ function CatalogueEditor() {
 														})
 													}
 												/>
+												{/* Zero in either of these means "not recorded", so
+												    `parts.ts` keeps its own constants — 50mm across,
+												    35mm in. An import fills a zero and never
+												    overwrites a number typed here, so these have to
+												    be typeable or that protection guards nothing. */}
+												<Num
+													label="Leg ⌀ mm"
+													value={family.geometry?.legDiameterMm ?? 0}
+													width="w-20"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).legDiameterMm = v;
+														})
+													}
+												/>
+												<Num
+													label="Leg inset mm"
+													value={family.geometry?.legInsetMm ?? 0}
+													width="w-20"
+													onChange={(v) =>
+														edit((n) => {
+															withGeometry(n.families[fi]).legInsetMm = v;
+														})
+													}
+												/>
 											</div>
 										</div>
 
@@ -653,6 +788,12 @@ function CatalogueEditor() {
 																Remove
 															</button>
 														)}
+														<RungCoverage
+															coverage={rungCoverage(
+																size.meshDesignId,
+																designs,
+															)}
+														/>
 													</div>
 												))}
 												<button

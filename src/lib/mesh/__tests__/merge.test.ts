@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONSTRUCTION, PLANNER_CATALOGUE } from "@/lib/planner/catalogue";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
-import type { CatalogueDraft } from "../extract";
+import type { CabinetGeometry, CatalogueDraft } from "../extract";
 import {
 	type ConfirmedImport,
 	mergeIntoCatalogue,
@@ -64,6 +64,8 @@ describe("mergeIntoCatalogue — first import", () => {
 			hasBack: true,
 			legs: 0,
 			legHeightMm: 0,
+			legDiameterMm: 0,
+			legInsetMm: 0,
 		});
 	});
 
@@ -231,6 +233,8 @@ const oneModule = (
 				hasBack: true,
 				legs: 0,
 				legHeightMm: 0,
+				legDiameterMm: 0,
+				legInsetMm: 0,
 			},
 			...overrides,
 		},
@@ -301,6 +305,8 @@ describe("mergeIntoCatalogue — a priced design from the library", () => {
 					hasBack: true,
 					legs: 0,
 					legHeightMm: 0,
+					legDiameterMm: 0,
+					legInsetMm: 0,
 				},
 				priceRm: 1,
 			}),
@@ -480,6 +486,8 @@ describe("mergeIntoCatalogue — teaching a family its fit-out", () => {
 		hasBack: true,
 		legs: 4,
 		legHeightMm: 100,
+		legDiameterMm: 0,
+		legInsetMm: 0,
 	};
 
 	it("fills in the fit-out of a family that has none", () => {
@@ -524,5 +532,89 @@ describe("mergeIntoCatalogue — teaching a family its fit-out", () => {
 		);
 
 		expect(familyFor(catalogue, "Base cabinet")?.geometry).toEqual(corrected);
+	});
+});
+
+describe("learning leg dimensions into a family that already has geometry", () => {
+	/**
+	 * The case that made this necessary: `base-cabinet` learned its fit-out
+	 * before `legDiameterMm` and `legInsetMm` existed. Under the old
+	 * all-or-nothing rule it would have kept guessing a 50mm foot forever,
+	 * because it already had *a* geometry and nothing could add to it.
+	 */
+	const withLegs = (over: Partial<CabinetGeometry> = {}): CabinetGeometry => ({
+		shelves: 1,
+		fixedShelves: 0,
+		doorLeaves: 2,
+		drawers: 0,
+		hasBack: true,
+		legs: 4,
+		legHeightMm: 100,
+		legDiameterMm: 57,
+		legInsetMm: 17,
+		...over,
+	});
+
+	function familyWith(geometry: CabinetGeometry) {
+		const base = structuredClone(PLANNER_CATALOGUE);
+		const family = base.families.find((f) => f.id === "base-cabinet");
+		if (!family) throw new Error("no base-cabinet in the seed");
+		family.geometry = geometry;
+		return { base, before: structuredClone(geometry) };
+	}
+
+	const push = (base: PlannerCatalogue, geometry: CabinetGeometry) =>
+		mergeIntoCatalogue(
+			{
+				modules: [
+					{
+						label: "Base cabinet",
+						kind: "base",
+						widthMm: 800,
+						heightMm: 870,
+						depthMm: 588,
+						floorHeightMm: 0,
+						geometry,
+					},
+				],
+				finishes: [],
+				panelThicknessMm: 16,
+				plinthHeightMm: 100,
+			},
+			base,
+		);
+
+	it("fills leg dimensions that were never recorded", () => {
+		// A geometry from before the fields existed: zero means "not recorded".
+		const { base } = familyWith(withLegs({ legDiameterMm: 0, legInsetMm: 0 }));
+
+		const { catalogue, report } = push(base, withLegs());
+		const family = catalogue.families.find((f) => f.id === "base-cabinet");
+
+		expect(family?.geometry?.legDiameterMm).toBe(57);
+		expect(family?.geometry?.legInsetMm).toBe(17);
+		expect(report.learnedGeometry.join(" ")).toContain("legDiameterMm");
+	});
+
+	it("never overwrites a leg dimension somebody already set", () => {
+		// A number an admin corrected in the editor. Same protection prices get.
+		const { base } = familyWith(withLegs({ legDiameterMm: 48 }));
+
+		const { catalogue, report } = push(base, withLegs());
+		const family = catalogue.families.find((f) => f.id === "base-cabinet");
+
+		expect(family?.geometry?.legDiameterMm).toBe(48);
+		expect(report.learnedGeometry.join(" ")).not.toContain("legDiameterMm");
+	});
+
+	it("leaves the rest of an existing fit-out alone", () => {
+		const { base, before } = familyWith(
+			withLegs({ shelves: 3, legDiameterMm: 0, legInsetMm: 0 }),
+		);
+
+		const { catalogue } = push(base, withLegs({ shelves: 1 }));
+		const family = catalogue.families.find((f) => f.id === "base-cabinet");
+
+		expect(family?.geometry?.shelves).toBe(before.shelves);
 	});
 });

@@ -36,6 +36,7 @@ import {
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
+import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
 import { Room } from "./Room";
@@ -330,11 +331,24 @@ function Run({
 			z: e.point.z * 1000,
 		};
 		const fov = (camera as PerspectiveCamera).fov ?? 45;
+		// Snap against the drafted mesh when the scene is drawing one, so a
+		// dimension line lands on the real shelf and the real door edge rather
+		// than an idealised box behind them. Read synchronously — a handler
+		// cannot await, and a mesh that has not arrived means procedural boxes
+		// are what is on screen and therefore what should be snapped to.
+		const design = designPartBoxes(
+			peekDesignMesh(
+				position.family.sizes.find((size) => size.widthMm === position.widthMm)
+					?.meshDesignId,
+			),
+		);
+
 		const snap = snapToCabinet(
 			hitMm,
 			position,
 			layout,
 			apertureMm(e.distance, fov, viewportHeightPx),
+			design,
 		);
 
 		// The lock is applied after the snap, not instead of it: you snap to the

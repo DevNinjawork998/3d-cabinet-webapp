@@ -52,14 +52,23 @@ export type PartBoxMm = {
 /** The reveal between two leaves, and between a leaf and the carcass edge. */
 export const DOOR_GAP_MM = 4;
 
-/** How thick an adjustable foot is. The client's Häfele Axilo 48 measures 57mm
- * across; the design records how *tall* its feet are but not their diameter,
- * which nobody looks at closely enough to be worth another field. */
+/** How wide a foot is, when the design did not say. The client's Häfele Axilo
+ * 48 measures 57mm across, so this guess is 7mm light — which is why a design
+ * that records its own `legDiameterMm` overrides it. */
 export const LEG_DIAMETER_MM = 50;
 
-/** How far a foot sits in from the carcass edge, so it reads as tucked under
- * the cabinet rather than propping up its corners. */
-const LEG_INSET_MM = 60;
+/**
+ * The gap between the carcass edge and the *outer edge* of a foot, when the
+ * design did not say — so it reads as tucked under the cabinet rather than
+ * propping up its corners.
+ *
+ * 35 rather than the 60 this used to be because the number changed meaning, not
+ * position: it was the inset to the foot's *centre*, and 35 + half of the 50mm
+ * fallback diameter is the same 60. Edge-to-edge is what `geometryOf` can
+ * actually measure off a design, and both have to mean the same thing for one
+ * to substitute for the other. The client's own file measures 17.
+ */
+const LEG_INSET_MM = 35;
 /** A door or drawer front is thicker board than the carcass. */
 export const FRONT_THICKNESS_MM = 18;
 
@@ -190,22 +199,26 @@ export function cabinetPartsMm(
 	// Feet, in pairs front-to-back across the width. Emitted before the fit-out
 	// so a caller reading in order gets the cabinet bottom-up.
 	if (stand.legs > 0) {
+		// The design's own foot, when it recorded one. Zero means it did not, so
+		// the constants above stand in — see `cabinetGeometrySchema`.
+		const legDiameter = family.geometry?.legDiameterMm || LEG_DIAMETER_MM;
+		const legInset = family.geometry?.legInsetMm || LEG_INSET_MM;
 		const pairs = Math.max(2, Math.ceil(stand.legs / 2));
-		const usable = w - LEG_INSET_MM * 2;
+		const usable = w - (legInset + legDiameter / 2) * 2;
 		for (let i = 0; i < pairs; i++) {
 			const x = pairs === 1 ? 0 : -usable / 2 + (usable * i) / (pairs - 1);
 			for (const [j, z] of [
-				d / 2 - LEG_INSET_MM,
-				-d / 2 + LEG_INSET_MM,
+				d / 2 - (legInset + legDiameter / 2),
+				-d / 2 + (legInset + legDiameter / 2),
 			].entries()) {
 				parts.push({
 					role: "leg",
 					index: i * 2 + j,
 					centreMm: { x, y: stand.heightMm / 2, z },
 					sizeMm: {
-						x: LEG_DIAMETER_MM,
+						x: legDiameter,
 						y: stand.heightMm,
-						z: LEG_DIAMETER_MM,
+						z: legDiameter,
 					},
 				});
 			}

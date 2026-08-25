@@ -220,6 +220,8 @@ describe("extractCatalogue", () => {
 			hasBack: true,
 			legs: 0,
 			legHeightMm: 0,
+			legDiameterMm: 0,
+			legInsetMm: 0,
 		});
 
 		const drawerUnit = draft.modules.find((m) => m.geometry.drawers > 0);

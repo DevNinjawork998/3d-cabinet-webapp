@@ -49,6 +49,16 @@ export type ConfirmedModule = {
 	 */
 	priceRm?: number;
 	/**
+	 * The design row this rung's geometry was read from, so the planner can
+	 * fetch and draw it.
+	 *
+	 * Unlike `priceRm`, this **is** written over an existing value. A price is
+	 * a decision a human made and an import must never touch it; a mesh id is
+	 * derived cache, and re-publishing a design after fixing its file has to be
+	 * able to replace the stale one.
+	 */
+	meshDesignId?: string;
+	/**
 	 * The one room this cabinet belongs in, when the caller knows that too.
 	 *
 	 * Without it, room curation gives every room that already carries this
@@ -157,6 +167,47 @@ export function mergeIntoCatalogue(
 
 	/** family id → the room its module asked for, for the curation step below. */
 	const pinnedRooms = new Map<string, string>();
+	/**
+	 * Teaches a family what the design says it holds, without unlearning anything.
+	 *
+	 * Additive one level deeper than the size ladder, and for the same reason. A
+	 * family with no `geometry` at all takes the design's wholesale — that is what
+	 * stops a seeded family like `base-cabinet` rendering the one-shelf default
+	 * forever. A family that already has one keeps every field that has a value,
+	 * because a human may have corrected it in the editor.
+	 *
+	 * The *missing* fields still get filled, and that is not a nicety: when
+	 * `legDiameterMm` and `legInsetMm` were added, `base-cabinet` already carried a
+	 * `geometry` learned before they existed. Under the old all-or-nothing rule it
+	 * would have kept guessing a 50mm foot forever, and no re-upload could ever
+	 * have told it otherwise.
+	 *
+	 * Zero counts as missing for the leg dimensions specifically — that is what
+	 * `cabinetGeometrySchema` documents zero to mean, "not recorded". Everywhere
+	 * else zero is a real answer (a cabinet genuinely has no shelves).
+	 */
+	function learnGeometry(
+		family: Family,
+		geometry: CabinetGeometry,
+	): string | null {
+		if (!family.geometry) {
+			family.geometry = geometry;
+			return family.label;
+		}
+
+		const current = family.geometry;
+		const filled: string[] = [];
+
+		for (const key of ["legDiameterMm", "legInsetMm"] as const) {
+			if (!current[key] && geometry[key]) {
+				current[key] = geometry[key];
+				filled.push(key);
+			}
+		}
+
+		return filled.length > 0 ? `${family.label} (${filled.join(", ")})` : null;
+	}
+
 	/** Families this merge created. Only these are placed into rooms; see the
 	 * curation step for why touching the others is destructive. */
 	const addedFamilyIds = new Set<string>();
@@ -175,19 +226,27 @@ export function mergeIntoCatalogue(
 			// is exactly what made an uploaded cabinet look nothing like its
 			// drawing. One that already has a fit-out is left alone: a human may
 			// have corrected it in the editor, and the same rule protects prices.
-			if (!existing.geometry) {
-				existing.geometry = module.geometry;
-				report.learnedGeometry.push(existing.label);
-			}
-			if (existing.sizes.some((size) => size.widthMm === module.widthMm)) {
+			const learned = learnGeometry(existing, module.geometry);
+			if (learned) report.learnedGeometry.push(learned);
+			const rung = existing.sizes.find(
+				(size) => size.widthMm === module.widthMm,
+			);
+			if (rung) {
 				// Already on the ladder. Leave the price alone — it may be a number
-				// the client agreed months ago.
-				report.unchanged.push(`${existing.label} ${module.widthMm}mm`);
+				// the client agreed months ago — but take the mesh, which is
+				// derived and whose whole job is to track the current file.
+				if (module.meshDesignId && rung.meshDesignId !== module.meshDesignId) {
+					rung.meshDesignId = module.meshDesignId;
+					report.learnedGeometry.push(`${existing.label} ${module.widthMm}mm`);
+				} else {
+					report.unchanged.push(`${existing.label} ${module.widthMm}mm`);
+				}
 				continue;
 			}
 			existing.sizes.push({
 				widthMm: module.widthMm,
 				priceRm: module.priceRm ?? 0,
+				meshDesignId: module.meshDesignId,
 			});
 			existing.sizes.sort((a, b) => a.widthMm - b.widthMm);
 			report.newSizes.push(`${existing.label}: +${module.widthMm}mm`);
@@ -196,7 +255,11 @@ export function mergeIntoCatalogue(
 
 		const label = stripWidth(module.label) || `${module.kind} cabinet`;
 		const sizes: SizeOption[] = [
-			{ widthMm: module.widthMm, priceRm: module.priceRm ?? 0 },
+			{
+				widthMm: module.widthMm,
+				priceRm: module.priceRm ?? 0,
+				meshDesignId: module.meshDesignId,
+			},
 		];
 		const id = uniqueId(slugify(label) || module.kind, takenIds);
 		pin(module, id);

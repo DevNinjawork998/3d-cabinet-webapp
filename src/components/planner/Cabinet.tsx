@@ -18,6 +18,7 @@ import {
 	type PartBoxMm,
 	standOf,
 } from "@/lib/planner/parts";
+import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 
 /**
@@ -153,6 +154,17 @@ export function Cabinet({
 	// rather than being the same photograph twice.
 	const sheetOffset = Math.abs(centreX * 1.37) % 1;
 
+	// The model the drafter drew, if this rung has one published. It hangs off
+	// the size rather than the family because the client draws one export per
+	// width — BC 800, BC 900, BC 1000 — so the ladder is a set of files.
+	//
+	// Null covers three cases, all of which fall through to the procedural
+	// boxes below: a catalogue published before design intake, a design whose
+	// file would not convert, and the frame or two before the bytes land.
+	const designGroups = useDesignMesh(
+		family.sizes.find((size) => size.widthMm === widthMm)?.meshDesignId,
+	);
+
 	return (
 		<group
 			position={[centreX, base, backToCentre]}
@@ -161,74 +173,92 @@ export function Cabinet({
 			onPointerMove={onPointerMove}
 			onPointerOut={onPointerOut}
 		>
-			{/* Plinth: the recessed kick under a floor-standing unit. A design
+			{designGroups ? (
+				<DesignedCabinet
+					groups={designGroups}
+					door={door}
+					finishHex={finishHex}
+					finishPhoto={finishPhoto}
+					sheetOffset={sheetOffset}
+					selected={selected}
+					highlighted={highlighted}
+				/>
+			) : (
+				<>
+					{/* Plinth: the recessed kick under a floor-standing unit. A design
 			    that recorded its own feet stands on those instead — they come
 			    through `cabinetPartsMm` as `leg` parts. */}
-			{stand.legs === 0 && plinth > 0 && (
-				<mesh position={[0, plinth / 2, -m(30)]}>
-					<boxGeometry args={[w - t, plinth, d - m(60)]} />
-					<meshStandardMaterial color="#3a3835" roughness={0.9} />
-				</mesh>
-			)}
+					{stand.legs === 0 && plinth > 0 && (
+						<mesh position={[0, plinth / 2, -m(30)]}>
+							<boxGeometry args={[w - t, plinth, d - m(60)]} />
+							<meshStandardMaterial color="#3a3835" roughness={0.9} />
+						</mesh>
+					)}
 
-			{/* The feet the design was drawn with. Cylinders, because a leveller
+					{/* The feet the design was drawn with. Cylinders, because a leveller
 			    is round and a box here reads as a stubby plinth leg. */}
-			{legParts.map((leg) => (
-				<mesh
-					key={`leg-${leg.index}`}
-					position={[m(leg.centreMm.x), m(leg.centreMm.y), m(leg.centreMm.z)]}
-				>
-					<cylinderGeometry
-						args={[
-							m(leg.sizeMm.x) / 2,
-							m(leg.sizeMm.x) / 2,
-							m(leg.sizeMm.y),
-							12,
-						]}
-					/>
-					<meshStandardMaterial
-						color={HARDWARE_COLOR}
-						roughness={0.5}
-						metalness={0.35}
-					/>
-				</mesh>
-			))}
+					{legParts.map((leg) => (
+						<mesh
+							key={`leg-${leg.index}`}
+							position={[
+								m(leg.centreMm.x),
+								m(leg.centreMm.y),
+								m(leg.centreMm.z),
+							]}
+						>
+							<cylinderGeometry
+								args={[
+									m(leg.sizeMm.x) / 2,
+									m(leg.sizeMm.x) / 2,
+									m(leg.sizeMm.y),
+									12,
+								]}
+							/>
+							<meshStandardMaterial
+								color={HARDWARE_COLOR}
+								roughness={0.5}
+								metalness={0.35}
+							/>
+						</mesh>
+					))}
 
-			{/* Carcass: separate panels rather than one box, so the inside is
+					{/* Carcass: separate panels rather than one box, so the inside is
 			    visible when there is no door on it yet. */}
-			<Carcass
-				parts={carcassParts}
-				width={w}
-				depth={d}
-				height={carcassH}
-				exposed={exposed}
-				finishHex={finishHex}
-				finishPhoto={finishPhoto}
-				sheetOffset={sheetOffset}
-				emissive={emissive}
-				emphasis={emphasis}
-			/>
+					<Carcass
+						parts={carcassParts}
+						width={w}
+						depth={d}
+						height={carcassH}
+						exposed={exposed}
+						finishHex={finishHex}
+						finishPhoto={finishPhoto}
+						sheetOffset={sheetOffset}
+						emissive={emissive}
+						emphasis={emphasis}
+					/>
 
-			{door &&
-				(drawerFronts.length > 0 ? (
-					<Drawers
-						parts={drawerFronts}
-						finishPhoto={finishPhoto}
-						door={door}
-						finishHex={finishHex}
-						emissive={emissive}
-						emphasis={emphasis}
-					/>
-				) : (
-					<Doors
-						parts={leaves}
-						finishPhoto={finishPhoto}
-						door={door}
-						finishHex={finishHex}
-						emissive={emissive}
-						emphasis={emphasis}
-					/>
-				))}
+					{door &&
+						(drawerFronts.length > 0 ? (
+							<Drawers
+								parts={drawerFronts}
+								finishPhoto={finishPhoto}
+								door={door}
+								finishHex={finishHex}
+								emissive={emissive}
+								emphasis={emphasis}
+							/>
+						) : (
+							<Doors
+								parts={leaves}
+								finishPhoto={finishPhoto}
+								door={door}
+								finishHex={finishHex}
+								emissive={emissive}
+								emphasis={emphasis}
+							/>
+						))}
+				</>
+			)}
 		</group>
 	);
 }

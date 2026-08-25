@@ -19,6 +19,14 @@ export type Normalised = {
 	scaleFactor: number;
 	/** Which raw axis turned out to be up: 0 = x, 1 = y, 2 = z. */
 	upAxis: 0 | 1 | 2;
+	/**
+	 * Which raw axis ends up in each normalised slot: `[along the wall, depth,
+	 * height]`. Returned so a second pass over the same file can put vertices
+	 * through the identical permutation — `renderMesh.ts` reads the faces this
+	 * one skips, and the two must agree about which way is up or the mesh
+	 * arrives lying on its side.
+	 */
+	order: readonly [0 | 1 | 2, 0 | 1 | 2, 0 | 1 | 2];
 	/** The board thickness the scale was chosen to make sense of. */
 	panelThicknessMm: number;
 	notes: string[];
@@ -169,6 +177,7 @@ export function normalise(parts: MeshPart[]): Normalised {
 			parts,
 			scaleFactor: 1,
 			upAxis: 2,
+			order: [0, 1, 2],
 			panelThicknessMm: 0,
 			notes: ["No geometry found in the .obj."],
 		};
@@ -212,6 +221,7 @@ export function normalise(parts: MeshPart[]): Normalised {
 		})),
 		scaleFactor,
 		upAxis,
+		order,
 		panelThicknessMm,
 		notes,
 	};

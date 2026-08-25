@@ -46,6 +46,8 @@ describe("measureDesign", () => {
 			hasBack: expect.any(Boolean),
 			legs: expect.any(Number),
 			legHeightMm: expect.any(Number),
+			legDiameterMm: 0,
+			legInsetMm: 0,
 		});
 		// Real panels were found and counted, not an empty classification.
 		const g = measured.geometry;

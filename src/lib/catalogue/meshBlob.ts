@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { del, get } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 
 /**
  * Object storage for raw design files: the client's OBJ exports, zipped with
@@ -68,4 +68,55 @@ export async function fetchMeshFile(pathname: string): Promise<Buffer> {
  */
 export async function deleteMeshFile(pathname: string): Promise<void> {
 	await del(pathname);
+}
+
+// ----------------------------------------------------- derived render mesh --
+
+/**
+ * Where a design's derived render mesh lives: `render/<designId>/<sha256>.icbmesh`.
+ *
+ * The source export's own sha256 is in the name, which makes the pathname
+ * change whenever the design does. That is what lets `/api/cabinet-mesh/[id]`
+ * serve the bytes `immutable` — a given URL's contents can never change, and a
+ * re-upload simply gets a different URL rather than fighting a year-long cache.
+ */
+export const renderMeshPathname = (designId: string, sha256: string) =>
+	`render/${designId}/${sha256}.icbmesh`;
+
+/**
+ * Writes the derived mesh.
+ *
+ * Unlike the source export this *is* put from a Buffer server-side, and that is
+ * fine: the client's whole wall run comes to 258KB and one cabinet to ~42KB,
+ * nowhere near the 4.5MB function body cap that forces raw uploads to go
+ * client-direct.
+ *
+ * `addRandomSuffix: false` because the pathname is already unique by content —
+ * see `renderMeshPathname` — and a stable name means republishing the same
+ * design overwrites rather than accumulating copies.
+ *
+ * `access: "private"` even though these bytes end up in front of customers.
+ * The store is configured private-access-only and rejects a public write
+ * outright, so the public hole is the route rather than the object — exactly
+ * how `/api/site-images/[key]` already serves the homepage photos.
+ */
+export async function putRenderMeshFile(
+	pathname: string,
+	bytes: Uint8Array,
+): Promise<void> {
+	await put(pathname, Buffer.from(bytes), {
+		access: "private",
+		addRandomSuffix: false,
+		contentType: "application/octet-stream",
+		allowOverwrite: true,
+	});
+}
+
+/** Reads it back for `/api/cabinet-mesh/[id]` to stream to the planner. */
+export async function fetchRenderMeshFile(pathname: string): Promise<Buffer> {
+	const result = await get(pathname, { access: "private" });
+	if (result?.statusCode !== 200) {
+		throw new Error(`could not fetch render mesh ${pathname}`);
+	}
+	return Buffer.from(await new Response(result.stream).arrayBuffer());
 }

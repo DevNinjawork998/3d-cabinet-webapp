@@ -107,6 +107,19 @@ model CabinetDesign {
   /// table, so this is a soft reference the publish route writes and the
   /// delete guard reads.
   familyId     String?
+  /// The derived render mesh: the drafted geometry, classified by role and
+  /// converted to binary at publish time. This is what the planner draws — the
+  /// customer sees the model the drafter made, not a box rebuilt from counts.
+  ///
+  /// Regenerable from `blobPathname` at any time, so it is cache rather than
+  /// record: a reader that finds these null falls back to procedural geometry.
+  /// The source export stays private; these bytes reach a customer's browser
+  /// through `/api/cabinet-mesh/[id]`.
+  meshPathname String?
+  meshBytes    Int?
+  /// Roles and triangle counts, for the review table. The planner does not read
+  /// this — the binary is self-describing and carries its own group table.
+  meshGroups   Json?
   uploadedBy   String
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt

@@ -6,6 +6,7 @@ import {
 	cabinetBoundsMm,
 	cabinetCornersMm,
 	constrainToAxis,
+	type DesignPartBox,
 	distanceMm,
 	dominantAxis,
 	measure,
@@ -232,5 +233,87 @@ describe("axis lock", () => {
 		const locked = constrainToAxis(from, mostlyUp, "x");
 		expect(locked).toEqual({ x: 112, y: 200, z: 300 });
 		expect(measure(from, locked).widthMm).toBe(12);
+	});
+});
+
+describe("snapping to a drafted cabinet", () => {
+	/**
+	 * A shelf where the drafter actually put it, rather than where
+	 * `cabinetPartsMm` would compute it. The point of these two tests is that
+	 * those are different places — a dimension line taken against the idealised
+	 * shelf while the scene draws the real one is a wrong number shown to a
+	 * customer.
+	 */
+	const shelfAt = (yMm: number): DesignPartBox[] => [
+		{
+			role: "shelf",
+			minMm: { x: -384, y: yMm, z: -278 },
+			maxMm: { x: 384, y: yMm + 16, z: 256 },
+		},
+	];
+
+	/** The cabinet's own frame maps into world millimetres the same way for both
+	 * sources — x and z about the centre, y up from the underside. */
+	const frameOf = (
+		position: ReturnType<typeof allPositions>[number],
+		layout: ReturnType<typeof emptyLayout>,
+	) => {
+		const b = cabinetBoundsMm(position, layout);
+		return {
+			x: (b.minX + b.maxX) / 2,
+			y: b.minY,
+			z: (b.minZ + b.maxZ) / 2,
+		};
+	};
+
+	it("snaps to the design's own shelf, not the computed one", () => {
+		const layout = addModule(emptyLayout(WALL_MM), "base-cabinet", 0);
+		const [position] = allPositions(layout);
+		const frame = frameOf(position, layout);
+
+		// Nowhere near where an evenly-split opening would put a shelf.
+		const design = shelfAt(214);
+		const target: Vec3Mm = {
+			x: frame.x - 384,
+			y: frame.y + 214,
+			z: frame.z - 278,
+		};
+
+		const snapped = snapToCabinet(
+			{ x: target.x + 6, y: target.y + 4, z: target.z - 3 },
+			position,
+			layout,
+			40,
+			design,
+		);
+
+		expect(snapped.kind).toBe("corner");
+		expect(snapped.role).toBe("shelf");
+		expect(snapped.point.y).toBeCloseTo(target.y);
+		expect(snapped.point.x).toBeCloseTo(target.x);
+	});
+
+	it("falls back to the procedural boxes while the mesh has not arrived", () => {
+		const layout = addModule(emptyLayout(WALL_MM), "base-cabinet", 0);
+		const [position] = allPositions(layout);
+		const frame = frameOf(position, layout);
+		const shelf = cabinetPartsMm(
+			position.family,
+			position.widthMm,
+			position.placed.doorStyleId !== null,
+		).find((part) => part.role === "shelf");
+		if (!shelf) throw new Error("no procedural shelf to compare against");
+
+		const y = frame.y + shelf.centreMm.y - shelf.sizeMm.y / 2;
+		const x = frame.x + shelf.centreMm.x - shelf.sizeMm.x / 2;
+		const z = frame.z + shelf.centreMm.z - shelf.sizeMm.z / 2;
+		const hit = { x: x + 5, y: y + 4, z: z + 3 };
+
+		// null and [] both mean "no mesh drawn", and must behave identically.
+		for (const design of [null, [] as DesignPartBox[]]) {
+			const snapped = snapToCabinet(hit, position, layout, 60, design);
+			expect(snapped.kind).toBe("corner");
+			expect(snapped.point.y).toBeCloseTo(y);
+		}
 	});
 });

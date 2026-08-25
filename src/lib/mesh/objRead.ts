@@ -222,3 +222,101 @@ export function coalesceParts(parts: MeshPart[]): MeshPart[] {
 		};
 	});
 }
+
+// ------------------------------------------------------------------ faces --
+
+/**
+ * One named record's triangles, indexing into the file's global vertex list.
+ *
+ * Deliberately still in the file's own coordinates. `renderMesh.ts` puts them
+ * through the scale and axis permutation `normalise` inferred, so the mesh and
+ * the bounding boxes can never disagree about which way is up.
+ */
+export type ObjMeshRecord = {
+	name: string;
+	/** Into `ObjMesh.positions`, three per triangle. */
+	indices: number[];
+};
+
+export type ObjMesh = {
+	/** Flat xyz, raw file units, shared by every record — OBJ face indices are
+	 * global, so keeping one array is both smaller and closer to the file. */
+	positions: number[];
+	records: ObjMeshRecord[];
+};
+
+/**
+ * The second pass: the faces `readObj` throws away.
+ *
+ * `readObj` reads names and bounding boxes and nothing else, which is right for
+ * measuring — every cabinet part is a rectangular panel, so a box tells you as
+ * much as the mesh does, and it keeps a 20 MB export as cheap as a 1 MB one.
+ * It is not right for *drawing*, which is what this is for: the planner renders
+ * the model the drafter actually drew, so it needs the triangles.
+ *
+ * Kept as a separate function rather than a flag on `readObj` so the measuring
+ * path keeps its fast, allocation-light pass untouched.
+ *
+ * **Nothing is dropped here.** `readObj` discards `G-Object.041` because it
+ * carries no design intent it can read — but in the client's own sample job
+ * that record *is* the adjustable feet, and dropping real geometry is exactly
+ * the failure this whole change exists to fix. Unrecognised is not the same as
+ * unwanted: it gets a neutral material downstream, not a bin.
+ */
+export function readObjMesh(text: string): ObjMesh {
+	const positions: number[] = [];
+	const records: ObjMeshRecord[] = [];
+
+	// Same rule as `readObj`, and it has to stay the same rule: the two passes
+	// name records identically or the roles classified from one cannot be
+	// applied to the other.
+	const hasObjects = /^o /m.test(text);
+
+	// Faces can appear before any `o`/`g` line. They are still geometry.
+	let current: ObjMeshRecord = { name: "unnamed", indices: [] };
+	records.push(current);
+
+	for (const line of text.split("\n")) {
+		if (line.startsWith("v ")) {
+			const p = line.slice(2).trim().split(/\s+/);
+			positions.push(Number(p[0]), Number(p[1]), Number(p[2]));
+			continue;
+		}
+
+		if (line.startsWith("f ")) {
+			const corners = line.slice(2).trim().split(/\s+/);
+			const vertexCount = positions.length / 3;
+			const resolved: number[] = [];
+			for (const corner of corners) {
+				// `f a`, `f a/b`, `f a//c`, `f a/b/c` — only the position index
+				// matters; normals are recomputed and there are no UVs to keep.
+				const raw = Number.parseInt(corner.split("/")[0], 10);
+				if (!Number.isFinite(raw) || raw === 0) continue;
+				// Negative indices are legal and count back from the end of the
+				// list *so far*, which is why `vertexCount` is read per face
+				// rather than once at the end.
+				const index = raw > 0 ? raw - 1 : vertexCount + raw;
+				if (index < 0 || index >= vertexCount) continue;
+				resolved.push(index);
+			}
+			// Fan-triangulate. SketchUp exports quads and the occasional n-gon;
+			// cabinet faces are planar and convex, so a fan is exact.
+			for (let i = 1; i + 1 < resolved.length; i++) {
+				current.indices.push(resolved[0], resolved[i], resolved[i + 1]);
+			}
+			continue;
+		}
+
+		const name = hasObjects
+			? line.startsWith("o ")
+				? partNameFrom(line)
+				: null
+			: partNameFrom(line);
+		if (name !== null) {
+			current = { name: baseName(name), indices: [] };
+			records.push(current);
+		}
+	}
+
+	return { positions, records: records.filter((r) => r.indices.length > 0) };
+}

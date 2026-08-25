@@ -11,6 +11,19 @@ import { z } from "zod";
 const sizeOptionSchema = z.object({
 	widthMm: z.number().positive(),
 	priceRm: z.number().min(0),
+	/**
+	 * The design this rung is drawn from, if one has been published for it.
+	 *
+	 * The planner fetches `/api/cabinet-mesh/<id>` and draws the model the
+	 * drafter actually made. It hangs off the *rung* rather than the family
+	 * because Infinite Cabinet draws one export per width — BC 800, BC 900,
+	 * BC 1000 — so a ladder is a set of files, one each.
+	 *
+	 * Optional, and the planner falls back to procedural geometry without it:
+	 * catalogues published before design intake carry none, and a design whose
+	 * file will not parse must still be sellable.
+	 */
+	meshDesignId: z.string().optional(),
 });
 export type SizeOption = z.infer<typeof sizeOptionSchema>;
 
@@ -35,6 +48,14 @@ const cabinetGeometrySchema = z.object({
 	 * reason `geometry` itself is optional. */
 	legs: z.number().int().min(0).default(0),
 	legHeightMm: z.number().min(0).default(0),
+	/** How wide a foot is, and how far in from the carcass edge it stands.
+	 *
+	 * Zero means "not recorded", and `parts.ts` falls back to its own constant.
+	 * Deliberately not defaulted to those constants here: a real 50mm foot and
+	 * an unrecorded one would then be indistinguishable, and `mergeIntoCatalogue`
+	 * decides whether to learn a field by whether it has ever been set. */
+	legDiameterMm: z.number().min(0).default(0),
+	legInsetMm: z.number().min(0).default(0),
 });
 export type CabinetGeometry = z.infer<typeof cabinetGeometrySchema>;
 

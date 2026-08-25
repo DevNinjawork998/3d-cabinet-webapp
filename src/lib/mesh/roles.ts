@@ -106,6 +106,16 @@ export type ModelBounds = {
 const HARDWARE_MAX_MM = 80;
 
 /**
+ * How far above the lowest point a part can start and still be a foot rather
+ * than something mounted on the cabinet. Generous: a leveller is drawn as a
+ * couple of stacked pieces and they do not all reach the floor.
+ *
+ * Lives here rather than in `extract.ts` because two callers need the same
+ * line — `geometryOf` to count feet, and `inferFrontSide` to ignore them.
+ */
+export const LEG_FOOTING_MM = 30;
+
+/**
  * A carcass side is tall and deep; a drawer side is thin along the wall too but
  * only ~150mm tall. Without this gate an unnamed drawer box reads as a pair of
  * end panels and the grouper invents a cabinet inside the cabinet.
@@ -157,6 +167,13 @@ export function roleFromGeometry(part: MeshPart, model: ModelBounds): PartRole {
  *  2. **Backs line up and fronts do not.** Cabinets hang by their backs, so a
  *     390mm-deep wall unit and a 600mm-deep base unit share a back plane while
  *     their fronts sit 210mm apart. The tighter-clustered end is the wall.
+ *
+ * **Feet are not handles.** They are hardware by every test this file applies —
+ * small on all three axes, and named `leveller` — but a levelling foot sits
+ * under the middle of the carcass and says nothing about which way it faces.
+ * The client's `BC 800mm.obj` has four of them and no knobs, so averaging them
+ * in gave a number either side of the midpoint at random and flipped the whole
+ * cabinet back to front. Anything standing on the floor is excluded.
  */
 export function inferFrontSide(
 	parts: MeshPart[],
@@ -166,10 +183,12 @@ export function inferFrontSide(
 	const centre = (part: MeshPart) => part.minMm[1] + part.sizeMm[1] / 2;
 	const mid = (depthMin + depthMax) / 2;
 
+	const floorMm = Math.min(...parts.map((part) => part.minMm[2]));
 	const hardware = parts.filter(
 		(part) =>
-			roleFromName(part.name) === "hardware" ||
-			part.sizeMm.every((d) => d > 0 && d < HARDWARE_MAX_MM),
+			(roleFromName(part.name) === "hardware" ||
+				part.sizeMm.every((d) => d > 0 && d < HARDWARE_MAX_MM)) &&
+			part.minMm[2] > floorMm + LEG_FOOTING_MM,
 	);
 	if (hardware.length > 0) {
 		const avg =

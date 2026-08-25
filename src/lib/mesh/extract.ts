@@ -1,6 +1,6 @@
 import type { Family } from "@/lib/planner/catalogueSchema";
 import type { MeshModule, MeshPart, Vec3 } from "./objRead";
-import type { ClassifiedPart, PartRole } from "./roles";
+import { type ClassifiedPart, LEG_FOOTING_MM, type PartRole } from "./roles";
 import type { Grouping, StrategyName } from "./strategies";
 
 /**
@@ -41,6 +41,12 @@ export type CabinetGeometry = {
 	legs: number;
 	/** How tall those feet are, so the carcass floats by the right amount. */
 	legHeightMm: number;
+	/** How wide a foot is. The client's Häfele Axilo 48 measures 57mm across;
+	 * `parts.ts` guessed 50 for years. Zero means the design did not say. */
+	legDiameterMm: number;
+	/** How far in from the carcass edge a foot stands — ~45mm on the client's
+	 * file, against a hardcoded guess of 60. Zero means the design did not say. */
+	legInsetMm: number;
 };
 
 export type ModuleSpec = {
@@ -171,6 +177,46 @@ export function geometryOf(classified: ClassifiedPart[]): CabinetGeometry {
 		? Math.round(Math.max(...legParts.map(({ part }) => part.sizeMm[2])))
 		: 0;
 
+	// A foot is round, so its two horizontal extents are the same; take the
+	// larger and let a squarish plinth foot read as its widest point.
+	const legDiameterMm = legParts.length
+		? Math.round(
+				Math.max(
+					...legParts.map(({ part }) =>
+						Math.max(part.sizeMm[0], part.sizeMm[1]),
+					),
+				),
+			)
+		: 0;
+
+	// The gap between the cabinet's own outer edge and the outer edge of the
+	// outermost foot — the same edge-to-edge measure `parts.ts` places from.
+	// Measured against every solid part rather than the end panels alone,
+	// because a design whose ends were not recognised still has a correct
+	// overall width.
+	//
+	// ponytail: one inset for both axes, because parts.ts uses one constant for
+	// both. Split into x and z only if a design turns up with feet set
+	// differently front-to-back than side-to-side.
+	const legInsetMm =
+		legParts.length && solid.length
+			? Math.max(
+					0,
+					Math.round(
+						Math.min(
+							Math.min(...legParts.map(({ part }) => part.minMm[0])) -
+								Math.min(...solid.map(({ part }) => part.minMm[0])),
+							Math.max(
+								...solid.map(({ part }) => part.minMm[0] + part.sizeMm[0]),
+							) -
+								Math.max(
+									...legParts.map(({ part }) => part.minMm[0] + part.sizeMm[0]),
+								),
+						),
+					),
+				)
+			: 0;
+
 	return {
 		shelves: count("shelfAdjustable"),
 		fixedShelves: count("shelfFixed"),
@@ -179,13 +225,10 @@ export function geometryOf(classified: ClassifiedPart[]): CabinetGeometry {
 		hasBack: count("back") > 0,
 		legs: legParts.length,
 		legHeightMm,
+		legDiameterMm,
+		legInsetMm,
 	};
 }
-
-/** How far above the lowest point a part can start and still be a foot rather
- * than something mounted on the cabinet. Generous: a leveller is drawn as a
- * couple of stacked pieces and they do not all reach the floor. */
-const LEG_FOOTING_MM = 30;
 
 /**
  * The most common smallest-dimension across every solid part. Cabinet parts
