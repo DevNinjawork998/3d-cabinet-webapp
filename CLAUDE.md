@@ -16,7 +16,7 @@ The wardrobe survives only as one **family** in the planner catalogue (`id: "war
 
 ## Status
 
-Phase 0 (catalogue + pricing spec with client) not yet complete — see Open questions. The engine, the planner UI, and the admin catalogue surface are built.
+Phase 0 (catalogue + pricing spec with client) not yet complete — see Open questions. The engine, the planner UI, and the admin catalogue surface are built. A design uploaded to the library now reaches the planner: `POST /api/admin/cabinet-designs/[id]/publish` merges it into a DRAFT catalogue version, which an admin publishes. Lead capture is the remaining Phase 3 work.
 
 **Confirmed client requirement (resolved):** Infinite Cabinet designs in SketchUp and asked for "upload SketchUp designs so we can maintain new configurations." This is a real requirement, not a nice-to-have. It is resolved as **design intake, not a runtime asset pipeline** — see [Design files are intake, not runtime assets](#design-files-are-intake-not-runtime-assets). Do not read "design upload" as "load a mesh into the scene."
 
@@ -30,6 +30,7 @@ Phase 0 (catalogue + pricing spec with client) not yet complete — see Open que
 - React Three Fiber + drei for the 3D viewer
 - Prisma ORM + Postgres (local via docker compose; Prisma Postgres in production)
 - Vercel Blob for user-generated files and design exports
+- Mux for the DIY tutorial videos — the one thing in the app that is streamed rather than generated
 - Zod for the catalogue and layout schemas
 - Vitest for the engine tests
 - Deployed on Vercel, functions pinned to `sin1` (Singapore) — users are in Klang Valley
@@ -68,23 +69,33 @@ src/
     catalogueSchema.ts   ← Zod schema for a published catalogue
     catalogue.ts         ← the seed catalogue + the live module palette
     layout.ts            ← placement, collision, snapping, starter layouts
+    parts.ts             ← every box a cabinet is drawn from, as numbers
+    exposure.ts          ← which outer sides of a cabinet nothing sits against
     pricing.ts           ← (layout, catalogue) => price breakdown
     measure.ts           ← the in-scene measuring tool
+    finishTextures.ts    ← default decor photo per finish id
     __tests__/           ← vitest
   lib/catalogue/         ← DB-backed catalogue: read path, versions, diffs, blob
-  lib/mesh/              ← reads a zipped OBJ export into a draft catalogue
+    versions.ts          ← createDraftVersion, the one place a DRAFT is numbered
+    siteImages.ts        ← homepage/finish photo slots, derived from the catalogue
+  lib/mesh/              ← reads an OBJ export into catalogue data
     archive.ts           ← unzip; the .obj text and the texture filenames
     objRead.ts           ← OBJ parse: named boxes in the file's own units
     normalise.ts         ← infers scale and up-axis, never assumes them
     roles.ts             ← what each panel is: naming table, geometric fallback
     strategies.ts        ← flat panels → cabinets, three strategies best-first
     extract.ts           ← cabinets → CatalogueDraft (no money, ever)
+    read.ts              ← the whole run-intake path in one call
+    measureDesign.ts     ← one file = one cabinet, for the design library
     mergeIntoCatalogue.ts ← confirmed draft folded into the live catalogue
+  lib/mux.ts             ← server-only Mux client for the tutorial videos
   components/planner/    ← R3F scene and the planner screens
-  components/admin/      ← admin chrome
+  components/admin/      ← admin chrome, DesignViewer
   app/planner/           ← the planner route
-  app/admin/             ← catalogue editor, cabinet designs, design import
-  app/api/               ← admin + catalogue endpoints
+  app/tutorials/         ← the public DIY video library
+  app/admin/             ← catalogue editor, cabinet designs, import, site
+                           content, tutorials
+  app/api/               ← admin + catalogue + site-image endpoints
 ```
 
 `lib/planner` must stay framework-free. Everything in it is `(layout, catalogue) => result`. This lets us:
@@ -117,6 +128,16 @@ That split is a known compromise, not a design to extend — see Known issues.
 
 Do not introduce draggable sprites or imported cabinet models. That breaks parametric resizing and kills the path to a BOM.
 
+### `parts.ts` is the one description of a cabinet's boxes
+
+`lib/planner/parts.ts` returns every box in one cabinet — sides, top, bottom, back, legs, shelves, door leaves, drawer fronts — as `{ role, index, centreMm, sizeMm }` in the cabinet's own frame. **`Cabinet.tsx` renders from it and `measure.ts` snaps against it.** Both used to derive the interior separately, which meant the measuring tool knew only the outer bounding box: a shelf gap, a door reveal and a board thickness were all unmeasurable, and the first change to either copy would have made the dimension line disagree with the cabinet it was drawn against.
+
+So the numbers live in `parts.ts` and the renderer reads them, not the other way round. It stays pure TypeScript per `lib/planner`. Handles and rails are deliberately absent — hardware, not carcass, and nobody wants a snap point on a knob.
+
+**Legs or plinth, from the design.** `standOf(family)` floats a base carcass on feet when `geometry.legs` and `geometry.legHeightMm` came in from a design, and falls back to the recessed plinth the scene has always drawn otherwise. Wall units get neither.
+
+**Exposed ends wear the door finish.** `exposure.ts` answers which outer sides of a cabinet have no neighbour touching them, and `PlannerScene` passes it down so an end-of-run side renders as a veneered end panel rather than plain carcass board. That is how a run is really finished, and the exposed side is the most camera-facing surface in the default 3/4 view.
+
 ### Design files are intake, not runtime assets
 
 Infinite Cabinet designs in SketchUp and asked to "upload SketchUp designs." This is a confirmed requirement, and it is tempting to satisfy it by loading the exported mesh into the scene. **Do not do this.** A baked mesh:
@@ -136,6 +157,23 @@ Infinite Cabinet's design → exported as a zipped .obj folder
         ↓
   Procedural engine generates the resizable model in-browser
 ```
+
+#### Two intake paths, one merge
+
+A whole-wall export and a single-cabinet file are different problems, so there are two front doors into the same merge.
+
+| | `/admin/import` | `/admin/cabinet-designs` |
+| --- | --- | --- |
+| File | a run of cabinets | one product |
+| Reader | `mesh/read.ts` → `strategies.ts` groups it | `mesh/measureDesign.ts` |
+| Size | per cabinet, found between end panels | the whole file's bounding box |
+| Then | confirm table → `mergeIntoCatalogue` | `POST [id]/publish` → `mergeIntoCatalogue` |
+
+`measureDesign` deliberately skips the run-grouping. Over a lone cabinet `byEndPanels` measures the opening *between* the end panels, so an 800 carcass reports 768 — its clear width, minus two 16mm boards. The form wants the size on the invoice, which is the bounding box. Everything else still applies: units and up-axis are inferred, never assumed, and `coalesceParts` unions the records an exporter split a panel into (safe here because it is one cabinet; across a run it would merge neighbours).
+
+Both ends land in `mergeIntoCatalogue` and both **create a DRAFT and stop**. Publishing stays one deliberate act at `/admin/catalogue`, because that document prices real kitchens and a bad parse must never reach a customer unreviewed. The publish route re-fetches the bytes from Blob and re-parses them — trust comes from the file, never from what a client claims about it.
+
+`CabinetDesign.familyId` records which family a design was merged into, so the library can say what a row became.
 
 **Every stage infers, none assumes.** The admin keeps adding designs, so each import is a file nobody has seen. A `.skp` gave cabinets for free — component instances *are* cabinets — but an OBJ is one flat namespace of ~150 boxes with no units and no up-axis. So:
 
@@ -169,7 +207,7 @@ page, that is a new decision, not an extension of this one.
 
 ### What the design changes in the scene
 
-`familySchema.geometry` (optional) carries `shelves`, `fixedShelves`, `doorLeaves`, `drawers` and `hasBack` from the design into the render, so a six-shelf tall unit draws six shelves and a three-drawer base draws three drawers. `Cabinet.tsx` and `thumbs.tsx` fall back to their old constants when it is absent, which is how catalogues published before design intake keep working. This is still procedural geometry from numbers — no mesh is loaded, ever.
+`familySchema.geometry` (optional) carries `shelves`, `fixedShelves`, `doorLeaves`, `drawers`, `hasBack`, `legs` and `legHeightMm` from the design into the render, so a six-shelf tall unit draws six shelves, a three-drawer base draws three drawers, and a carcass the drafter stood on four Häfele feet stands on four feet instead of a plinth. `parts.ts` (`fitOutOf`, `standOf`) falls back to the old constants when it is absent, which is how catalogues published before design intake keep working. This is still procedural geometry from numbers — no mesh is loaded, ever.
 
 Onboarding a new design is therefore a **data-entry task, not a 3D-modeling task**. That is the whole point: it is what lets one person maintain the catalogue and what lets the product scale to other cabinet makers later. The design file tells us *what to build*; our code builds the resizable version.
 
@@ -196,9 +234,11 @@ Two features carry the sale: a **doors-open / doors-hidden toggle** so the custo
 | Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN |
 | Palette thumbnails | Inline SVG (`components/planner/thumbs.tsx`) | Drawn from the family's own proportions. Never boot a WebGL context per thumbnail. |
 | Design exports (`.obj`, or `.zip` with textures) | Vercel Blob, **private** | A design file carries the client's module standard and part naming. Never public, never in `/public`, never loaded at runtime. |
+| Homepage / room / finish photos | Vercel Blob, public | Slot-keyed (`hero`, `room:<id>`, `finish:<id>`), uploaded at `/admin/site-content`. Slots are derived from the live catalogue, not hardcoded, so adding a finish adds its photo slot |
 | Canvas screenshots | Vercel Blob | User-generated at runtime, one per lead |
 | Quote PDFs | Vercel Blob | Same |
-| Catalogue versions, designs, leads, Blob URLs | Postgres | |
+| Tutorial videos | **Mux**, not Blob | Needs transcoding, adaptive bitrate and a poster frame. Blob would serve one giant MP4 to a phone on Malaysian mobile data |
+| Catalogue versions, designs, tutorials, site-image slots, leads, Blob URLs | Postgres | |
 
 Test: if you could delete it and rebuild it from a `git clone`, it belongs in the repo, not Blob.
 
@@ -217,6 +257,18 @@ Three screens, each with a sensible default so an impatient user lands on someth
 Save writes the layout to Postgres under a `nanoid` slug, returns a short URL, creates the lead record, and attaches the screenshot. Then a `wa.me` deep link with the design URL prefilled.
 
 Ship 8–10 **preset designs** as their own indexable routes ("2.4m 3-door kitchen run", etc). Each is an SEO landing page and an entry point into the planner — solves the blank-canvas problem and the traffic problem together.
+
+### The studio's own chrome
+
+- **A breadcrumb header** (`PlannerHeader.tsx`) instead of a stepper — the planner is one screen you stay on, not a wizard.
+- **3D / elevation / plan toggle** (`PlannerView` in `PlannerScene.tsx`). Elevation and plan are orthographic and axis-locked: the point of an elevation is that it stays square, so one stray drag must not knock it off.
+- **Room dimensions are editable in place** (`DimensionField.tsx`), ceiling height among them — it is a layout dimension in `PlannerLayout`, clamped by `CEILING_LIMITS`, not a constant, because it decides whether a tall unit fits.
+
+### Tutorials
+
+`/tutorials` is a public DIY video library; `/admin/tutorials` uploads to Mux with `@mux/upchunk` (direct-to-Mux, so the video never passes through a function) and polls `[id]/status` until the asset is ready. `lib/mux.ts` is `server-only` — those are write credentials for the video account and must never reach a customer's bundle.
+
+This is the one place the app streams something it did not generate. It is a separate surface from the planner and shares nothing with it.
 
 ## Auth
 
@@ -249,6 +301,8 @@ Recorded rather than fixed. Do not paper over them; fix them deliberately.
 3. **`app/page.tsx` prices a starter layout against the DB catalogue while `layout.ts` built that layout from the bundled fixtures.** If a published catalogue changes a size ladder, widths fall through `?? 0` and price at zero.
 
 All three have the same root: the live palette is a mutable module global rather than an explicit parameter. The fix is to thread the catalogue through `layout.ts` and the client tree (context) the way `pricing.ts` already does.
+
+4. **A junk `Testing123` family, 1000–1000mm, is still in the live catalogue.** Left behind by `lib/catalogue/cabinetDesignToFamily.ts` (deleted in `84f4cb7`), which mapped a design straight to a family with a single-rung ladder; the design row it came from was deleted long ago. Harmless but visible — remove it in a catalogue-only commit.
 
 ## Open questions — resolve before trusting pricing.ts
 
