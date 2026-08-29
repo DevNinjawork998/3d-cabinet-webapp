@@ -23,15 +23,20 @@ import {
 	fits,
 	flushWallToTallTops,
 	freeSpans,
+	hangingHeightMmOf,
+	minWallWidthMm,
 	overhangMm,
 	type PlannerLayout,
 	type Positioned,
 	removeModules,
 	rowEndMm,
+	setBaseSkirting,
 	setCeilingHeight,
 	setDoors,
 	setHangingHeight,
 	setRoomDepth,
+	setWallToCeiling,
+	setWallToWall,
 	setWallWidth,
 	setWidth,
 	starterFor,
@@ -68,6 +73,26 @@ const VIEWS: { id: PlannerView; label: string }[] = [
 	{ id: "3d", label: "3D" },
 	{ id: "elevation", label: "Elevation" },
 	{ id: "plan", label: "Plan" },
+];
+
+/** Hung at a set height, or run up to the ceiling. The stored hang height
+ *  survives the switch, so this is a mode and not a destructive edit. */
+const WALL_MODES: { toCeiling: boolean; label: string }[] = [
+	{ toCeiling: false, label: "Hanging" },
+	{ toCeiling: true, label: "To ceiling" },
+];
+
+/** Kick board over the legs, or the levellers left on show. Most people want
+ *  the board; a few like the furniture look of the feet. */
+const BASE_MODES: { skirted: boolean; label: string }[] = [
+	{ skirted: true, label: "Skirted" },
+	{ skirted: false, label: "Legs shown" },
+];
+
+/** Built into the alcove, or standing clear of the side walls. */
+const RUN_MODES: { toWall: boolean; label: string }[] = [
+	{ toWall: false, label: "Open ends" },
+	{ toWall: true, label: "To walls" },
 ];
 
 const rm = (amount: number) =>
@@ -174,7 +199,19 @@ export function StudioScreen({
 
 	const floorEnd = rowEndMm(layout, "floor");
 	const overhang = overhangMm(layout);
+	// Usually the run rather than the catalogue floor — worth naming which,
+	// because a slider that stops for no visible reason reads as broken.
+	const minWallMm = minWallWidthMm(layout);
 	const price = computePlannerPrice(layout, finish);
+	// Named so the customer knows what the extra lines are for. Both are added
+	// for them rather than chosen, so the total moving without explanation is
+	// the thing to avoid.
+	const coverPieces = [
+		price.ceilingTrimFt > 0 && "a trim strip capping the run at the ceiling",
+		price.skirtingFt > 0 && "a skirting board over the legs",
+		price.endPanelCount > 0 &&
+			"a finished panel over each cabinet side left in the open",
+	].filter((piece): piece is string => typeof piece === "string");
 
 	const gapCount = (["floor", "wall"] as const).reduce(
 		(total, row) =>
@@ -309,13 +346,21 @@ export function StudioScreen({
 							<DimensionField
 								label="Wall length"
 								valueMm={layout.wallWidthMm}
-								minMm={WALL_LIMITS.minMm}
+								minMm={minWallMm}
 								maxMm={WALL_LIMITS.maxMm}
 								stepMm={50}
 								onChangeAction={(mm) =>
 									setLayoutAction((prev) => setWallWidth(prev, mm))
 								}
 							/>
+
+							{minWallMm > WALL_LIMITS.minMm &&
+								layout.wallWidthMm === minWallMm && (
+									<p className="-mt-1 text-[11px] text-neutral-500 leading-4">
+										Your {minWallMm}mm run sets the shortest wall it fits on.
+										Remove or resize a cabinet to go narrower.
+									</p>
+								)}
 
 							<DimensionField
 								label="Ceiling"
@@ -341,31 +386,139 @@ export function StudioScreen({
 
 							{room.familyIds.some((id) => family(id)?.kind === "wall") && (
 								<div>
-									<DimensionField
-										label="Wall units hang at"
-										valueMm={layout.hangingHeightMm}
-										minMm={WALL_HANG_LIMITS.minMm}
-										maxMm={WALL_HANG_LIMITS.maxMm}
-										stepMm={10}
-										onChangeAction={(mm) =>
-											setLayoutAction((prev) => setHangingHeight(prev, mm))
-										}
-									/>
-									<button
-										type="button"
-										onClick={() =>
-											setLayoutAction((prev) => flushWallToTallTops(prev))
-										}
-										disabled={!placed.some((p) => p.family.kind === "tall")}
-										title={
-											placed.some((p) => p.family.kind === "tall")
-												? undefined
-												: "Add a tall cabinet or fridge housing first"
-										}
-										className="mt-2 rounded-full border border-neutral-300 px-3 py-1 text-[11px] transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+									<fieldset
+										aria-label="Wall units"
+										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
 									>
-										Flush wall-unit tops to tall units
-									</button>
+										{WALL_MODES.map((option) => (
+											<button
+												key={String(option.toCeiling)}
+												type="button"
+												onClick={() =>
+													setLayoutAction((prev) =>
+														setWallToCeiling(prev, option.toCeiling),
+													)
+												}
+												aria-pressed={layout.wallToCeiling === option.toCeiling}
+												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
+													layout.wallToCeiling === option.toCeiling
+														? "bg-white font-medium shadow-sm"
+														: "text-neutral-600 hover:text-neutral-900"
+												}`}
+											>
+												{option.label}
+											</button>
+										))}
+									</fieldset>
+
+									{layout.wallToCeiling ? (
+										<p className="mt-2 text-[11px] text-neutral-500 leading-4">
+											Undersides at {hangingHeightMmOf(layout)}mm — the tops run
+											to the ceiling, capped by a trim strip.
+										</p>
+									) : (
+										<>
+											<div className="mt-2.5">
+												<DimensionField
+													label="Wall units hang at"
+													valueMm={layout.hangingHeightMm}
+													minMm={WALL_HANG_LIMITS.minMm}
+													maxMm={WALL_HANG_LIMITS.maxMm}
+													stepMm={10}
+													onChangeAction={(mm) =>
+														setLayoutAction((prev) =>
+															setHangingHeight(prev, mm),
+														)
+													}
+												/>
+											</div>
+											<button
+												type="button"
+												onClick={() =>
+													setLayoutAction((prev) => flushWallToTallTops(prev))
+												}
+												disabled={!placed.some((p) => p.family.kind === "tall")}
+												title={
+													placed.some((p) => p.family.kind === "tall")
+														? undefined
+														: "Add a tall cabinet or fridge housing first"
+												}
+												className="mt-2 rounded-full border border-neutral-300 px-3 py-1 text-[11px] transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+											>
+												Flush wall-unit tops to tall units
+											</button>
+										</>
+									)}
+								</div>
+							)}
+
+							{placed.some((p) => p.family.kind !== "wall") && (
+								<div>
+									<fieldset
+										aria-label="Base units"
+										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
+									>
+										{BASE_MODES.map((option) => (
+											<button
+												key={String(option.skirted)}
+												type="button"
+												onClick={() =>
+													setLayoutAction((prev) =>
+														setBaseSkirting(prev, option.skirted),
+													)
+												}
+												aria-pressed={layout.baseSkirting === option.skirted}
+												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
+													layout.baseSkirting === option.skirted
+														? "bg-white font-medium shadow-sm"
+														: "text-neutral-600 hover:text-neutral-900"
+												}`}
+											>
+												{option.label}
+											</button>
+										))}
+									</fieldset>
+
+									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
+										{layout.baseSkirting
+											? "A kick board runs along the floor, hiding the levellers."
+											: "The adjustable levellers stay on show under the run."}
+									</p>
+								</div>
+							)}
+
+							{placed.length > 0 && (
+								<div>
+									<fieldset
+										aria-label="Run"
+										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
+									>
+										{RUN_MODES.map((option) => (
+											<button
+												key={String(option.toWall)}
+												type="button"
+												onClick={() =>
+													setLayoutAction((prev) =>
+														setWallToWall(prev, option.toWall),
+													)
+												}
+												aria-pressed={layout.wallToWall === option.toWall}
+												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
+													layout.wallToWall === option.toWall
+														? "bg-white font-medium shadow-sm"
+														: "text-neutral-600 hover:text-neutral-900"
+												}`}
+											>
+												{option.label}
+											</button>
+										))}
+									</fieldset>
+
+									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
+										{layout.wallToWall
+											? "An end that butts into a side wall needs no finished panel."
+											: "Each open end is finished with a panel over the carcass side."}
+									</p>
 								</div>
 							)}
 						</div>
@@ -847,7 +1000,33 @@ export function StudioScreen({
 					</div>
 
 					<div className="flex flex-col gap-2.5 border-neutral-200 border-t p-3.5">
-						<div className="flex items-baseline justify-between">
+						<ul className="flex flex-col gap-1">
+							{price.categories.map((line) => (
+								<li
+									key={line.label}
+									className="flex items-baseline justify-between gap-2 text-[12px]"
+								>
+									<span className="min-w-0 text-neutral-600">
+										{line.label}{" "}
+										<span className="text-[11px] text-neutral-400">
+											{line.detail}
+										</span>
+									</span>
+									<span className="shrink-0 tabular-nums">
+										{rm(line.amountRm)}
+									</span>
+								</li>
+							))}
+						</ul>
+
+						{coverPieces.length > 0 && (
+							<p className="text-[11px] text-neutral-500 leading-4">
+								{coverPieces.join(" and ")}{" "}
+								{coverPieces.length === 1 ? "is" : "are"} included above.
+							</p>
+						)}
+
+						<div className="flex items-baseline justify-between border-neutral-200 border-t pt-2.5">
 							<span className="text-[13px] text-neutral-500">
 								Estimated total
 							</span>

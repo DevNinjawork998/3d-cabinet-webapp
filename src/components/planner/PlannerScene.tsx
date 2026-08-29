@@ -10,6 +10,7 @@ import type {
 } from "three";
 import { Raycaster, Vector2, Vector3 } from "three";
 import {
+	CEILING_TRIM_MM,
 	CONSTRUCTION,
 	doorStyle,
 	FINISHES,
@@ -21,11 +22,15 @@ import { type ExposedSides, exposedSides } from "@/lib/planner/exposure";
 import {
 	allPositions,
 	dropModule,
+	floorHeightMmOf,
+	hangingHeightMmOf,
 	moveModule,
+	overhangingIds,
 	type PlannerLayout,
 	type Positioned,
 	positionsOf,
 	rowEndMm,
+	skirtingSpans,
 } from "@/lib/planner/layout";
 import {
 	apertureMm,
@@ -37,7 +42,7 @@ import {
 } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
-import { useGrain } from "./grain";
+import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
 import { Room } from "./Room";
 
@@ -435,12 +440,20 @@ function Run({
 	// floor and wall, and judging them together would have a hung wall unit
 	// cover a base unit's end panel — they are at different heights and hide
 	// nothing of each other.
+	const overhanging = useMemo(() => overhangingIds(layout), [layout]);
+
 	const exposure = useMemo(() => {
+		// A return wall buries an end as surely as a neighbour does, so a run
+		// built into an alcove must not veneer the two faces inside the walls.
+		const walls = {
+			wallWidthMm: layout.wallWidthMm,
+			enclosed: layout.wallToWall,
+		};
 		const map = new Map<string, ExposedSides>();
 		for (const row of ["floor", "wall"] as const) {
 			const positions = positionsOf(layout, row);
 			positions.forEach((position, i) => {
-				map.set(position.placed.id, exposedSides(positions, i));
+				map.set(position.placed.id, exposedSides(positions, i, walls));
 			});
 		}
 		return map;
@@ -492,6 +505,13 @@ function Run({
 
 			<ContactShadows layout={layout} runWidthMm={runWidthMm} />
 			<Worktop layout={layout} runWidthMm={runWidthMm} />
+			<CeilingTrim
+				layout={layout}
+				runWidthMm={runWidthMm}
+				finishHex={finishHex}
+				finishPhoto={finishPhoto}
+			/>
+			<Skirting layout={layout} runWidthMm={runWidthMm} />
 
 			{allPositions(layout).map((position) => (
 				<Cabinet
@@ -500,6 +520,7 @@ function Run({
 					family={position.family}
 					widthMm={position.widthMm}
 					exposed={exposure.get(position.placed.id)}
+					overhanging={overhanging.has(position.placed.id)}
 					door={
 						position.placed.doorStyleId
 							? (doorStyle(position.placed.doorStyleId) ?? null)
@@ -507,11 +528,7 @@ function Run({
 					}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
-					floorHeightMm={
-						position.family.kind === "wall"
-							? layout.hangingHeightMm
-							: position.family.floorHeightMm
-					}
+					floorHeightMm={floorHeightMmOf(position, layout)}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
 					selected={selectedIds.has(position.placed.id)}
@@ -617,7 +634,7 @@ function ContactShadows({
 					key={position.placed.id}
 					position={[
 						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
-						m(layout.hangingHeightMm + position.family.heightMm / 2) - 0.06,
+						m(hangingHeightMmOf(layout) + position.family.heightMm / 2) - 0.06,
 						0.002,
 					]}
 					scale={[
@@ -701,6 +718,150 @@ function Worktop({
 				);
 			})}
 		</>
+	);
+}
+
+/**
+ * The kick board across the front of a floor run, hiding the legs.
+ *
+ * One board per unbroken stretch, from `skirtingSpans` — the engine decides
+ * where the boards start and stop so the price and the geometry cannot drift
+ * apart. It used to be one box per cabinet inside `Cabinet.tsx`, which showed
+ * a seam at every junction and, worse, was drawn only by the procedural
+ * fallback: a cabinet with a drafted mesh stood on bare legs.
+ *
+ * Left flat and dark rather than wearing the door finish. A kick board is
+ * meant to recede into the shadow under the run — the opposite of what the
+ * capping strip is doing at the top.
+ */
+function Skirting({
+	layout,
+	runWidthMm,
+}: {
+	layout: PlannerLayout;
+	runWidthMm: number;
+}) {
+	return (
+		<>
+			{skirtingSpans(layout).map((span) => {
+				const widthMm = span.endMm - span.startMm;
+				// From the wall out to just short of the carcass front. The span
+				// carries the recess because only the engine knows how far in the
+				// feet under this stretch stand.
+				const depthMm = span.depthMm - span.recessMm;
+
+				return (
+					<mesh
+						key={span.startMm}
+						position={[
+							m(span.startMm + widthMm / 2 - runWidthMm / 2),
+							m(span.heightMm / 2),
+							m(depthMm / 2),
+						]}
+					>
+						<boxGeometry args={[m(widthMm), m(span.heightMm), m(depthMm)]} />
+						<meshStandardMaterial color="#3a3835" roughness={0.9} />
+					</mesh>
+				);
+			})}
+		</>
+	);
+}
+
+/**
+ * The strip that caps a floor-to-ceiling run.
+ *
+ * One piece per unbroken stretch of wall units, the same rule the worktop
+ * follows: it is scribed to the cabinets under it, so a gap in the run breaks
+ * it rather than being paid for. It carries the door finish, because on a
+ * flushed kitchen this is the topmost thing the eye reads as cabinetry — a
+ * carcass-coloured band up there is the first thing that looks wrong.
+ *
+ * Drawn only in ceiling mode: a hanging run has no strip.
+ */
+function CeilingTrim({
+	layout,
+	runWidthMm,
+	finishHex,
+	finishPhoto,
+}: {
+	layout: PlannerLayout;
+	runWidthMm: number;
+	finishHex: string;
+	finishPhoto: string | null;
+}) {
+	const spans: Array<{ startMm: number; endMm: number; depthMm: number }> = [];
+	if (layout.wallToCeiling) {
+		for (const position of positionsOf(layout, "wall")) {
+			const previous = spans[spans.length - 1];
+			if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
+				previous.endMm = position.xMm + position.widthMm;
+				previous.depthMm = Math.max(previous.depthMm, position.family.depthMm);
+			} else {
+				spans.push({
+					startMm: position.xMm,
+					endMm: position.xMm + position.widthMm,
+					depthMm: position.family.depthMm,
+				});
+			}
+		}
+	}
+
+	return (
+		<>
+			{spans.map((span) => (
+				<TrimPiece
+					key={span.startMm}
+					widthMm={span.endMm - span.startMm}
+					depthMm={span.depthMm}
+					centreXMm={
+						span.startMm + (span.endMm - span.startMm) / 2 - runWidthMm / 2
+					}
+					ceilingHeightMm={layout.ceilingHeightMm}
+					finishHex={finishHex}
+					finishPhoto={finishPhoto}
+				/>
+			))}
+		</>
+	);
+}
+
+/** Split out so the finish hook is called once per piece rather than in a
+ *  loop, which the rules of hooks do not allow. */
+function TrimPiece({
+	widthMm,
+	depthMm,
+	centreXMm,
+	ceilingHeightMm,
+	finishHex,
+	finishPhoto,
+}: {
+	widthMm: number;
+	depthMm: number;
+	centreXMm: number;
+	ceilingHeightMm: number;
+	finishHex: string;
+	finishPhoto: string | null;
+}) {
+	const surface = useFrontSurface(
+		finishPhoto,
+		"horizontal",
+		m(widthMm),
+		m(CEILING_TRIM_MM),
+		finishHex,
+	);
+
+	return (
+		<mesh
+			position={[
+				m(centreXMm),
+				m(ceilingHeightMm - CEILING_TRIM_MM / 2),
+				m(depthMm / 2),
+			]}
+		>
+			<boxGeometry args={[m(widthMm), m(CEILING_TRIM_MM), m(depthMm)]} />
+			<meshStandardMaterial roughness={0.55} {...surface} />
+		</mesh>
 	);
 }
 
@@ -797,9 +958,10 @@ export default function PlannerScene({
 			<directionalLight position={[4, 7, 6]} intensity={1.35} />
 
 			<Room
-				width={Math.max(m(runWidthMm) + 1.2, 4)}
+				width={m(layout.wallWidthMm)}
 				depth={m(layout.roomDepthMm)}
 				height={m(layout.ceilingHeightMm)}
+				sideWalls={layout.wallToWall}
 			/>
 
 			<Run

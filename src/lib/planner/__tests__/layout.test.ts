@@ -5,6 +5,7 @@ import {
 	family,
 	ROOM_DEPTH_LIMITS,
 	ROOM_TYPES,
+	WALL_HANG_LIMITS,
 } from "../catalogue";
 import {
 	addModule,
@@ -12,12 +13,17 @@ import {
 	dropModule,
 	duplicateModule,
 	emptyLayout,
+	endPanels,
 	firstFreeXMm,
 	fits,
+	floorHeightMmOf,
 	flushWallToTallTops,
 	freeSpans,
+	hangingHeightMmOf,
+	minWallWidthMm,
 	moveModule,
 	occupiedSpans,
+	overhangingIds,
 	overhangMm,
 	type PlannerLayout,
 	positionsOf,
@@ -25,18 +31,24 @@ import {
 	removeModule,
 	removeModules,
 	rowFor,
+	runExtentMm,
 	SNAP_MM,
+	setBaseSkirting,
 	setCeilingHeight,
 	setDoor,
 	setDoors,
 	setHangingHeight,
 	setRoomDepth,
+	setWallToCeiling,
+	setWallToWall,
 	setWallWidth,
 	setWidth,
+	skirtingSpans,
 	starterFor,
 	WALL_LIMITS,
 	widthOptionsFor,
 } from "../layout";
+import { standOf } from "../parts";
 
 const WALL_MM = 4000;
 
@@ -364,23 +376,73 @@ describe("wall length", () => {
 		expect(setWallWidth(layout, 999999).wallWidthMm).toBe(WALL_LIMITS.maxMm);
 	});
 
-	it("keeps the cabinets where they are when the wall shrinks, and says how much overhangs", () => {
+	it("will not shrink below the run, and leaves the cabinets alone", () => {
 		let next = addModule(layout, "base-cabinet", 0, "a", 900);
 		next = addModule(next, "base-cabinet", 900, "b", 900);
-		expect(overhangMm(next)).toBe(0);
 
+		// 1500 would leave 300mm of cabinet hanging past the end of the wall,
+		// over no floor. The wall stops at the run instead.
 		const shorter = setWallWidth(next, 1500);
+		expect(shorter.wallWidthMm).toBe(1800);
 		expect(shorter.floor).toHaveLength(2);
 		expect(at(shorter, "b")).toBe(900);
-		expect(overhangMm(shorter)).toBe(300);
+		expect(overhangMm(shorter)).toBe(0);
 	});
 
-	it("closing the gaps can recover a run that overhangs", () => {
+	it("goes down to exactly the run, which is the point of the limit", () => {
+		let next = addModule(layout, "base-cabinet", 0, "a", 900);
+		next = addModule(next, "base-cabinet", 900, "b", 900);
+		expect(minWallWidthMm(next)).toBe(1800);
+		expect(setWallWidth(next, 1800).wallWidthMm).toBe(1800);
+	});
+
+	it("takes the longer of the two rows as the limit", () => {
+		let next = addModule(layout, "base-cabinet", 0, "a", 900);
+		next = addModule(next, "wall-cabinet", 0, "w1", 900);
+		next = addModule(next, "wall-cabinet", 900, "w2", 900);
+		// The hung row is the longer one here, so it decides.
+		expect(runExtentMm(next)).toBe(1800);
+		expect(minWallWidthMm(next)).toBe(1800);
+	});
+
+	it("falls back to the catalogue minimum in an empty room", () => {
+		expect(minWallWidthMm(layout)).toBe(WALL_LIMITS.minMm);
+	});
+
+	it("returns the same layout when the clamp lands on what it already was", () => {
+		const next = addModule(layout, "base-cabinet", 0, "a", 900);
+		const atRun = setWallWidth(next, 900);
+		expect(setWallWidth(atRun, 100)).toBe(atRun);
+	});
+
+	it("closing the gaps still shortens a run, freeing the wall to follow", () => {
 		let next = addModule(layout, "base-cabinet", 0, "a", 900);
 		next = addModule(next, "base-cabinet", 2000, "b", 600);
-		const shorter = setWallWidth(next, 1600);
-		expect(overhangMm(shorter)).toBeGreaterThan(0);
-		expect(overhangMm(closeGaps(shorter))).toBe(0);
+		expect(minWallWidthMm(next)).toBe(2600);
+
+		// `closeGaps` is no longer the way back from an overhang — there is no
+		// overhang to come back from — but packing the run left is still what
+		// lets the customer then pull the wall in.
+		const packed = closeGaps(next);
+		expect(minWallWidthMm(packed)).toBe(1500);
+		expect(setWallWidth(packed, 1500).wallWidthMm).toBe(1500);
+	});
+});
+
+describe("overhangingIds", () => {
+	it("finds nothing in a layout built through the setters", () => {
+		let next = addModule(layout, "base-cabinet", 0, "a", 900);
+		next = setWallWidth(next, 1000);
+		expect(overhangingIds(next).size).toBe(0);
+	});
+
+	it("catches a module past the wall that no setter vetted", () => {
+		// The shape a share link could deliver once layouts are parsed from JSON.
+		const next = addModule(layout, "base-cabinet", 0, "a", 900);
+		const tampered: PlannerLayout = { ...next, wallWidthMm: 600 };
+
+		expect(overhangMm(tampered)).toBe(300);
+		expect([...overhangingIds(tampered)]).toEqual(["a"]);
 	});
 });
 
@@ -459,6 +521,220 @@ describe("flushWallToTallTops", () => {
 	it("does nothing without a wall cabinet to move", () => {
 		const tallOnly = addModule(layout, "tall-cabinet", 0, "t", 600);
 		expect(flushWallToTallTops(tallOnly)).toBe(tallOnly);
+	});
+});
+
+describe("wallToCeiling", () => {
+	// wall-cabinet is 880mm and the capping strip is 40mm, so against the
+	// default 2700 ceiling the underside lands at 2700 - 40 - 880 = 1780.
+	const FLUSH_AT_2700 = 1780;
+
+	const withWall = () => addModule(layout, "wall-cabinet", 0, "w", 900);
+
+	it("is off on a fresh layout — the run hangs until asked otherwise", () => {
+		expect(layout.wallToCeiling).toBe(false);
+		expect(hangingHeightMmOf(withWall())).toBe(1500);
+	});
+
+	it("lifts the run so the cabinet tops sit a trim strip below the ceiling", () => {
+		const flushed = setWallToCeiling(withWall(), true);
+		expect(hangingHeightMmOf(flushed)).toBe(FLUSH_AT_2700);
+		expect(hangingHeightMmOf(flushed) + 880 + 40).toBe(flushed.ceilingHeightMm);
+	});
+
+	it("tracks a re-measured ceiling, because the height is derived not stored", () => {
+		const flushed = setWallToCeiling(withWall(), true);
+		// 3000 - 40 - 880. No second call: raising the ceiling is the only edit.
+		expect(hangingHeightMmOf(setCeilingHeight(flushed, 3000))).toBe(2080);
+	});
+
+	it("goes above the hang slider's range, which only governs the slider", () => {
+		// The tall rooms are the ones that need this: 3200 - 40 - 880 = 2280,
+		// 480mm past where the slider stops. Clamping here would leave the gap
+		// open in exactly the rooms the feature exists for.
+		const tall = setCeilingHeight(setWallToCeiling(withWall(), true), 3200);
+		expect(hangingHeightMmOf(tall)).toBe(2280);
+		expect(hangingHeightMmOf(tall)).toBeGreaterThan(WALL_HANG_LIMITS.maxMm);
+	});
+
+	it("keeps the customer's own hang height across the round trip", () => {
+		const set = setHangingHeight(withWall(), 1300);
+		const flushed = setWallToCeiling(set, true);
+		expect(flushed.hangingHeightMm).toBe(1300);
+		expect(hangingHeightMmOf(setWallToCeiling(flushed, false))).toBe(1300);
+	});
+
+	it("leaves the stored figure showing when nothing is hung yet", () => {
+		expect(hangingHeightMmOf(setWallToCeiling(layout, true))).toBe(1500);
+	});
+
+	it("moves no cabinet sideways — this is a vertical change only", () => {
+		const furnished = starterFor("kitchen");
+		const flushed = setWallToCeiling(furnished, true);
+		expect(flushed.floor).toEqual(furnished.floor);
+		expect(flushed.wall).toEqual(furnished.wall);
+	});
+
+	it("returns the same layout when the mode is already what was asked for", () => {
+		expect(setWallToCeiling(layout, false)).toBe(layout);
+	});
+});
+
+describe("floorHeightMmOf", () => {
+	it("reads a floor unit's own height and the layout's for a wall unit", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b", 800);
+		next = addModule(next, "wall-cabinet", 0, "w", 900);
+		const [base] = positionsOf(next, "floor");
+		const [wall] = positionsOf(next, "wall");
+
+		expect(floorHeightMmOf(base, next)).toBe(0);
+		expect(floorHeightMmOf(wall, next)).toBe(1500);
+	});
+
+	it("is the single place ceiling mode reaches, so every reader agrees", () => {
+		const flushed = setWallToCeiling(
+			addModule(layout, "wall-cabinet", 0, "w", 900),
+			true,
+		);
+		const [wall] = positionsOf(flushed, "wall");
+		expect(floorHeightMmOf(wall, flushed)).toBe(hangingHeightMmOf(flushed));
+		expect(floorHeightMmOf(wall, flushed)).toBe(1780);
+	});
+});
+
+describe("skirtingSpans", () => {
+	it("gives one board across cabinets that touch", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "base-drawers", 900, "b2", 400);
+		const spans = skirtingSpans(next);
+
+		expect(spans).toHaveLength(1);
+		expect(spans[0].startMm).toBe(0);
+		expect(spans[0].endMm).toBe(1300);
+	});
+
+	it("breaks at a gap, so the run is not charged across a hole", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "base-cabinet", 1500, "b2", 900);
+		const spans = skirtingSpans(next);
+
+		expect(spans).toHaveLength(2);
+		expect(spans.map((span) => span.endMm - span.startMm)).toEqual([900, 900]);
+	});
+
+	it("takes the tallest stand in the stretch, so no leg is left showing", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "tall-cabinet", 900, "t1", 600);
+		const [span] = skirtingSpans(next);
+		const stands = positionsOf(next, "floor").map(
+			(position) => standOf(position.family).heightMm,
+		);
+
+		expect(span.heightMm).toBe(Math.max(...stands));
+	});
+
+	it("sets the board no further back than the frontmost foot", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "tall-cabinet", 900, "t1", 600);
+		const [span] = skirtingSpans(next);
+		const insets = positionsOf(next, "floor").map(
+			(position) => standOf(position.family).insetMm,
+		);
+
+		// The shallowest inset wins. Anything deeper and the feet it exists to
+		// hide are still in front of it — the bug the first version shipped with.
+		expect(span.recessMm).toBe(Math.min(...insets));
+		expect(span.recessMm).toBeLessThanOrEqual(Math.max(...insets));
+	});
+
+	it("reaches out to the deepest carcass it covers", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "tall-cabinet", 900, "t1", 600);
+		const [span] = skirtingSpans(next);
+		const depths = positionsOf(next, "floor").map((p) => p.family.depthMm);
+
+		expect(span.depthMm).toBe(Math.max(...depths));
+	});
+
+	it("is on by default — a finished kitchen hides its legs", () => {
+		expect(layout.baseSkirting).toBe(true);
+	});
+
+	it("draws and charges nothing once the customer turns the board off", () => {
+		const run = addModule(layout, "base-cabinet", 0, "b1", 900);
+		expect(skirtingSpans(run)).not.toEqual([]);
+		expect(skirtingSpans(setBaseSkirting(run, false))).toEqual([]);
+	});
+
+	it("moves no cabinet when the board is turned off", () => {
+		const run = addModule(layout, "base-cabinet", 0, "b1", 900);
+		const bare = setBaseSkirting(run, false);
+		expect(bare.floor).toEqual(run.floor);
+		expect(bare.wall).toEqual(run.wall);
+	});
+
+	it("returns the same layout when the board is already as asked", () => {
+		expect(setBaseSkirting(layout, true)).toBe(layout);
+	});
+
+	it("has nothing to cover in a room with only wall units", () => {
+		expect(
+			skirtingSpans(addModule(layout, "wall-cabinet", 0, "w", 900)),
+		).toEqual([]);
+	});
+
+	it("ignores the hung row entirely — a kick board is a floor thing", () => {
+		const floorOnly = addModule(layout, "base-cabinet", 0, "b1", 900);
+		const both = addModule(floorOnly, "wall-cabinet", 0, "w", 900);
+		expect(skirtingSpans(both)).toEqual(skirtingSpans(floorOnly));
+	});
+});
+
+describe("endPanels", () => {
+	it("clads both sides of a cabinet standing on its own", () => {
+		const lone = addModule(layout, "base-cabinet", 1000, "b1", 900);
+		expect(endPanels(lone).map((p) => p.side)).toEqual(["left", "right"]);
+	});
+
+	it("clads only the outer sides of a touching pair, not the join", () => {
+		let pair = addModule(layout, "base-cabinet", 0, "b1", 900);
+		pair = addModule(pair, "base-cabinet", 900, "b2", 900);
+		// Two, not four: the sides that meet are buried against each other.
+		expect(endPanels(pair)).toHaveLength(2);
+	});
+
+	it("clads the sides facing a gap opened mid-run", () => {
+		let apart = addModule(layout, "base-cabinet", 0, "b1", 900);
+		apart = addModule(apart, "base-cabinet", 1500, "b2", 900);
+		// Four now — a drilled side beside a gap is as visible as one at the end.
+		expect(endPanels(apart)).toHaveLength(4);
+	});
+
+	it("drops the two wall ends once the run is enclosed", () => {
+		let run = addModule(
+			setWallWidth(layout, 1800),
+			"base-cabinet",
+			0,
+			"b1",
+			900,
+		);
+		run = addModule(run, "base-cabinet", 900, "b2", 900);
+		expect(endPanels(run)).toHaveLength(2);
+		expect(endPanels(setWallToWall(run, true))).toEqual([]);
+	});
+
+	it("counts the two rows separately — a wall unit hides no base unit", () => {
+		let both = addModule(layout, "base-cabinet", 0, "b1", 900);
+		both = addModule(both, "wall-cabinet", 0, "w1", 900);
+		const panels = endPanels(both);
+
+		expect(panels.filter((p) => p.row === "floor")).toHaveLength(2);
+		expect(panels.filter((p) => p.row === "wall")).toHaveLength(2);
+	});
+
+	it("records what each panel clads, so it can be priced by kind", () => {
+		const tall = addModule(layout, "tall-cabinet", 1000, "t1", 600);
+		expect(endPanels(tall).every((p) => p.kind === "tall")).toBe(true);
 	});
 });
 

@@ -92,3 +92,48 @@ describe("exposedSides", () => {
 		expect(exposedSides([], 0)).toEqual(FULLY_EXPOSED);
 	});
 });
+
+describe("walls bury a side the way a neighbour does", () => {
+	const enclosed = { wallWidthMm: WALL_MM, enclosed: true };
+	const open = { wallWidthMm: WALL_MM, enclosed: false };
+
+	/** One 900 cabinet hard against the left wall, and one hard against the
+	 *  right, on a 4200 wall. */
+	const bothEnds = () => {
+		let layout = emptyLayout(WALL_MM);
+		layout = addModule(layout, "base-cabinet", 0, "left", 900);
+		layout = addModule(layout, "base-cabinet", WALL_MM - 900, "right", 900);
+		return positionsOf(layout, "floor");
+	};
+
+	it("leaves the run's ends exposed when the wall just carries on", () => {
+		const row = bothEnds();
+		expect(exposedSides(row, 0, open).left).toBe(true);
+		expect(exposedSides(row, 1, open).right).toBe(true);
+	});
+
+	it("buries the end sitting on the left wall", () => {
+		expect(exposedSides(bothEnds(), 0, enclosed)).toEqual({
+			left: false,
+			right: true,
+		});
+	});
+
+	it("buries the end sitting on the right wall", () => {
+		expect(exposedSides(bothEnds(), 1, enclosed)).toEqual({
+			left: true,
+			right: false,
+		});
+	});
+
+	it("says nothing about a cabinet away from either wall", () => {
+		const row = floorRow([{ familyId: "base-cabinet", xMm: 1500 }]);
+		expect(exposedSides(row, 0, enclosed)).toEqual(FULLY_EXPOSED);
+	});
+
+	it("behaves exactly as before when no walls are passed", () => {
+		const row = bothEnds();
+		expect(exposedSides(row, 0)).toEqual(exposedSides(row, 0, open));
+		expect(exposedSides(row, 1)).toEqual(exposedSides(row, 1, open));
+	});
+});

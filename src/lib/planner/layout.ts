@@ -1,5 +1,6 @@
 import {
 	CEILING_LIMITS,
+	CEILING_TRIM_MM,
 	DEFAULT_CEILING_MM,
 	DEFAULT_ROOM_DEPTH_MM,
 	defaultWidthMm,
@@ -12,6 +13,8 @@ import {
 	WALL_CABINET_FLOOR_MM,
 	WALL_HANG_LIMITS,
 } from "./catalogue";
+import { exposedSides } from "./exposure";
+import { standOf } from "./parts";
 
 /**
  * A kitchen is a run along one wall, in two rows: things standing on the floor
@@ -53,8 +56,29 @@ export type PlannerLayout = {
 	roomDepthMm: number;
 	/** Floor to ceiling. Also the customer's; see `setCeilingHeight`. */
 	ceilingHeightMm: number;
-	/** Underside of the wall cabinets. They line up, as a real kitchen does. */
+	/** Underside of the wall cabinets. They line up, as a real kitchen does.
+	 *  Only read directly when `wallToCeiling` is off — `hangingHeightMmOf` is
+	 *  what decides where the row actually sits. */
 	hangingHeightMm: number;
+	/**
+	 * Run the wall units up to the ceiling instead of hanging them at a fixed
+	 * height. The stored `hangingHeightMm` is kept rather than overwritten, so
+	 * switching back gives the customer their own figure and not the default.
+	 */
+	wallToCeiling: boolean;
+	/**
+	 * Cover the base units' legs with a kick board. On by default because it is
+	 * how a finished kitchen looks and what most customers picture — but some
+	 * want the levellers showing, so it is theirs to turn off.
+	 */
+	baseSkirting: boolean;
+	/**
+	 * Close the leftover at each end of the run with a scribed filler board, the
+	 * way a kitchen built into an alcove is finished. Off by default: a run that
+	 * stops short of both walls is perfectly normal, and this is the customer's
+	 * call about their room, not something to assume.
+	 */
+	wallToWall: boolean;
 	/** Floor row: base and tall units. */
 	floor: PlacedModule[];
 	/** Hung row. */
@@ -81,6 +105,9 @@ export const emptyLayout = (
 	roomDepthMm,
 	ceilingHeightMm,
 	hangingHeightMm: WALL_CABINET_FLOOR_MM,
+	wallToCeiling: false,
+	baseSkirting: true,
+	wallToWall: false,
 	floor: [],
 	wall: [],
 });
@@ -541,6 +568,199 @@ export function setHangingHeight(
 }
 
 /**
+ * Switch the wall row between hanging at a set height and running to the
+ * ceiling. `hangingHeightMm` is deliberately left alone: this is a mode, not
+ * an edit, and a customer who flips it on to look at it must get their own
+ * hang height back when they flip it off.
+ */
+export function setWallToCeiling(
+	layout: PlannerLayout,
+	wallToCeiling: boolean,
+): PlannerLayout {
+	return wallToCeiling === layout.wallToCeiling
+		? layout
+		: { ...layout, wallToCeiling };
+}
+
+/**
+ * Build the run into the wall, or leave it standing free.
+ *
+ * Adds boards; moves nothing. A customer who wants the cabinets packed against
+ * one end has `closeGaps` for that — rearranging their run behind them because
+ * they ticked a finish option would be the engine overruling the document.
+ */
+export function setWallToWall(
+	layout: PlannerLayout,
+	wallToWall: boolean,
+): PlannerLayout {
+	return wallToWall === layout.wallToWall ? layout : { ...layout, wallToWall };
+}
+
+/**
+ * Turn the kick board on or off. Purely a look: nothing moves, the legs are
+ * simply covered or not, and the price follows because `skirtingSpans` is the
+ * one thing both the scene and the money read.
+ */
+export function setBaseSkirting(
+	layout: PlannerLayout,
+	baseSkirting: boolean,
+): PlannerLayout {
+	return baseSkirting === layout.baseSkirting
+		? layout
+		: { ...layout, baseSkirting };
+}
+
+/**
+ * Where the underside of the wall row actually sits.
+ *
+ * Derived rather than stored, because everything it depends on is editable:
+ * the customer re-measures the ceiling, or drops in a wall family of a
+ * different height, and a stored figure would quietly go stale. The cabinets
+ * stop `CEILING_TRIM_MM` short of the ceiling — the capping strip fills that,
+ * which is how the run is built.
+ *
+ * The hang limits are not applied here. They exist to keep the *slider*
+ * sensible; in ceiling mode the ceiling and the carcass height are the only
+ * two numbers that get a say.
+ */
+export function hangingHeightMmOf(layout: PlannerLayout): number {
+	if (!layout.wallToCeiling) return layout.hangingHeightMm;
+
+	const wallHeightMm = Math.max(
+		0,
+		...positionsOf(layout, "wall").map((position) => position.family.heightMm),
+	);
+	// Nothing hung yet, so there is no top to line up — leave the stored figure
+	// showing rather than inventing one off an empty row.
+	if (wallHeightMm === 0) return layout.hangingHeightMm;
+
+	return Math.max(0, layout.ceilingHeightMm - CEILING_TRIM_MM - wallHeightMm);
+}
+
+/** One finished panel over one cabinet side that nothing hides. */
+export type EndPanel = {
+	row: Row;
+	moduleId: string;
+	side: "left" | "right";
+	kind: ModuleKind;
+};
+
+/**
+ * Every cabinet side that has to be clad.
+ *
+ * A carcass side is drilled with system holes and shows its fixings, so any
+ * side left in the open gets a panel matching the fronts. A side against a
+ * neighbour, or against a return wall when the room has them, is buried and
+ * needs nothing.
+ *
+ * Interior sides count. A cabinet standing beside a gap mid-run has a visible
+ * drilled side exactly like one at the end of the row — the same rule reaches
+ * both, which is why this asks `exposedSides` rather than looking at the ends.
+ */
+export function endPanels(layout: PlannerLayout): EndPanel[] {
+	const walls = {
+		wallWidthMm: layout.wallWidthMm,
+		enclosed: layout.wallToWall,
+	};
+	const panels: EndPanel[] = [];
+
+	for (const row of ["floor", "wall"] as const) {
+		const positions = positionsOf(layout, row);
+		for (const [index, position] of positions.entries()) {
+			const exposed = exposedSides(positions, index, walls);
+			for (const side of ["left", "right"] as const) {
+				if (!exposed[side]) continue;
+				panels.push({
+					row,
+					moduleId: position.placed.id,
+					side,
+					kind: position.family.kind,
+				});
+			}
+		}
+	}
+
+	return panels;
+}
+
+/** One kick board: an unbroken stretch of floor units, and how tall the board
+ *  over them has to be. */
+export type SkirtingSpan = {
+	startMm: number;
+	endMm: number;
+	/** As tall as whatever the cabinets in this stretch stand on. */
+	heightMm: number;
+	/** Deepest carcass over this stretch — how far forward the board may reach. */
+	depthMm: number;
+	/** How far back from the carcass front the board's face sits. */
+	recessMm: number;
+};
+
+/**
+ * The kick boards under a run.
+ *
+ * One board per unbroken stretch, the same rule the worktop and the ceiling
+ * trim follow: it is cut to the cabinets it covers, so a gap breaks it rather
+ * than being spanned and charged for. Height is the tallest stand in the
+ * stretch — a board shorter than the legs beside it would leave them showing,
+ * which is the whole thing it exists to prevent. Recess is the *shallowest*
+ * inset, for the same reason one axis over: a single flat board cannot sit
+ * behind one cabinet's feet and in front of another's.
+ *
+ * Lives here rather than in the scene so the geometry and the price read the
+ * same number — including none of it, when the customer has turned the board
+ * off. `standOf` is the source for how a cabinet stands.
+ */
+export function skirtingSpans(layout: PlannerLayout): SkirtingSpan[] {
+	if (!layout.baseSkirting) return [];
+
+	const spans: SkirtingSpan[] = [];
+
+	for (const position of positionsOf(layout, "floor")) {
+		const stand = standOf(position.family);
+		if (stand.heightMm <= 0) continue;
+
+		const previous = spans[spans.length - 1];
+		if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
+			previous.endMm = position.xMm + position.widthMm;
+			previous.heightMm = Math.max(previous.heightMm, stand.heightMm);
+			previous.depthMm = Math.max(previous.depthMm, position.family.depthMm);
+			// The shallowest inset wins: one board across the stretch, and it has
+			// to clear the foot standing furthest forward.
+			previous.recessMm = Math.min(previous.recessMm, stand.insetMm);
+		} else {
+			spans.push({
+				startMm: position.xMm,
+				endMm: position.xMm + position.widthMm,
+				heightMm: stand.heightMm,
+				depthMm: position.family.depthMm,
+				recessMm: stand.insetMm,
+			});
+		}
+	}
+
+	return spans;
+}
+
+/**
+ * Underside of any placed cabinet above the floor.
+ *
+ * A wall unit's height comes from the layout, everything else's from its own
+ * family. That rule used to be written out separately in the scene, in the
+ * contact shadows and in the measuring tool, which meant a change to how the
+ * wall row is positioned had three places to reach and the measuring tool
+ * could end up reporting a number the scene disagreed with. One function now.
+ */
+export function floorHeightMmOf(
+	position: Positioned,
+	layout: PlannerLayout,
+): number {
+	return position.family.kind === "wall"
+		? hangingHeightMmOf(layout)
+		: position.family.floorHeightMm;
+}
+
+/**
  * Line the wall cabinets' tops up with the tallest floor unit next to them —
  * a fridge housing or tall cabinet, whose top is fixed by its own height, not
  * by the hang slider. Moving that slider off the catalogue's default breaks
@@ -576,21 +796,47 @@ export function flushWallToTallTops(layout: PlannerLayout): PlannerLayout {
  */
 export const WALL_LIMITS = { minMm: 1000, maxMm: 12000 } as const;
 
+/** The far end of the longer row — how much wall this design actually needs. */
+export function runExtentMm(layout: PlannerLayout): number {
+	return Math.max(rowEndMm(layout, "floor"), rowEndMm(layout, "wall"));
+}
+
 /**
- * Set the wall to what the customer measured.
+ * The shortest wall this design fits on.
  *
- * Cabinets are left exactly where they are, even if the new wall is shorter
- * than the run: someone typing their real wall length is telling us a fact
- * about their house, not asking us to throw away the cabinets they placed. The
- * UI shows what overhangs, and `closeGaps` usually recovers it.
+ * A property of the layout rather than a constant, because the run is what
+ * usually decides it: `WALL_LIMITS.minMm` only applies to a room with little
+ * or nothing in it.
+ */
+export function minWallWidthMm(layout: PlannerLayout): number {
+	return Math.max(WALL_LIMITS.minMm, runExtentMm(layout));
+}
+
+/**
+ * Set the wall to what the customer measured, down to the length their run
+ * needs.
+ *
+ * This used to let the wall shrink underneath the cabinets on the reasoning
+ * that a measurement is a fact about someone's house, with the UI warning about
+ * the overhang and `closeGaps` as the way back. That only ever looked survivable
+ * because the room was drawn 1.2m wider than the wall: the overrun landed on
+ * visible floor. The shell is now drawn at the true wall length — which is what
+ * makes a run built wall to wall look built in — so an overhanging cabinet
+ * hangs over nothing at all, and reads as a broken renderer rather than a
+ * design that does not fit.
+ *
+ * So the run sets the floor, and the UI says which run is holding it. Shortening
+ * the design is the customer's decision to make, not something to infer from a
+ * number they typed.
  */
 export function setWallWidth(
 	layout: PlannerLayout,
 	wallWidthMm: number,
 ): PlannerLayout {
-	const clamped = Math.min(
-		WALL_LIMITS.maxMm,
-		Math.max(WALL_LIMITS.minMm, Math.round(wallWidthMm)),
+	// The run's floor is applied last so it always wins.
+	const clamped = Math.max(
+		minWallWidthMm(layout),
+		Math.min(WALL_LIMITS.maxMm, Math.round(wallWidthMm)),
 	);
 	return clamped === layout.wallWidthMm
 		? layout
@@ -634,10 +880,29 @@ export function setCeilingHeight(
 		: { ...layout, ceilingHeightMm: clamped };
 }
 
-/** How far the run overhangs the wall, if at all. */
+/**
+ * How far the run overhangs the wall, if at all.
+ *
+ * `setWallWidth` will not produce this any more and no placement path can, so
+ * in practice it reports zero. It stays as the guard on the invariant — and it
+ * stops being theoretical the moment share links land, since a layout parsed
+ * from JSON has been through no setter at all.
+ */
 export function overhangMm(layout: PlannerLayout): number {
-	const end = Math.max(rowEndMm(layout, "floor"), rowEndMm(layout, "wall"));
-	return Math.max(0, end - layout.wallWidthMm);
+	return Math.max(0, runExtentMm(layout) - layout.wallWidthMm);
+}
+
+/** The modules crossing the end of the wall, for the scene to flag. */
+export function overhangingIds(layout: PlannerLayout): ReadonlySet<string> {
+	const ids = new Set<string>();
+	for (const row of ["floor", "wall"] as const) {
+		for (const position of positionsOf(layout, row)) {
+			if (position.xMm + position.widthMm > layout.wallWidthMm) {
+				ids.add(position.placed.id);
+			}
+		}
+	}
+	return ids;
 }
 
 /**

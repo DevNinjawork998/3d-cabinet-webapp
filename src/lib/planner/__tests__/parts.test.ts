@@ -12,6 +12,7 @@ import {
 	frontZMm,
 	LEG_DIAMETER_MM,
 	type PartRole,
+	PLINTH_RECESS_MM,
 	shelfHeightsMm,
 	standOf,
 } from "../parts";
@@ -192,13 +193,16 @@ describe("what a cabinet stands on", () => {
 		expect(standOf(withGeometry(base, {}))).toEqual({
 			heightMm: CONSTRUCTION.plinthHeightMm,
 			legs: 0,
+			insetMm: PLINTH_RECESS_MM,
 		});
 	});
 
 	// The client's BC 800mm: four Häfele levellers at 100mm.
 	it("stands on the feet the design was drawn with", () => {
 		const family = withGeometry(base, { legs: 4, legHeightMm: 100 });
-		expect(standOf(family)).toEqual({ heightMm: 100, legs: 4 });
+		// The kick board clips to the front of these feet, so the inset comes
+		// back with them — 35 is the fallback for a design that did not record it.
+		expect(standOf(family)).toEqual({ heightMm: 100, legs: 4, insetMm: 35 });
 
 		const legs = rolesOf(cabinetPartsMm(family, 800, false), "leg");
 		expect(legs).toHaveLength(4);
@@ -248,7 +252,7 @@ describe("what a cabinet stands on", () => {
 	it("gives a wall unit neither feet nor a plinth", () => {
 		const wall = familyById("wall-cabinet");
 		const family = withGeometry(wall, { legs: 4, legHeightMm: 100 });
-		expect(standOf(family)).toEqual({ heightMm: 0, legs: 0 });
+		expect(standOf(family)).toEqual({ heightMm: 0, legs: 0, insetMm: 0 });
 		expect(rolesOf(cabinetPartsMm(family, 600, false), "leg")).toHaveLength(0);
 	});
 });

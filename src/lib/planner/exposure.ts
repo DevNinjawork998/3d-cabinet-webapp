@@ -9,6 +9,10 @@ import type { Positioned } from "./layout";
  * scene drew every side as melamine, which made the most camera-facing surface
  * in the default 3/4 view the one wrong material in the picture.
  *
+ * A neighbour is not the only thing that can bury a side: so can a wall. Pass
+ * `EndWalls` and the run's two outer ends stop counting as exposed, which is
+ * what a kitchen built into an alcove actually looks like.
+ *
  * Pure, and framework-free per `lib/planner`: it reads a row the way
  * `positionsOf` already hands it over — sorted left to right — and answers a
  * question about neighbours, not about geometry.
@@ -23,6 +27,16 @@ const TOUCHING_MM = 1;
 
 export type ExposedSides = { left: boolean; right: boolean };
 
+/**
+ * The return walls at the ends of the run, when the room has them.
+ *
+ * A cabinet against a wall has its side buried, so it needs no end panel even
+ * though no cabinet sits next to it. Without this the run's two outer ends are
+ * always reported exposed, and a kitchen built into an alcove gets veneer — and
+ * a charge — for two faces nobody can see.
+ */
+export type EndWalls = { wallWidthMm: number; enclosed: boolean };
+
 /** Both sides — what a cabinet standing on its own wears. */
 export const FULLY_EXPOSED: ExposedSides = { left: true, right: true };
 
@@ -34,6 +48,8 @@ export const FULLY_EXPOSED: ExposedSides = { left: true, right: true };
 export function exposedSides(
 	positions: Positioned[],
 	index: number,
+	/** Omit when the run's ends stand in open space, which is the default. */
+	walls?: EndWalls,
 ): ExposedSides {
 	const self = positions[index];
 	if (!self) return FULLY_EXPOSED;
@@ -51,6 +67,14 @@ export function exposedSides(
 		const otherEnd = other.xMm + other.widthMm;
 		if (Math.abs(otherEnd - self.xMm) <= TOUCHING_MM) left = false;
 		if (Math.abs(other.xMm - selfEnd) <= TOUCHING_MM) right = false;
+	}
+
+	// A wall buries a side exactly as a neighbour does, and the same tolerance
+	// decides it: these are the run's own end coordinates, so "touching" here
+	// means the same thing it means between two cabinets.
+	if (walls?.enclosed) {
+		if (Math.abs(self.xMm) <= TOUCHING_MM) left = false;
+		if (Math.abs(walls.wallWidthMm - selfEnd) <= TOUCHING_MM) right = false;
 	}
 
 	return { left, right };

@@ -203,6 +203,28 @@ export function QuoteScreen({
 							{finishLabel} · {frontLabel}
 						</p>
 					</div>
+					<ul className="flex flex-col gap-1 border-neutral-200 border-t pt-3">
+						{price.categories.map((line) => (
+							<li
+								key={line.label}
+								className="flex items-baseline justify-between gap-2 text-[12px]"
+							>
+								<span className="min-w-0 text-neutral-600">
+									{line.label}{" "}
+									<span className="text-[11px] text-neutral-400">
+										{line.detail}
+									</span>
+								</span>
+								<span className="shrink-0 tabular-nums">
+									{line.amountRm.toLocaleString("en-MY", {
+										minimumFractionDigits: 2,
+										maximumFractionDigits: 2,
+									})}
+								</span>
+							</li>
+						))}
+					</ul>
+
 					<div className="flex items-baseline justify-between border-neutral-200 border-t pt-3">
 						<span className="text-[13px] text-neutral-500">
 							Estimated total

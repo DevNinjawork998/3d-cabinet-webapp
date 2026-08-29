@@ -69,6 +69,10 @@ export const LEG_DIAMETER_MM = 50;
  * to substitute for the other. The client's own file measures 17.
  */
 const LEG_INSET_MM = 35;
+
+/** How far a plinth is set back from the carcass front when there are no feet
+ * to clip to — the toe recess the scene has always drawn. */
+export const PLINTH_RECESS_MM = 30;
 /** A door or drawer front is thicker board than the carcass. */
 export const FRONT_THICKNESS_MM = 18;
 
@@ -79,20 +83,34 @@ export const isInteriorPart = (role: PartRole) =>
 	role === "back" || role === "shelf";
 
 /**
- * How far off the floor the carcass sits, and on what.
+ * How far off the floor the carcass sits, on what, and how far that is tucked
+ * back from the front.
  *
  * A design that recorded feet stands on them; everything else keeps the
  * recessed plinth the scene has always drawn. Wall units sit on neither.
+ *
+ * `insetMm` is what a kick board has to respect. On feet it is the leg inset,
+ * because a real kick clips to the front of the legs — set the board back any
+ * further and the feet it exists to hide are still showing. The client's own
+ * file measures 17mm, so this cannot be a fixed guess.
  */
 export function standOf(family: Family) {
 	if (family.kind === "wall") {
-		return { heightMm: 0, legs: 0 };
+		return { heightMm: 0, legs: 0, insetMm: 0 };
 	}
 	const legs = family.geometry?.legs ?? 0;
 	const legHeightMm = family.geometry?.legHeightMm ?? 0;
 	return legs > 0 && legHeightMm > 0
-		? { heightMm: legHeightMm, legs }
-		: { heightMm: CONSTRUCTION.plinthHeightMm, legs: 0 };
+		? {
+				heightMm: legHeightMm,
+				legs,
+				insetMm: family.geometry?.legInsetMm || LEG_INSET_MM,
+			}
+		: {
+				heightMm: CONSTRUCTION.plinthHeightMm,
+				legs: 0,
+				insetMm: PLINTH_RECESS_MM,
+			};
 }
 
 /**

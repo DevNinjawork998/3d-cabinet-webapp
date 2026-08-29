@@ -3,7 +3,6 @@ import type { ThreeEvent } from "@react-three/fiber";
 import {
 	CARCASS_COLOR,
 	CARCASS_INTERIOR_COLOR,
-	CONSTRUCTION,
 	type DoorStyle,
 	type Family,
 	GLASS_COLOR,
@@ -80,6 +79,7 @@ export function Cabinet({
 	finishPhoto,
 	selected,
 	highlighted,
+	overhanging = false,
 	exposed = FULLY_EXPOSED,
 	onPointerDown,
 	onPointerMove,
@@ -107,6 +107,8 @@ export function Cabinet({
 	/** A door is being dragged over this one right now, or the measuring tool
 	 * is hovering it. */
 	highlighted?: boolean;
+	/** Crossing the end of the wall — a design that cannot be built as drawn. */
+	overhanging?: boolean;
 	/** Which of this cabinet's outer sides nothing sits against, so the end of
 	 * a run can be veneered the way a fitter really finishes it. Defaults to
 	 * both, which is what a cabinet drawn on its own wears. */
@@ -126,16 +128,17 @@ export function Cabinet({
 	const w = m(widthMm);
 	const d = m(family.depthMm);
 	const h = m(family.heightMm);
-	const t = m(CONSTRUCTION.panelThicknessMm);
-	const plinth = family.kind === "wall" ? 0 : m(CONSTRUCTION.plinthHeightMm);
-	const carcassH = h - plinth;
+	const stand = standOf(family);
+	// What the carcass sits on: recorded feet, or the plinth height. Read off
+	// `standOf` rather than assuming the plinth, so a legged family scales its
+	// grain against the box that is actually drawn.
+	const carcassH = h - m(stand.heightMm);
 	const base = m(floorHeightMm);
 
 	// Every box this cabinet is drawn from, in millimetres. The same call the
 	// measuring tool makes, so a dimension line can never disagree with the
 	// cabinet it is drawn against — see `lib/planner/parts.ts`.
 	const parts = cabinetPartsMm(family, widthMm, door !== null);
-	const stand = standOf(family);
 	const carcassParts = parts.filter(
 		(part) =>
 			part.role !== "doorLeaf" &&
@@ -146,8 +149,16 @@ export function Cabinet({
 	const leaves = parts.filter((part) => part.role === "doorLeaf");
 	const drawerFronts = parts.filter((part) => part.role === "drawerFront");
 
-	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
-	const emissive = highlighted ? "#15803d" : "#2b6cb0";
+	// Overhanging wins over both: a cabinet past the end of the wall is a
+	// problem to fix, and that outranks showing it as hovered or picked. Amber
+	// is the colour the sidebar warning already uses, so the two read as one
+	// message rather than two unrelated signals.
+	const emphasis = overhanging ? 0.55 : highlighted ? 0.6 : selected ? 0.35 : 0;
+	const emissive = overhanging
+		? "#b45309"
+		: highlighted
+			? "#15803d"
+			: "#2b6cb0";
 
 	// Same trick the doors use: a fraction derived from where the cabinet sits,
 	// so two end panels in one room are cut from different parts of the sheet
@@ -185,15 +196,9 @@ export function Cabinet({
 				/>
 			) : (
 				<>
-					{/* Plinth: the recessed kick under a floor-standing unit. A design
-			    that recorded its own feet stands on those instead — they come
-			    through `cabinetPartsMm` as `leg` parts. */}
-					{stand.legs === 0 && plinth > 0 && (
-						<mesh position={[0, plinth / 2, -m(30)]}>
-							<boxGeometry args={[w - t, plinth, d - m(60)]} />
-							<meshStandardMaterial color="#3a3835" roughness={0.9} />
-						</mesh>
-					)}
+					{/* No plinth here any more: the kick board spans the whole run and
+			    is drawn once by `Skirting` in `PlannerScene`, which also covers
+			    the drafted-mesh path this fallback never reached. */}
 
 					{/* The feet the design was drawn with. Cylinders, because a leveller
 			    is round and a box here reads as a stubby plinth leg. */}

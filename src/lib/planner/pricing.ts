@@ -2,12 +2,19 @@ import {
 	doorPriceRmIn,
 	doorStyleIn,
 	type FinishId,
+	type ModuleKind,
 	PLANNER_CATALOGUE,
 	RATES,
 	sizePriceRmIn,
 } from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
-import { type PlannerLayout, type Positioned, positionsOf } from "./layout";
+import {
+	endPanels,
+	type PlannerLayout,
+	type Positioned,
+	positionsOf,
+	skirtingSpans,
+} from "./layout";
 
 /**
  * Indicative planner pricing.
@@ -50,6 +57,12 @@ type KitchenPrice = {
 	>;
 	categories: PriceLine[];
 	worktopFt: number;
+	/** Zero unless the run goes to the ceiling; see `ceilingTrimFt`. */
+	ceilingTrimFt: number;
+	/** Kick board along the floor run; see `skirtingFt`. */
+	skirtingFt: number;
+	/** Finished panels over the cabinet sides nothing hides. */
+	endPanelCount: number;
 	totalRm: number;
 };
 
@@ -82,6 +95,58 @@ export function worktopFt(layout: PlannerLayout): number {
 	return ftOf(mm);
 }
 
+/**
+ * The strip capping a floor-to-ceiling run is charged like the worktop: it is
+ * a length, cut to the cabinets under it. Nothing to charge when the run
+ * hangs, because then there is no strip.
+ */
+export function ceilingTrimFt(layout: PlannerLayout): number {
+	if (!layout.wallToCeiling) return 0;
+	const mm = positionsOf(layout, "wall").reduce(
+		(total, position) => total + position.widthMm,
+		0,
+	);
+	return ftOf(mm);
+}
+
+/**
+ * The kick board is charged by the spans it is actually cut into, not by the
+ * cabinets' total width — a gap in the run breaks the board, and charging
+ * across the gap would bill for a piece nobody fits. Same rule as the worktop.
+ */
+export function skirtingFt(layout: PlannerLayout): number {
+	const mm = skirtingSpans(layout).reduce(
+		(total, span) => total + (span.endMm - span.startMm),
+		0,
+	);
+	return ftOf(mm);
+}
+
+const END_PANEL_RM: Record<ModuleKind, keyof typeof RATES> = {
+	base: "endPanelBaseRm",
+	wall: "endPanelWallRm",
+	tall: "endPanelTallRm",
+};
+
+/**
+ * The finished panels, counted and priced by what they clad. Charged per piece
+ * — a panel is one board cut, edged and fixed — but a tall unit's is several
+ * times the board of a wall unit's, so the rate is per kind rather than flat.
+ */
+export function endPanelPriceRm(layout: PlannerLayout): {
+	count: number;
+	amountRm: number;
+} {
+	const panels = endPanels(layout);
+	return {
+		count: panels.length,
+		amountRm: panels.reduce(
+			(total, panel) => total + RATES[END_PANEL_RM[panel.kind]],
+			0,
+		),
+	};
+}
+
 export function computePlannerPrice(
 	layout: PlannerLayout,
 	_finish: FinishId,
@@ -112,6 +177,9 @@ export function computePlannerPrice(
 	const doorTotal = cabinets.reduce((sum, line) => sum + line.doorRm, 0);
 	const doorCount = cabinets.filter((line) => line.doorRm > 0).length;
 	const tops = worktopFt(layout);
+	const trim = ceilingTrimFt(layout);
+	const skirting = skirtingFt(layout);
+	const panels = endPanelPriceRm(layout);
 
 	const categories: PriceLine[] = [
 		{
@@ -134,10 +202,39 @@ export function computePlannerPrice(
 		},
 	];
 
+	// Only when there is one — an empty line reads as a charge the customer
+	// cannot see the reason for.
+	if (trim > 0) {
+		categories.push({
+			label: "Ceiling trim",
+			detail: `${trim.toFixed(2)} ft @ RM ${RATES.ceilingTrimRmPerFt}/ft`,
+			amountRm: trim * RATES.ceilingTrimRmPerFt,
+		});
+	}
+
+	if (skirting > 0) {
+		categories.push({
+			label: "Skirting",
+			detail: `${skirting.toFixed(2)} ft @ RM ${RATES.skirtingRmPerFt}/ft`,
+			amountRm: skirting * RATES.skirtingRmPerFt,
+		});
+	}
+
+	if (panels.count > 0) {
+		categories.push({
+			label: "End panels",
+			detail: `${panels.count} ${panels.count === 1 ? "panel" : "panels"} over exposed sides`,
+			amountRm: panels.amountRm,
+		});
+	}
+
 	return {
 		cabinets,
 		categories,
 		worktopFt: tops,
+		ceilingTrimFt: trim,
+		skirtingFt: skirting,
+		endPanelCount: panels.count,
 		totalRm: categories.reduce((total, line) => total + line.amountRm, 0),
 	};
 }

@@ -1,5 +1,5 @@
 import { WALL_GAP_MM } from "./catalogue";
-import type { PlannerLayout, Positioned } from "./layout";
+import { floorHeightMmOf, type PlannerLayout, type Positioned } from "./layout";
 import { cabinetPartsMm, type PartRole, type Vec3Mm } from "./parts";
 
 /**
@@ -27,7 +27,10 @@ import { cabinetPartsMm, type PartRole, type Vec3Mm } from "./parts";
  * snap point is guaranteed to sit exactly on the cabinet that's actually
  * drawn. Duplicating the transform is deliberate — pure geometry stays
  * testable against JSON fixtures without touching react-three-fiber, per
- * `lib/planner` being framework-free. The cabinet's *interior* is not
+ * `lib/planner` being framework-free. The one part that is *not* duplicated
+ * is how high a cabinet sits: `floorHeightMmOf` is shared with the scene,
+ * because that rule now has a mode in it and a second copy would be a
+ * measuring tool quoting a number the customer cannot see on screen. The cabinet's *interior* is not
  * duplicated: that comes from `parts.ts`, which the renderer reads too.
  */
 
@@ -49,10 +52,7 @@ export function cabinetBoundsMm(
 	layout: PlannerLayout,
 ): CabinetBoundsMm {
 	const runWidthMm = layout.wallWidthMm;
-	const floorHeightMm =
-		position.family.kind === "wall"
-			? layout.hangingHeightMm
-			: position.family.floorHeightMm;
+	const floorHeightMm = floorHeightMmOf(position, layout);
 
 	const minX = position.xMm - runWidthMm / 2;
 	const maxX = minX + position.widthMm;
