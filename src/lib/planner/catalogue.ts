@@ -60,6 +60,20 @@ export const CONSTRUCTION = {
 export const RATES = {
 	/** PLACEHOLDER — RM per running foot of worktop. */
 	worktopRmPerFt: 200,
+	/** PLACEHOLDER — RM per running foot of the strip that caps a
+	 * floor-to-ceiling wall run. A ceiling is never level, so this is a
+	 * scribed piece: real board and real fitting time. */
+	ceilingTrimRmPerFt: 60,
+	/** PLACEHOLDER — RM per running foot of skirting. Board plus the fitting
+	 * time to scribe it to a floor that is never flat. */
+	skirtingRmPerFt: 42,
+	/** PLACEHOLDER — RM per finished end panel, one rate per kind because a
+	 * tall unit's panel is several times the board of a wall unit's. Flat keys
+	 * rather than a nested object: `setActivePlannerCatalogue` merges rates with
+	 * `Object.assign`, so a nested partial would drop whatever it omitted. */
+	endPanelBaseRm: 150,
+	endPanelWallRm: 90,
+	endPanelTallRm: 330,
 };
 /** Underside of the wall cabinets — the sample job's own hanging height. */
 export const WALL_CABINET_FLOOR_MM = 1500;
@@ -70,6 +84,14 @@ export const WALL_HANG_LIMITS = { minMm: 1200, maxMm: 1800 } as const;
  * (`measure.ts`) — both need to agree on exactly where a cabinet's back
  * face sits, so this lives here rather than duplicated in either. */
 export const WALL_GAP_MM = 5;
+
+/**
+ * The strip that caps a floor-to-ceiling wall run. The cabinets stop this far
+ * below the ceiling and the strip fills the rest, which is how the run is
+ * actually built — a ceiling is out of level by more than a carcass can hide,
+ * so the last piece is scribed to it rather than being part of the cabinet.
+ */
+export const CEILING_TRIM_MM = 40;
 
 /**
  * Front-to-back room depth is the room's, not the catalogue's — see the

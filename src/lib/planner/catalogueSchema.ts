@@ -117,6 +117,17 @@ export type Construction = z.infer<typeof constructionSchema>;
 
 const ratesSchema = z.object({
 	worktopRmPerFt: z.number().min(0),
+	/** Optional, not required: `rates` itself is optional, so a catalogue
+	 * published with a rates object but without this key must keep parsing.
+	 * Absent means `catalogue.ts`'s `RATES` fallback stands, the same way
+	 * `construction` works. */
+	ceilingTrimRmPerFt: z.number().min(0).optional(),
+	/** Optional for the same reason as `ceilingTrimRmPerFt`. */
+	skirtingRmPerFt: z.number().min(0).optional(),
+	/** Per finished end panel, by cabinet kind. Optional like the rest. */
+	endPanelBaseRm: z.number().min(0).optional(),
+	endPanelWallRm: z.number().min(0).optional(),
+	endPanelTallRm: z.number().min(0).optional(),
 });
 export type Rates = z.infer<typeof ratesSchema>;
 
