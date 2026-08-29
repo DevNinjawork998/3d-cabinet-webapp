@@ -510,7 +510,13 @@ export function TutorialManager({ initial }: { initial: Row[] }) {
 											// this is an admin list behind a login.
 											// biome-ignore lint/performance/noImgElement: see above
 											<img
-												src={posterUrl(row.playbackId, 180)}
+												// The span is 60x40; ask Mux for it at 3x rather
+												// than letting object-cover crop a portrait frame.
+												src={posterUrl(row.playbackId, {
+													width: 180,
+													height: 120,
+													durationSec: row.durationSec,
+												})}
 												alt=""
 												className="h-full w-full object-cover"
 											/>

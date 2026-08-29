@@ -78,9 +78,48 @@ export function durationLabel(seconds: number | null): string | null {
 }
 
 /**
+ * How far into a video to take the poster from, as a fraction of its length.
+ *
+ * Not frame zero, which is what Mux gives you by default and what this used to
+ * ask for. A DIY tutorial is shot on a phone, and frame zero is whatever the
+ * camera happened to be pointing at while the person reached for the record
+ * button — on the client's first upload, a floor tile and half a toilet. A few
+ * seconds in, it is pointing at the cabinet.
+ */
+const POSTER_AT = 0.1;
+
+/** Fallback for a video whose duration Mux has not reported yet. */
+const POSTER_FALLBACK_SEC = 3;
+
+/**
  * Mux renders a poster frame from the playback id, so a card needs no separate
  * thumbnail upload and no image in Blob.
+ *
+ * **`fit_mode=smartcrop` needs both a width and a height.** Given only a width
+ * it does not crop to an aspect ratio — it returns the frame at the source's
+ * own, and for a portrait phone video that is a tall strip which the card's
+ * `object-cover` then slices a meaningless band out of. Worse, at 640 wide Mux
+ * rejects it outright with `crop width cannot be larger than the source video`
+ * and the public page renders a broken image. Both are what this looked like
+ * before: an admin thumbnail of flat grey, and no poster at all on /tutorials.
+ *
+ * So the caller passes the box it is filling, and Mux returns exactly that.
  */
-export function posterUrl(playbackId: string, width = 640): string {
-	return `https://image.mux.com/${playbackId}/thumbnail.webp?width=${width}&fit_mode=smartcrop`;
+export function posterUrl(
+	playbackId: string,
+	{
+		width = 640,
+		height = 360,
+		durationSec,
+	}: { width?: number; height?: number; durationSec?: number | null } = {},
+): string {
+	const time = Math.max(
+		1,
+		Math.round(
+			durationSec && durationSec > 0
+				? durationSec * POSTER_AT
+				: POSTER_FALLBACK_SEC,
+		),
+	);
+	return `https://image.mux.com/${playbackId}/thumbnail.webp?width=${width}&height=${height}&fit_mode=smartcrop&time=${time}`;
 }

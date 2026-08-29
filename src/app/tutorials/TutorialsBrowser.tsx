@@ -150,7 +150,9 @@ export function TutorialsBrowser({
 											    remote pattern for it is more moving parts than the
 											    optimisation buys on an already-optimised WebP. */}
 											<img
-												src={posterUrl(t.playbackId)}
+												src={posterUrl(t.playbackId, {
+													durationSec: t.durationSec,
+												})}
 												alt=""
 												loading="lazy"
 												className="h-full w-full object-cover"

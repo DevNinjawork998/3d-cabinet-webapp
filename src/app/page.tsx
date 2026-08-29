@@ -236,52 +236,81 @@ export default async function Home() {
 				</div>
 			</header>
 
-			{/* Hero — asymmetric split. Four text elements, no more: eyebrow,
-			    headline, subtext, CTAs. The price moved down to the fact strip. */}
-			<section className="mx-auto grid w-full max-w-[1180px] grid-cols-1 items-center gap-12 px-6 pt-14 pb-16 sm:px-8 lg:grid-cols-[1.15fr_1fr] lg:gap-16 lg:pt-20">
-				{/* min-w-0 on both columns: a grid item's default `min-width:auto`
-				    lets long content push the track wider than its 1fr share. */}
-				<div className="min-w-0">
-					<p
-						className="mb-4 font-semibold text-xs uppercase tracking-[0.1em]"
-						style={{ color: ACCENT }}
-					>
-						Free to try · no account needed
-					</p>
-					<h1 className="mb-5 text-balance font-bold text-[38px] leading-[1.05] tracking-tight sm:text-[46px]">
-						Design your kitchen in 3D. See the price as you build.
-					</h1>
-					<p className="mb-8 max-w-[460px] text-[16px] text-neutral-600 leading-6">
-						Drop real Infinite Cabinet units into your own room, view it from
-						every angle, and send us the plan.
-					</p>
-					<div className="flex flex-wrap items-center gap-3">
-						<Link
-							href="/planner"
-							className="rounded-xl bg-neutral-900 px-7 py-3.5 font-medium text-[14px] text-white transition-transform active:translate-y-px"
-						>
-							Start planning
-						</Link>
-						<a
-							href="#how"
-							className="rounded-xl border bg-transparent px-7 py-3.5 font-medium text-[14px] transition-colors active:translate-y-px"
-							style={{ borderColor: RULE, color: ACCENT }}
-						>
-							How it works
-						</a>
-					</div>
-				</div>
-				<div className="min-w-0">
-					{/* The board in the fallback is the supplier decor scan the planner
-					    already ships and already renders on its doors, so the homepage
-					    and the 3D cabinet show the same surface. A client upload to
-					    the hero slot replaces it. */}
+			{/* Hero — full bleed.
+			    The photograph is the argument. A kitchen someone can imagine
+			    standing in does more work than any sentence, which is why this
+			    stopped being a column of text beside a swatch: the image is now
+			    the section, and the words sit on it.
+
+			    It has to hold up before that photo exists, though — the
+			    `SiteImage` table starts empty and the client's photography
+			    arrives when it arrives. So the fallback is not a grey box
+			    waiting to be replaced: it is the finish the planner actually
+			    renders on its doors, banded into a deep gradient, which reads as
+			    a deliberate dark hero rather than a hole. One upload to the
+			    `hero` slot at /admin/site-content swaps it, no code change. */}
+			<section className="relative isolate w-full overflow-hidden">
+				<div className="absolute inset-0 -z-20 bg-neutral-900">
 					<Photo
 						url={photo.get(HERO_SLOT) ?? null}
 						alt="A finished Infinite Cabinet kitchen"
 						fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
-						className="h-[300px] w-full rounded-xl sm:h-[440px]"
+						className="h-full w-full"
 					/>
+				</div>
+
+				{/* Two overlays, not one. A flat scrim dims the photo evenly and
+				    leaves the text no more legible than before; this darkens the
+				    left, where the words are, and lets the right side of the
+				    photograph stay bright. The bottom fade is what stops the
+				    headline fighting whatever the camera found down there. */}
+				<div
+					className="-z-10 absolute inset-0"
+					style={{
+						background:
+							"linear-gradient(100deg, rgba(14,15,14,.86) 0%, rgba(14,15,14,.72) 38%, rgba(14,15,14,.22) 78%, rgba(14,15,14,.12) 100%)",
+					}}
+					aria-hidden
+				/>
+				<div
+					className="-z-10 absolute inset-x-0 bottom-0 h-1/3"
+					style={{
+						background:
+							"linear-gradient(to top, rgba(14,15,14,.55), transparent)",
+					}}
+					aria-hidden
+				/>
+
+				<div className="mx-auto flex min-h-[clamp(460px,68vh,640px)] w-full max-w-[1180px] flex-col justify-center px-6 py-20 sm:px-8 sm:py-24">
+					<p className="mb-5 font-semibold text-[11px] text-white/70 uppercase tracking-[0.16em]">
+						Free to try · no account needed
+					</p>
+					{/* The accent word is the product, not decoration — the template
+					    this follows colours a noun, and the noun worth colouring
+					    here is the thing nobody else in the market offers. */}
+					<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-white leading-[1.02] tracking-[-0.02em]">
+						Design your kitchen <span style={{ color: "#8fc4a8" }}>in 3D</span>
+					</h1>
+					<p className="mt-6 max-w-[46ch] text-[17px] text-white/75 leading-7">
+						Drop real Infinite Cabinet units into your own room, see the price
+						move as you build, and send us the plan.
+					</p>
+					<div className="mt-9 flex flex-wrap items-center gap-3">
+						<Link
+							href="/planner"
+							className="rounded-xl bg-white px-8 py-4 font-semibold text-[15px] text-neutral-900 transition-transform active:translate-y-px"
+						>
+							Start planning
+						</Link>
+						{/* Ghost, not a second solid button: two equal buttons make the
+						    customer choose, and the choice we want is the planner. */}
+						<a
+							href="#how"
+							className="rounded-xl border border-white/30 px-8 py-4 font-medium text-[15px] text-white/90 transition-colors hover:border-white/60 active:translate-y-px"
+						>
+							How it works
+						</a>
+					</div>
 				</div>
 			</section>
 
