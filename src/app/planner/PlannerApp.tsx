@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CatalogueProvider } from "@/components/planner/CatalogueContext";
 import { QuoteScreen } from "@/components/planner/QuoteScreen";
 import {
 	type StartPreset,
@@ -30,6 +31,30 @@ const initialRooms = (): Record<RoomTypeId, PlannerLayout> =>
 	) as Record<RoomTypeId, PlannerLayout>;
 
 export function PlannerApp({
+	initialRoomId,
+	catalogue,
+	finishTextures,
+}: {
+	initialRoomId: RoomTypeId;
+	/** The live published catalogue. */
+	catalogue: PlannerCatalogue;
+	/** Finish id → uploaded decor photo, for the finishes that have one. The
+	 * same upload that gives the landing page its swatch, so the strip and the
+	 * cabinet show the same board. */
+	finishTextures: Record<string, string>;
+}) {
+	return (
+		<CatalogueProvider catalogue={catalogue}>
+			<PlannerScreens
+				initialRoomId={initialRoomId}
+				catalogue={catalogue}
+				finishTextures={finishTextures}
+			/>
+		</CatalogueProvider>
+	);
+}
+
+function PlannerScreens({
 	initialRoomId,
 	catalogue,
 	finishTextures,
