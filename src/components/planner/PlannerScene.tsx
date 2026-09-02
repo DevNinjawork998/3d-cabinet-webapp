@@ -274,6 +274,7 @@ function Run({
 	finishHex,
 	finishPhoto,
 	selectedIds,
+	openIds,
 	doorTargetId,
 	measureMode,
 	measureAxis,
@@ -288,6 +289,8 @@ function Run({
 	/** The uploaded decor photo for this finish, if the client has supplied one. */
 	finishPhoto: string | null;
 	selectedIds: ReadonlySet<string>;
+	/** The cabinets whose doors are swung open. */
+	openIds: ReadonlySet<string>;
 	/** The carcass a door is currently being dragged over, if any. */
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
@@ -526,6 +529,8 @@ function Run({
 							? (doorStyle(position.placed.doorStyleId) ?? null)
 							: null
 					}
+					hinge={position.placed.hinge}
+					doorsOpen={openIds.has(position.placed.id)}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
 					floorHeightMm={floorHeightMmOf(position, layout)}
@@ -877,11 +882,15 @@ function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
 	);
 }
 
+/** Module-level so the default never changes identity between renders. */
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
 export default function PlannerScene({
 	layout,
 	finish,
 	finishTextures = {},
 	selectedIds,
+	openIds = EMPTY_IDS,
 	doorTargetId,
 	measureMode = false,
 	measurePoints = [],
@@ -905,6 +914,10 @@ export default function PlannerScene({
 	 */
 	finishTextures?: Record<string, string>;
 	selectedIds: ReadonlySet<string>;
+	/** The cabinets whose doors are swung open. Optional and empty by default:
+	 * the quote screen's preview draws the same scene with no controls on it,
+	 * and a shut door is what a customer expects to be quoted. */
+	openIds?: ReadonlySet<string>;
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
 	 * selecting or dragging it. */
@@ -969,6 +982,7 @@ export default function PlannerScene({
 				finishHex={finishHex}
 				finishPhoto={finishPhoto}
 				selectedIds={selectedIds}
+				openIds={openIds}
 				doorTargetId={doorTargetId}
 				measureMode={measureMode}
 				measureAxis={measureAxis}

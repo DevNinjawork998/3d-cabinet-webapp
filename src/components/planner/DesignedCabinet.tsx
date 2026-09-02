@@ -4,6 +4,7 @@ import {
 	decodeRenderMesh,
 	type MeshGroup,
 	type MeshGroupRole,
+	splitDoorLeaves,
 } from "@/lib/mesh/renderMesh";
 import {
 	CARCASS_COLOR,
@@ -11,8 +12,10 @@ import {
 	type DoorStyle,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
+import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
 import { useFrontSurface, useGrain } from "./grain";
+import { Hinge, hingeOf } from "./Hinge";
 
 /**
  * A cabinet drawn from the model the drafter actually made.
@@ -224,6 +227,8 @@ function Group({
 export function DesignedCabinet({
 	groups,
 	door,
+	hinge,
+	open,
 	finishHex,
 	finishPhoto,
 	sheetOffset,
@@ -233,6 +238,10 @@ export function DesignedCabinet({
 	groups: MeshGroup[];
 	/** `null` while it is still a bare carcass — the fronts are not drawn. */
 	door: DoorStyle | null;
+	/** Which stile a lone leaf hangs on. */
+	hinge: HingeSide;
+	/** Swing the doors open. */
+	open: boolean;
 	finishHex: string;
 	finishPhoto: string | null;
 	/** Where in the decor sheet this cabinet's fronts are cut from, so two
@@ -241,23 +250,49 @@ export function DesignedCabinet({
 	selected: boolean;
 	highlighted?: boolean;
 }) {
+	// The doors arrive as one merged group — triangles are bucketed by role at
+	// intake — so a pair has to be cut back into leaves before either of them can
+	// swing on its own. Left to right, so leaf 0 is the left-hand door.
+	//
+	// ponytail: handles classified `hardware` sit in their own group and stay put
+	// while the door moves. Invisible on the client's own export, whose only
+	// hardware is four levellers. If a design lands with handles on it, move this
+	// split up into `buildRenderMesh`, where the drafter's own names
+	// (`Door_L_`, `G-Door(R)`) are still there to group against.
+	const drawn = useMemo(
+		() =>
+			groups.flatMap((group) =>
+				group.role === "door" ? splitDoorLeaves(group) : [group],
+			),
+		[groups],
+	);
+
 	// Keyed on the array identity, which is stable per design because the
 	// loader caches the promise — so placing a fifth copy of a cabinet uploads
 	// nothing new to the GPU.
-	const geometries = useMemo(() => groups.map(geometryOf), [groups]);
+	const geometries = useMemo(() => drawn.map(geometryOf), [drawn]);
+
+	const leaves = drawn.filter((group) => group.role === "door").length;
 
 	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
 	const emissive = highlighted ? "#15803d" : "#2b6cb0";
 
+	let leafIndex = 0;
+
 	return (
 		<>
-			{groups.map((group, i) => {
+			{drawn.map((group, i) => {
 				// A doorless carcass is a real state — the customer has placed a
 				// unit but not chosen a front — and it has to read as an open box.
 				if (isFront(group.role) && !door) return null;
-				return (
+
+				// Role plus left edge, because `door` now repeats: two leaves of one
+				// pair are the same role and only their position tells them apart.
+				const key = `${group.role}-${Math.round(group.bboxMm.min[0])}`;
+
+				const rendered = (
 					<Group
-						key={group.role}
+						key={key}
 						group={group}
 						geometry={geometries[i]}
 						door={door}
@@ -267,6 +302,19 @@ export function DesignedCabinet({
 						emissive={emissive}
 						emphasis={emphasis}
 					/>
+				);
+				if (group.role !== "door") return rendered;
+
+				const side = hingeOf(leafIndex++, leaves, hinge);
+				return (
+					<Hinge
+						key={key}
+						x={m(side === "left" ? group.bboxMm.min[0] : group.bboxMm.max[0])}
+						side={side}
+						open={open}
+					>
+						{rendered}
+					</Hinge>
 				);
 			})}
 		</>

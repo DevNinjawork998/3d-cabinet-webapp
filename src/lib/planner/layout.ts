@@ -46,9 +46,22 @@ type PlacedModule = {
 	widthMm: number;
 	/** The door on it, or `null` for a bare carcass, which is how it starts. */
 	doorStyleId: string | null;
+	/**
+	 * Which stile the door hangs on, so it swings the way the customer wants it
+	 * to. A real spec, not a view setting — a fitter has to be told, so it lives
+	 * in the document and rides through to the SKU list.
+	 *
+	 * Only a single-leaf cabinet gets a choice. A pair always hinges outward from
+	 * the middle, which is the only way a pair is ever hung.
+	 */
+	hinge: HingeSide;
 	/** Left edge of the carcass, from the left end of the run. */
 	xMm: number;
 };
+
+/** The stile a door hangs on. Left is what the scene has always drawn — a lone
+ * leaf with its handle on the right. */
+export type HingeSide = "left" | "right";
 
 export type PlannerLayout = {
 	wallWidthMm: number;
@@ -468,6 +481,7 @@ export function addModule(
 		familyId,
 		widthMm,
 		doorStyleId: null,
+		hinge: "left",
 		xMm: at,
 	};
 	const next = { ...layout, [row]: [...layout[row], placed] };
@@ -555,9 +569,10 @@ export function duplicateModule(
 	);
 	if (added === layout) return layout;
 
+	const withHinge = setHinge(added, newIdValue, source.hinge);
 	return source.doorStyleId
-		? setDoor(added, newIdValue, source.doorStyleId)
-		: added;
+		? setDoor(withHinge, newIdValue, source.doorStyleId)
+		: withHinge;
 }
 
 export function setHangingHeight(
@@ -1009,6 +1024,24 @@ export function setDoor(
 		...layout,
 		[found.row]: layout[found.row].map((module) =>
 			module.id === id ? { ...module, doorStyleId } : module,
+		),
+	};
+}
+
+/** Hang a door on the other stile. Kept off `setDoor` because a customer flips
+ * the swing of a door they have already chosen. */
+export function setHinge(
+	layout: PlannerLayout,
+	id: string,
+	hinge: HingeSide,
+): PlannerLayout {
+	const found = find(layout, id);
+	if (!found) return layout;
+
+	return {
+		...layout,
+		[found.row]: layout[found.row].map((module) =>
+			module.id === id ? { ...module, hinge } : module,
 		),
 	};
 }

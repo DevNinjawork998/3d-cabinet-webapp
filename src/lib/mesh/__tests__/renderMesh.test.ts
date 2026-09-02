@@ -4,6 +4,7 @@ import {
 	buildRenderMesh,
 	decodeRenderMesh,
 	encodeRenderMesh,
+	splitDoorLeaves,
 } from "../renderMesh";
 
 /**
@@ -227,5 +228,58 @@ describe("the binary format", () => {
 
 	it("refuses bytes that are not a cabinet mesh", () => {
 		expect(() => decodeRenderMesh(new Uint8Array(64))).toThrow();
+	});
+});
+
+describe("splitDoorLeaves", () => {
+	/** The same cabinet with its front hung as a pair, 4mm of reveal between the
+	 * leaves — which is what the planner's own `DOOR_GAP_MM` draws. */
+	const PAIR = [
+		inchBox("G-UEnd_(L)", [0, 0, 0], [mm(16), mm(600), mm(720)], 0),
+		inchBox("G-UEnd_(R)", [mm(784), 0, 0], [mm(800), mm(600), mm(720)], 8),
+		inchBox("G-UBack", [0, mm(584), 0], [mm(800), mm(600), mm(720)], 16),
+		inchBox("Door_L_", [0, 0, 0], [mm(398), mm(16), mm(720)], 24),
+		inchBox("Door_R_", [mm(402), 0, 0], [mm(800), mm(16), mm(720)], 32),
+		inchBox("G-Bottom", [mm(16), 0, 0], [mm(784), mm(584), mm(16)], 40),
+		inchBox("G-Top", [mm(16), 0, mm(704)], [mm(784), mm(584), mm(720)], 48),
+		// The shelf earns its place in the up-axis vote: without it the two end
+		// panels tie with the top and bottom and the cabinet comes out on its side.
+		inchBox(
+			"G-Fixed_Shelf",
+			[mm(16), 0, mm(400)],
+			[mm(784), mm(584), mm(416)],
+			56,
+		),
+	].join("\n");
+
+	const doorOf = (obj: string) => {
+		const group = buildRenderMesh(obj)?.groups.find((g) => g.role === "door");
+		if (!group) throw new Error("no door group");
+		return group;
+	};
+
+	it("cuts the merged group back into one leaf per door", () => {
+		const leaves = splitDoorLeaves(doorOf(PAIR));
+		expect(leaves).toHaveLength(2);
+
+		// Left to right, and clear of each other: a leaf that overlapped its
+		// neighbour would swing through it.
+		const [left, right] = leaves;
+		expect(left.bboxMm.max[0]).toBeLessThan(right.bboxMm.min[0]);
+		// 800 wide, centred: each leaf is ~398 of it.
+		expect(left.bboxMm.max[0] - left.bboxMm.min[0]).toBeCloseTo(398, 0);
+		expect(right.bboxMm.max[0] - right.bboxMm.min[0]).toBeCloseTo(398, 0);
+	});
+
+	it("keeps every triangle", () => {
+		const door = doorOf(PAIR);
+		const split = splitDoorLeaves(door);
+		const triangles = split.reduce((n, g) => n + g.indices.length / 3, 0);
+		expect(triangles).toBe(door.indices.length / 3);
+	});
+
+	it("hands a single slab straight back, untouched", () => {
+		const door = doorOf(CABINET);
+		expect(splitDoorLeaves(door)).toEqual([door]);
 	});
 });

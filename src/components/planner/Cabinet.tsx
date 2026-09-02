@@ -10,6 +10,7 @@ import {
 } from "@/lib/planner/catalogue";
 import type { ExposedSides } from "@/lib/planner/exposure";
 import { FULLY_EXPOSED } from "@/lib/planner/exposure";
+import type { HingeSide } from "@/lib/planner/layout";
 import {
 	cabinetPartsMm,
 	FRONT_THICKNESS_MM,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/planner/parts";
 import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
+import { Hinge, hingeOf } from "./Hinge";
 
 /**
  * One cabinet, generated from its family and the size the customer chose.
@@ -72,6 +74,8 @@ export function Cabinet({
 	family,
 	widthMm,
 	door,
+	hinge,
+	doorsOpen = false,
 	xMm,
 	runWidthMm,
 	floorHeightMm,
@@ -93,6 +97,12 @@ export function Cabinet({
 	widthMm: number;
 	/** `null` while it is still a bare carcass. */
 	door: DoorStyle | null;
+	/** Which stile a lone leaf hangs on. A pair ignores it and hinges outward
+	 * from the middle, which is the only way a pair is hung. */
+	hinge: HingeSide;
+	/** Swing the doors open so the customer can see inside. View state, not
+	 * something on the layout — see `StudioScreen`. */
+	doorsOpen?: boolean;
 	/** Left edge along the run. */
 	xMm: number;
 	runWidthMm: number;
@@ -188,6 +198,8 @@ export function Cabinet({
 				<DesignedCabinet
 					groups={designGroups}
 					door={door}
+					hinge={hinge}
+					open={doorsOpen}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
 					sheetOffset={sheetOffset}
@@ -257,6 +269,8 @@ export function Cabinet({
 								parts={leaves}
 								finishPhoto={finishPhoto}
 								door={door}
+								hinge={hinge}
+								open={doorsOpen}
 								finishHex={finishHex}
 								emissive={emissive}
 								emphasis={emphasis}
@@ -479,6 +493,8 @@ function Handle({
 function Doors({
 	parts,
 	door,
+	hinge,
+	open,
 	finishHex,
 	finishPhoto,
 	emissive,
@@ -486,6 +502,8 @@ function Doors({
 }: {
 	parts: PartBoxMm[];
 	door: DoorStyle;
+	hinge: HingeSide;
+	open: boolean;
 	finishHex: string;
 	finishPhoto: string | null;
 	emissive: string;
@@ -494,15 +512,22 @@ function Doors({
 	return (
 		<>
 			{parts.map((leaf) => {
-				// Handles meet in the middle on a pair, like a real hinged run.
-				const side = parts.length === 1 || leaf.index === 0 ? 1 : -1;
+				const side = hingeOf(leaf.index, parts.length, hinge);
+				// The handle goes on the free edge, opposite the hinge, and travels
+				// with the leaf because it is inside the same pivot.
+				const handleSide = side === "left" ? 1 : -1;
 				const x = m(leaf.centreMm.x);
 				const y = m(leaf.centreMm.y);
 				const z = m(leaf.centreMm.z);
 				const leafW = m(leaf.sizeMm.x);
 
 				return (
-					<group key={leaf.index}>
+					<Hinge
+						key={leaf.index}
+						x={x + (side === "left" ? -leafW / 2 : leafW / 2)}
+						side={side}
+						open={open}
+					>
 						<Front
 							door={door}
 							width={leafW}
@@ -516,13 +541,13 @@ function Doors({
 						/>
 						<Handle
 							position={[
-								x + side * (leafW / 2 - m(45)),
+								x + handleSide * (leafW / 2 - m(45)),
 								y,
 								z + m(FRONT_THICKNESS_MM),
 							]}
 							vertical
 						/>
-					</group>
+					</Hinge>
 				);
 			})}
 		</>

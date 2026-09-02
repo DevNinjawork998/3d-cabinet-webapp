@@ -38,6 +38,7 @@ import {
 	setDoor,
 	setDoors,
 	setHangingHeight,
+	setHinge,
 	setRoomDepth,
 	setWallToCeiling,
 	setWallToWall,
@@ -345,6 +346,7 @@ describe("duplicateModule", () => {
 	it("copies family, size and door, and leaves the original where it was", () => {
 		let next = addModule(layout, "base-cabinet", 0, "a", 900);
 		next = setDoor(next, "a", "shaker");
+		next = setHinge(next, "a", "right");
 
 		const dup = duplicateModule(next, "a", "a2");
 		expect(at(dup, "a")).toBe(0);
@@ -352,6 +354,7 @@ describe("duplicateModule", () => {
 		expect(copy?.family.id).toBe("base-cabinet");
 		expect(copy?.widthMm).toBe(900);
 		expect(copy?.placed.doorStyleId).toBe("shaker");
+		expect(copy?.placed.hinge).toBe("right");
 		expect(copy?.xMm).toBeGreaterThanOrEqual(900);
 	});
 
@@ -808,6 +811,22 @@ describe("doors", () => {
 		const before = one();
 		const after = setDoor(before, "a", "glass");
 		expect(at(after, "a")).toBe(at(before, "a"));
+	});
+
+	it("hangs on the left until the customer says otherwise", () => {
+		expect(one().floor[0].hinge).toBe("left");
+	});
+
+	it("rehangs one cabinet without touching its neighbour", () => {
+		let next = one();
+		next = addModule(next, "base-cabinet", 600, "b", 600);
+		next = setHinge(next, "a", "right");
+		expect(next.floor.map((placed) => placed.hinge)).toEqual(["right", "left"]);
+	});
+
+	it("ignores an id that is not placed", () => {
+		const before = one();
+		expect(setHinge(before, "missing", "right")).toBe(before);
 	});
 });
 

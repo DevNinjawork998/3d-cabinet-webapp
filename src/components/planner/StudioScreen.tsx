@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRef, useState } from "react";
+import { splitDoorLeaves } from "@/lib/mesh/renderMesh";
 import {
 	CEILING_LIMITS,
 	DOOR_STYLES,
@@ -23,6 +24,7 @@ import {
 	fits,
 	flushWallToTallTops,
 	freeSpans,
+	type HingeSide,
 	hangingHeightMmOf,
 	minWallWidthMm,
 	overhangMm,
@@ -34,6 +36,7 @@ import {
 	setCeilingHeight,
 	setDoors,
 	setHangingHeight,
+	setHinge,
 	setRoomDepth,
 	setWallToCeiling,
 	setWallToWall,
@@ -53,7 +56,9 @@ import {
 	SNAP_LABEL,
 	type SnapPoint,
 } from "@/lib/planner/measure";
+import { fitOutOf } from "@/lib/planner/parts";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { peekDesignMesh } from "./DesignedCabinet";
 import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
@@ -94,6 +99,44 @@ const RUN_MODES: { toWall: boolean; label: string }[] = [
 	{ toWall: false, label: "Open ends" },
 	{ toWall: true, label: "To walls" },
 ];
+
+/** Doors shut, or swung open so the customer can see the inside they are
+ *  buying. View state, never on the layout — see `openIds`. */
+const DOOR_MODES: { open: boolean; label: string }[] = [
+	{ open: false, label: "Doors closed" },
+	{ open: true, label: "Doors open" },
+];
+
+/** Which stile a lone door hangs on, named the way a fitter says it. */
+const HINGE_SIDES: { side: HingeSide; label: string }[] = [
+	{ side: "left", label: "Hinge left" },
+	{ side: "right", label: "Hinge right" },
+];
+
+/**
+ * How many leaves this cabinet's front is split into — one gets a hinge choice,
+ * a pair does not.
+ *
+ * Read off the *drawn* geometry wherever there is any. The drafted mesh is the
+ * primary path and it disagrees with `fitOutOf` in practice: the client's own
+ * base-cabinet family carries `geometry.doorLeaves: 2` learned from one design,
+ * so every rung claims a pair, while their drawn 600 and 800 are single doors.
+ * Trusting the family there would deny a hinge choice to exactly the cabinets
+ * that need one.
+ *
+ * `peekDesignMesh` is null until the bytes land, and the fallback is then both
+ * the right answer and the geometry actually on screen.
+ */
+const leavesOn = (position: Positioned) => {
+	const groups = peekDesignMesh(
+		position.family.sizes.find((size) => size.widthMm === position.widthMm)
+			?.meshDesignId,
+	);
+	const door = groups?.find((group) => group.role === "door");
+	return door
+		? splitDoorLeaves(door).length
+		: fitOutOf(position.family, position.widthMm).doorLeaves;
+};
 
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
@@ -168,6 +211,11 @@ export function StudioScreen({
 	);
 	const [dragFamilyId, setDragFamilyId] = useState<string | null>(null);
 	const [view, setView] = useState<PlannerView>("3d");
+	// Which cabinets are standing open. Deliberately *not* on the layout: it is
+	// not something the customer buys, so it must not ride along in a share link
+	// or a quote. One set drives both the global toggle and the per-cabinet
+	// button, so the two can never disagree about what is open.
+	const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
 	const [measureMode, setMeasureMode] = useState(false);
 	const [measurePoints, setMeasurePoints] = useState<SnapPoint[]>([]);
 	// Which axis the second pick is pulled onto. `auto` infers it from the
@@ -191,6 +239,11 @@ export function StudioScreen({
 	};
 
 	const placed = allPositions(layout);
+	// Only a cabinet with a front on it has anything to swing.
+	const withDoors = placed.filter(
+		(position) => position.placed.doorStyleId !== null,
+	);
+	const anyOpen = openIds.size > 0;
 	const selection = placed.filter((position) =>
 		selectedSet.has(position.placed.id),
 	);
@@ -277,6 +330,10 @@ export function StudioScreen({
 					onClick={() => {
 						setMeasureMode((on) => !on);
 						setMeasurePoints([]);
+						// A dimension line taken to a door drawn open is a wrong number
+						// shown to a customer: `snapToCabinet` snaps against the closed
+						// geometry either way. Shut them rather than measure a lie.
+						setOpenIds(new Set());
 					}}
 					aria-pressed={measureMode}
 					title="Click two points on a cabinet — a corner, an edge midpoint, or the surface — to measure between them"
@@ -521,6 +578,43 @@ export function StudioScreen({
 									</p>
 								</div>
 							)}
+
+							{withDoors.length > 0 && (
+								<div>
+									<fieldset
+										aria-label="Doors"
+										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
+									>
+										{DOOR_MODES.map((option) => (
+											<button
+												key={String(option.open)}
+												type="button"
+												onClick={() =>
+													setOpenIds(
+														option.open
+															? new Set(withDoors.map((p) => p.placed.id))
+															: new Set(),
+													)
+												}
+												aria-pressed={anyOpen === option.open}
+												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
+													anyOpen === option.open
+														? "bg-white font-medium shadow-sm"
+														: "text-neutral-600 hover:text-neutral-900"
+												}`}
+											>
+												{option.label}
+											</button>
+										))}
+									</fieldset>
+
+									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
+										{anyOpen
+											? "Shelves and interiors are on show. Measuring closes them again."
+											: "Open the doors to see the inside of the run."}
+									</p>
+								</div>
+							)}
 						</div>
 
 						{overhang > 0 && (
@@ -607,6 +701,7 @@ export function StudioScreen({
 						finish={finish}
 						finishTextures={finishTextures}
 						selectedIds={selectedSet}
+						openIds={openIds}
 						doorTargetId={null}
 						measureMode={measureMode}
 						measurePoints={measurePoints}
@@ -804,6 +899,67 @@ export function StudioScreen({
 										</div>
 									</div>
 
+									{selected.placed.doorStyleId && (
+										<div>
+											<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
+												Swing
+											</p>
+											<div className="flex flex-wrap gap-1.5">
+												<button
+													type="button"
+													onClick={() =>
+														setOpenIds((prev) => {
+															const next = new Set(prev);
+															if (!next.delete(selected.placed.id)) {
+																next.add(selected.placed.id);
+															}
+															return next;
+														})
+													}
+													aria-pressed={openIds.has(selected.placed.id)}
+													className={`rounded-md px-2.5 py-1 text-[12px] transition ${
+														openIds.has(selected.placed.id)
+															? "bg-neutral-900 font-medium text-white"
+															: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
+													}`}
+												>
+													{openIds.has(selected.placed.id)
+														? "Close door"
+														: "Open door"}
+												</button>
+
+												{/* Only a lone leaf gets a choice: a pair always hinges
+											    outward from the middle, which is the only way a pair
+											    is hung. */}
+												{leavesOn(selected) === 1 &&
+													HINGE_SIDES.map((option) => (
+														<button
+															key={option.side}
+															type="button"
+															onClick={() =>
+																setLayoutAction((prev) =>
+																	setHinge(
+																		prev,
+																		selected.placed.id,
+																		option.side,
+																	),
+																)
+															}
+															aria-pressed={
+																selected.placed.hinge === option.side
+															}
+															className={`rounded-md px-2.5 py-1 text-[12px] transition ${
+																selected.placed.hinge === option.side
+																	? "bg-neutral-900 font-medium text-white"
+																	: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
+															}`}
+														>
+															{option.label}
+														</button>
+													))}
+											</div>
+										</div>
+									)}
 									<div className="flex items-center justify-between">
 										<span className="tabular-nums text-[13px]">
 											RM{" "}
