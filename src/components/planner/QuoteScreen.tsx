@@ -6,6 +6,7 @@ import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
 import { doorStyle, FINISHES, roomType } from "@/lib/planner/catalogue";
 import { allPositions, type PlannerLayout } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { useCatalogue } from "./CatalogueContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 
 const PlannerScene = dynamic(() => import("./PlannerScene"), {
@@ -41,7 +42,8 @@ export function QuoteScreen({
 	onBackToStartAction: () => void;
 }) {
 	const room = roomType(roomId);
-	const price = computePlannerPrice(layout, finish);
+	const catalogue = useCatalogue();
+	const price = computePlannerPrice(layout, finish, catalogue);
 	const placed = allPositions(layout);
 	const finishLabel = FINISHES.find((f) => f.id === finish)?.label;
 

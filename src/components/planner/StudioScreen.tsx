@@ -58,6 +58,7 @@ import {
 } from "@/lib/planner/measure";
 import { fitOutOf } from "@/lib/planner/parts";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { useCatalogue } from "./CatalogueContext";
 import { peekDesignMesh } from "./DesignedCabinet";
 import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
@@ -255,7 +256,8 @@ export function StudioScreen({
 	// Usually the run rather than the catalogue floor — worth naming which,
 	// because a slider that stops for no visible reason reads as broken.
 	const minWallMm = minWallWidthMm(layout);
-	const price = computePlannerPrice(layout, finish);
+	const catalogue = useCatalogue();
+	const price = computePlannerPrice(layout, finish, catalogue);
 	// Named so the customer knows what the extra lines are for. Both are added
 	// for them rather than chosen, so the total moving without explanation is
 	// the thing to avoid.

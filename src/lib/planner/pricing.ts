@@ -3,8 +3,8 @@ import {
 	doorStyleIn,
 	type FinishId,
 	type ModuleKind,
-	PLANNER_CATALOGUE,
-	RATES,
+	type ResolvedRates,
+	ratesOf,
 	sizePriceRmIn,
 } from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
@@ -38,8 +38,8 @@ import {
 
 export const MM_PER_FT = 304.8;
 
-/** PLACEHOLDER fallback — the live figure comes from the published
- * catalogue's `rates.worktopRmPerFt` (see `RATES` in `catalogue.ts`). */
+/** PLACEHOLDER. Kept for the copy on the landing page; the priced figure comes
+ * from the catalogue's `rates.worktopRmPerFt` via `ratesOf`. */
 export const WORKTOP_RM_PER_FT = 200;
 
 type PriceLine = {
@@ -71,7 +71,7 @@ const ftOf = (mm: number) => mm / MM_PER_FT;
 /** What one placed cabinet costs: its size, plus its door if it has one. */
 function cabinetPriceRm(
 	placed: Positioned,
-	catalogue: PlannerCatalogue = PLANNER_CATALOGUE,
+	catalogue: PlannerCatalogue,
 ): {
 	carcassRm: number;
 	doorRm: number;
@@ -122,7 +122,7 @@ export function skirtingFt(layout: PlannerLayout): number {
 	return ftOf(mm);
 }
 
-const END_PANEL_RM: Record<ModuleKind, keyof typeof RATES> = {
+const END_PANEL_RM: Record<ModuleKind, keyof ResolvedRates> = {
 	base: "endPanelBaseRm",
 	wall: "endPanelWallRm",
 	tall: "endPanelTallRm",
@@ -133,15 +133,19 @@ const END_PANEL_RM: Record<ModuleKind, keyof typeof RATES> = {
  * — a panel is one board cut, edged and fixed — but a tall unit's is several
  * times the board of a wall unit's, so the rate is per kind rather than flat.
  */
-export function endPanelPriceRm(layout: PlannerLayout): {
+export function endPanelPriceRm(
+	layout: PlannerLayout,
+	catalogue: PlannerCatalogue,
+): {
 	count: number;
 	amountRm: number;
 } {
+	const rates = ratesOf(catalogue);
 	const panels = endPanels(layout);
 	return {
 		count: panels.length,
 		amountRm: panels.reduce(
-			(total, panel) => total + RATES[END_PANEL_RM[panel.kind]],
+			(total, panel) => total + rates[END_PANEL_RM[panel.kind]],
 			0,
 		),
 	};
@@ -150,8 +154,9 @@ export function endPanelPriceRm(layout: PlannerLayout): {
 export function computePlannerPrice(
 	layout: PlannerLayout,
 	_finish: FinishId,
-	catalogue: PlannerCatalogue = PLANNER_CATALOGUE,
+	catalogue: PlannerCatalogue,
 ): KitchenPrice {
+	const rates = ratesOf(catalogue);
 	const placed: Positioned[] = [
 		...positionsOf(layout, "floor"),
 		...positionsOf(layout, "wall"),
@@ -179,7 +184,7 @@ export function computePlannerPrice(
 	const tops = worktopFt(layout);
 	const trim = ceilingTrimFt(layout);
 	const skirting = skirtingFt(layout);
-	const panels = endPanelPriceRm(layout);
+	const panels = endPanelPriceRm(layout, catalogue);
 
 	const categories: PriceLine[] = [
 		{
@@ -197,8 +202,8 @@ export function computePlannerPrice(
 		},
 		{
 			label: "Worktop",
-			detail: `${tops.toFixed(2)} ft @ RM ${RATES.worktopRmPerFt}/ft`,
-			amountRm: tops * RATES.worktopRmPerFt,
+			detail: `${tops.toFixed(2)} ft @ RM ${rates.worktopRmPerFt}/ft`,
+			amountRm: tops * rates.worktopRmPerFt,
 		},
 	];
 
@@ -207,16 +212,16 @@ export function computePlannerPrice(
 	if (trim > 0) {
 		categories.push({
 			label: "Ceiling trim",
-			detail: `${trim.toFixed(2)} ft @ RM ${RATES.ceilingTrimRmPerFt}/ft`,
-			amountRm: trim * RATES.ceilingTrimRmPerFt,
+			detail: `${trim.toFixed(2)} ft @ RM ${rates.ceilingTrimRmPerFt}/ft`,
+			amountRm: trim * rates.ceilingTrimRmPerFt,
 		});
 	}
 
 	if (skirting > 0) {
 		categories.push({
 			label: "Skirting",
-			detail: `${skirting.toFixed(2)} ft @ RM ${RATES.skirtingRmPerFt}/ft`,
-			amountRm: skirting * RATES.skirtingRmPerFt,
+			detail: `${skirting.toFixed(2)} ft @ RM ${rates.skirtingRmPerFt}/ft`,
+			amountRm: skirting * rates.skirtingRmPerFt,
 		});
 	}
 

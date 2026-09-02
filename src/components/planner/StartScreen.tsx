@@ -1,6 +1,7 @@
 import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
 import { starterFor } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { useCatalogue } from "./CatalogueContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 
 /**
@@ -152,7 +153,8 @@ export function StartScreen({
 }) {
 	const room = ROOM_TYPES.find((r) => r.id === roomId) ?? ROOM_TYPES[0];
 	const starter = starterFor(roomId);
-	const starterPrice = computePlannerPrice(starter, "strata-noir");
+	const catalogue = useCatalogue();
+	const starterPrice = computePlannerPrice(starter, "strata-noir", catalogue);
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
