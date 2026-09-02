@@ -784,27 +784,39 @@ Follow the type errors from there: any private helper in the file that reads `CO
 
 with the parameter declared as `construction: Construction = CONSTRUCTION` and `import { type Construction, CONSTRUCTION, WALL_GAP_MM } from "./catalogue";`. Forward it from `snapToCabinet` too, appending the same optional parameter there — `snapToCabinet` is what `PlannerScene` calls.
 
-`src/components/planner/Cabinet.tsx`:
+`src/components/planner/Cabinet.tsx` — takes `construction` as a prop (see the note below on why it is not a hook here):
 
 ```tsx
-import { useCatalogue } from "./CatalogueContext";
-import { constructionOf } from "@/lib/planner/catalogue";
-```
-```tsx
-	const construction = constructionOf(useCatalogue());
 	const stand = standOf(family, construction);
 ```
 ```tsx
 	const parts = cabinetPartsMm(family, widthMm, door !== null, construction);
 ```
 
-`src/components/planner/PlannerScene.tsx` — replace the two `CONSTRUCTION.worktopThicknessMm` reads (lines 707 and 714) with a value taken from the catalogue, and pass the same object into `snapToCabinet`:
+`src/components/planner/PlannerScene.tsx` — **read the catalogue outside `<Canvas>` and pass the construction down as a prop.** The two `CONSTRUCTION.worktopThicknessMm` reads (lines 707 and 714) sit inside `Run`, which is rendered inside the `<Canvas>` at line 956; `<Canvas>` mounts its own React reconciler root, and whether context crosses that boundary depends on the R3F version. Do not find out — the default export at line 888 is outside the canvas, exactly like the existing `FINISHES` read at line 947, so resolve it there:
 
 ```tsx
+export default function PlannerScene({ … }) {
 	const construction = constructionOf(useCatalogue());
 ```
 
-Drop `CONSTRUCTION` from its `@/lib/planner/catalogue` import and add `constructionOf`. Note that `PlannerScene` renders inside `<Canvas>`; React context crosses the R3F reconciler boundary in `@react-three/fiber` v8+, but if the value comes back `null` at runtime, read it in the outer component and pass it down as a prop rather than reaching for a workaround.
+and add it to `Run`'s props alongside the ones it already takes:
+
+```tsx
+function Run({
+	…,
+	construction,
+}: {
+	…;
+	/** Resolved outside the canvas and passed in: `Run` renders inside
+	 * `<Canvas>`, which is its own reconciler root. */
+	construction: Construction;
+}) {
+```
+
+then `construction.worktopThicknessMm` at both sites. Pass the same object into `snapToCabinet` wherever `PlannerScene` calls it. Drop `CONSTRUCTION` from its `@/lib/planner/catalogue` import and add `constructionOf` plus `type Construction`.
+
+`Cabinet.tsx` is rendered inside the canvas too, by `Run`. Give it the same treatment: take `construction` as a prop from `Run` rather than calling `useCatalogue()` itself.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -1274,7 +1286,9 @@ Drop `ROOM_TYPES`, `roomType` and `starterFor` from the `@/lib/planner/catalogue
 
 - [ ] **Step 3: Move the four screens onto the engine**
 
-In each of `StudioScreen.tsx`, `PlannerScene.tsx`, `StartScreen.tsx` and `QuoteScreen.tsx`, destructure the engine once near the top of the component and delete the corresponding names from the `@/lib/planner/layout` import:
+In each of `StudioScreen.tsx`, `PlannerScene.tsx`, `StartScreen.tsx` and `QuoteScreen.tsx`, destructure the engine once near the top of the component and delete the corresponding names from the `@/lib/planner/layout` import.
+
+**`PlannerScene.tsx` calls the hooks in its default export only** — that component is outside the `<Canvas>` at line 956, and `Run` and everything below it are inside a separate reconciler root. Anything `Run` needs (the engine functions it calls, the resolved door style at line 529, the `construction` from Task 4) arrives as a prop, the same way `finishHex` already does.
 
 ```tsx
 	const catalogue = useCatalogue();
