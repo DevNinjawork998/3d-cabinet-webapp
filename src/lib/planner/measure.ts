@@ -1,4 +1,4 @@
-import { WALL_GAP_MM } from "./catalogue";
+import { CONSTRUCTION, type Construction, WALL_GAP_MM } from "./catalogue";
 import { floorHeightMmOf, type PlannerLayout, type Positioned } from "./layout";
 import { cabinetPartsMm, type PartRole, type Vec3Mm } from "./parts";
 
@@ -179,6 +179,7 @@ function worldPartBoxes(
 	position: Positioned,
 	layout: PlannerLayout,
 	design?: DesignPartBox[] | null,
+	construction: Construction = CONSTRUCTION,
 ): WorldPartBox[] {
 	const carcass = cabinetBoundsMm(position, layout);
 	const centreX = (carcass.minX + carcass.maxX) / 2;
@@ -210,6 +211,7 @@ function worldPartBoxes(
 		position.family,
 		position.widthMm,
 		position.placed.doorStyleId !== null,
+		construction,
 	);
 
 	return [
@@ -267,8 +269,9 @@ export function snapToCabinet(
 	snapMm: number = DEFAULT_SNAP_MM,
 	/** The drafted mesh's group boxes, when the scene is drawing one. */
 	design?: DesignPartBox[] | null,
+	construction: Construction = CONSTRUCTION,
 ): SnapPoint {
-	const boxes = worldPartBoxes(position, layout, design);
+	const boxes = worldPartBoxes(position, layout, design, construction);
 
 	for (const kind of ["corner", "midpoint"] as const) {
 		let best: SnapPoint | null = null;

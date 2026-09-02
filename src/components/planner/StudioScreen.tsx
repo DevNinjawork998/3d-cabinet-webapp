@@ -6,6 +6,8 @@ import { useRef, useState } from "react";
 import { splitDoorLeaves } from "@/lib/mesh/renderMesh";
 import {
 	CEILING_LIMITS,
+	type Construction,
+	constructionOf,
 	DOOR_STYLES,
 	FINISHES,
 	type FinishId,
@@ -128,7 +130,7 @@ const HINGE_SIDES: { side: HingeSide; label: string }[] = [
  * `peekDesignMesh` is null until the bytes land, and the fallback is then both
  * the right answer and the geometry actually on screen.
  */
-const leavesOn = (position: Positioned) => {
+const leavesOn = (position: Positioned, construction: Construction) => {
 	const groups = peekDesignMesh(
 		position.family.sizes.find((size) => size.widthMm === position.widthMm)
 			?.meshDesignId,
@@ -136,7 +138,7 @@ const leavesOn = (position: Positioned) => {
 	const door = groups?.find((group) => group.role === "door");
 	return door
 		? splitDoorLeaves(door).length
-		: fitOutOf(position.family, position.widthMm).doorLeaves;
+		: fitOutOf(position.family, position.widthMm, construction).doorLeaves;
 };
 
 const rm = (amount: number) =>
@@ -257,6 +259,7 @@ export function StudioScreen({
 	// because a slider that stops for no visible reason reads as broken.
 	const minWallMm = minWallWidthMm(layout);
 	const catalogue = useCatalogue();
+	const construction = constructionOf(catalogue);
 	const price = computePlannerPrice(layout, finish, catalogue);
 	// Named so the customer knows what the extra lines are for. Both are added
 	// for them rather than chosen, so the total moving without explanation is
@@ -933,7 +936,7 @@ export function StudioScreen({
 												{/* Only a lone leaf gets a choice: a pair always hinges
 											    outward from the middle, which is the only way a pair
 											    is hung. */}
-												{leavesOn(selected) === 1 &&
+												{leavesOn(selected, construction) === 1 &&
 													HINGE_SIDES.map((option) => (
 														<button
 															key={option.side}

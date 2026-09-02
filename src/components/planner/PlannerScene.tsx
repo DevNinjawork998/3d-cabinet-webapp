@@ -11,7 +11,8 @@ import type {
 import { Raycaster, Vector2, Vector3 } from "three";
 import {
 	CEILING_TRIM_MM,
-	CONSTRUCTION,
+	type Construction,
+	constructionOf,
 	doorStyle,
 	FINISHES,
 	type FinishId,
@@ -41,6 +42,7 @@ import {
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
+import { useCatalogue } from "./CatalogueContext";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
@@ -283,6 +285,7 @@ function Run({
 	onSelect,
 	onMeasurePick,
 	onMeasureHover,
+	construction,
 }: {
 	layout: PlannerLayout;
 	finishHex: string;
@@ -310,6 +313,9 @@ function Run({
 	/** What the measuring tool would pick right now, so the overlay can show it
 	 * before the click commits. `null` once the pointer leaves. */
 	onMeasureHover: (snap: SnapPoint | null) => void;
+	/** Resolved outside the canvas and passed in: `Run` renders inside
+	 * `<Canvas>`, which is its own reconciler root. */
+	construction: Construction;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 	const camera = useThree((s) => s.camera);
@@ -357,6 +363,7 @@ function Run({
 			layout,
 			apertureMm(e.distance, fov, viewportHeightPx),
 			design,
+			construction,
 		);
 
 		// The lock is applied after the snap, not instead of it: you snap to the
@@ -507,7 +514,11 @@ function Run({
 			</mesh>
 
 			<ContactShadows layout={layout} runWidthMm={runWidthMm} />
-			<Worktop layout={layout} runWidthMm={runWidthMm} />
+			<Worktop
+				layout={layout}
+				runWidthMm={runWidthMm}
+				construction={construction}
+			/>
 			<CeilingTrim
 				layout={layout}
 				runWidthMm={runWidthMm}
@@ -522,6 +533,7 @@ function Run({
 					moduleId={position.placed.id}
 					family={position.family}
 					widthMm={position.widthMm}
+					construction={construction}
 					exposed={exposure.get(position.placed.id)}
 					overhanging={overhanging.has(position.placed.id)}
 					door={
@@ -658,9 +670,11 @@ function ContactShadows({
 function Worktop({
 	layout,
 	runWidthMm,
+	construction,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	construction: Construction;
 }) {
 	// One slab per unbroken stretch of units that carry one — a worktop is cut
 	// to the cabinets under it, not to the wall, so a unit without a top, a
@@ -704,14 +718,14 @@ function Worktop({
 						key={span.startMm}
 						position={[
 							m(span.startMm + widthMm / 2 - runWidthMm / 2),
-							m(span.topMm + CONSTRUCTION.worktopThicknessMm / 2),
+							m(span.topMm + construction.worktopThicknessMm / 2),
 							m((span.depthMm + overhangMm) / 2),
 						]}
 					>
 						<boxGeometry
 							args={[
 								m(widthMm),
-								m(CONSTRUCTION.worktopThicknessMm),
+								m(construction.worktopThicknessMm),
 								m(span.depthMm + overhangMm),
 							]}
 						/>
@@ -942,6 +956,7 @@ export default function PlannerScene({
 		((clientX: number, clientY: number) => string | null) | null
 	>;
 }) {
+	const construction = constructionOf(useCatalogue());
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
 		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
@@ -991,6 +1006,7 @@ export default function PlannerScene({
 				onSelect={onSelectAction}
 				onMeasurePick={onMeasurePickAction ?? (() => {})}
 				onMeasureHover={setHoverPoint}
+				construction={construction}
 			/>
 			<MeasureOverlay
 				points={measurePoints}

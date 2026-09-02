@@ -3,6 +3,8 @@ import type { ThreeEvent } from "@react-three/fiber";
 import {
 	CARCASS_COLOR,
 	CARCASS_INTERIOR_COLOR,
+	CONSTRUCTION,
+	type Construction,
 	type DoorStyle,
 	type Family,
 	GLASS_COLOR,
@@ -73,6 +75,7 @@ export function Cabinet({
 	moduleId,
 	family,
 	widthMm,
+	construction = CONSTRUCTION,
 	door,
 	hinge,
 	doorsOpen = false,
@@ -95,6 +98,10 @@ export function Cabinet({
 	family: Family;
 	/** The chosen size — off the placed cabinet, not the family. */
 	widthMm: number;
+	/** Passed down from `PlannerScene`, resolved outside the canvas — this
+	 * component renders inside `<Canvas>` and must not call `useCatalogue()`
+	 * itself. Defaults to the seed for callers with no live catalogue. */
+	construction?: Construction;
 	/** `null` while it is still a bare carcass. */
 	door: DoorStyle | null;
 	/** Which stile a lone leaf hangs on. A pair ignores it and hinges outward
@@ -138,7 +145,7 @@ export function Cabinet({
 	const w = m(widthMm);
 	const d = m(family.depthMm);
 	const h = m(family.heightMm);
-	const stand = standOf(family);
+	const stand = standOf(family, construction);
 	// What the carcass sits on: recorded feet, or the plinth height. Read off
 	// `standOf` rather than assuming the plinth, so a legged family scales its
 	// grain against the box that is actually drawn.
@@ -148,7 +155,7 @@ export function Cabinet({
 	// Every box this cabinet is drawn from, in millimetres. The same call the
 	// measuring tool makes, so a dimension line can never disagree with the
 	// cabinet it is drawn against — see `lib/planner/parts.ts`.
-	const parts = cabinetPartsMm(family, widthMm, door !== null);
+	const parts = cabinetPartsMm(family, widthMm, door !== null, construction);
 	const carcassParts = parts.filter(
 		(part) =>
 			part.role !== "doorLeaf" &&

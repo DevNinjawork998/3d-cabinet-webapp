@@ -384,8 +384,10 @@ export function doorPriceRm(doorStyleId: string, widthMm: number): number {
 }
 
 /** How many door leaves a carcass of this width carries. */
-export const doorLeavesFor = (widthMm: number) =>
-	widthMm > CONSTRUCTION.doorLeavesThresholdMm ? 2 : 1;
+export const doorLeavesFor = (
+	widthMm: number,
+	thresholdMm: number = CONSTRUCTION.doorLeavesThresholdMm,
+) => (widthMm > thresholdMm ? 2 : 1);
 
 // ------------------------------------------------- explicit-catalogue reads --
 
