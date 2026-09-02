@@ -1,7 +1,9 @@
 import type {
+	Construction,
 	Family,
 	Finish,
 	PlannerCatalogue,
+	Rates,
 	RoomType,
 	SizeOption,
 } from "./catalogueSchema";
@@ -39,7 +41,7 @@ export type RoomTypeId = "kitchen" | "living" | "bedroom" | "foyer";
  * types" rule exists to prevent: the copies drift, and the schema is the one
  * that actually validates.
  */
-export type { Family, Finish, RoomType, SizeOption };
+export type { Construction, Family, Finish, Rates, RoomType, SizeOption };
 
 /**
  * Workshop constants a published catalogue can override — board thickness,
@@ -436,6 +438,50 @@ export function doorPriceRmIn(
 	const ladder = catalogue.doorWidthLadderMm;
 	const rung = ladder.find((mm) => mm >= widthMm) ?? ladder.at(-1);
 	return rung === undefined ? 0 : (style.priceRmBySizeMm[String(rung)] ?? 0);
+}
+
+/** Every rate resolved — the catalogue's where it sets one, the seed's where
+ * it does not. `Rates` has one required key and five optional, so a published
+ * catalogue routinely carries only some. */
+export type ResolvedRates = Required<Rates>;
+
+export function familyIn(
+	catalogue: PlannerCatalogue,
+	familyId: string,
+): Family | undefined {
+	return catalogue.families.find((f) => f.id === familyId);
+}
+
+export function roomTypeIn(
+	catalogue: PlannerCatalogue,
+	roomId: RoomTypeId,
+): RoomType {
+	const found = catalogue.roomTypes.find((room) => room.id === roomId);
+	if (!found) throw new Error(`unknown room type ${roomId}`);
+	return found;
+}
+
+/** The size a freshly placed cabinet takes: the middle of its ladder. */
+export function defaultWidthMmIn(
+	catalogue: PlannerCatalogue,
+	familyId: string,
+): number {
+	const sizes = familyIn(catalogue, familyId)?.sizes ?? [];
+	return sizes[Math.floor(sizes.length / 2)]?.widthMm ?? 600;
+}
+
+/** Workshop constants for this catalogue, the seed filling anything it omits.
+ * A fresh object every call — never a reference to the seed, which callers
+ * would then be able to mutate. */
+export function constructionOf(catalogue: PlannerCatalogue): Construction {
+	return { ...CONSTRUCTION, ...catalogue.construction };
+}
+
+/** Rates for this catalogue, the seed filling anything it omits. Zod drops
+ * absent optional keys rather than setting them to `undefined`, so the spread
+ * cannot clobber a fallback with a hole. */
+export function ratesOf(catalogue: PlannerCatalogue): ResolvedRates {
+	return { ...RATES, ...catalogue.rates };
 }
 
 // ------------------------------------------------------------------ rooms --
