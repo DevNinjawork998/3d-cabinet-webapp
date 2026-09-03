@@ -9,6 +9,28 @@ import {
 	ratesOf,
 	roomTypeIn,
 } from "../catalogue";
+import { plannerCatalogueSchema } from "../catalogueSchema";
+
+describe("the seed catalogue is one consistent document", () => {
+	it("satisfies its own schema", () => {
+		expect(() => plannerCatalogueSchema.parse(PLANNER_CATALOGUE)).not.toThrow();
+	});
+
+	it("prices every door on every rung of the ladder", () => {
+		for (const style of PLANNER_CATALOGUE.doorStyles) {
+			for (const mm of PLANNER_CATALOGUE.doorWidthLadderMm) {
+				expect(style.priceRmBySizeMm[String(mm)]).toBeGreaterThan(0);
+			}
+		}
+	});
+
+	it("carries every family its rooms name", () => {
+		const ids = new Set(PLANNER_CATALOGUE.families.map((f) => f.id));
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
+			for (const id of room.familyIds) expect(ids.has(id)).toBe(true);
+		}
+	});
+});
 
 describe("familyIn", () => {
 	it("finds a family in the catalogue passed in", () => {

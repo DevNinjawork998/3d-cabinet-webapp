@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	CEILING_LIMITS,
-	FAMILIES,
-	family,
+	familyIn,
 	PLANNER_CATALOGUE,
 	ROOM_DEPTH_LIMITS,
-	ROOM_TYPES,
 	WALL_HANG_LIMITS,
 } from "../catalogue";
 import {
@@ -878,7 +876,7 @@ describe("doors", () => {
 
 describe("rooms", () => {
 	it("opens every room on a run that fits its wall", () => {
-		for (const room of ROOM_TYPES) {
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
 			const layout = starterFor(room.id);
 			expect(layout.floor.length + layout.wall.length).toBeGreaterThan(0);
 			expect(overhangMm(layout)).toBe(0);
@@ -887,9 +885,9 @@ describe("rooms", () => {
 	});
 
 	it("only offers families the room actually sells", () => {
-		for (const room of ROOM_TYPES) {
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
 			for (const familyId of room.familyIds) {
-				expect(family(familyId)).toBeDefined();
+				expect(familyIn(PLANNER_CATALOGUE, familyId)).toBeDefined();
 			}
 			for (const item of room.starter) {
 				expect(room.familyIds).toContain(item.familyId);
@@ -900,13 +898,13 @@ describe("rooms", () => {
 
 describe("catalogue integrity", () => {
 	it("gives every family a unique, resolvable id", () => {
-		const ids = FAMILIES.map((f) => f.id);
+		const ids = PLANNER_CATALOGUE.families.map((f) => f.id);
 		expect(new Set(ids).size).toBe(ids.length);
-		for (const id of ids) expect(family(id)?.id).toBe(id);
+		for (const id of ids) expect(familyIn(PLANNER_CATALOGUE, id)?.id).toBe(id);
 	});
 
 	it("gives every family at least one priced size", () => {
-		for (const f of FAMILIES) {
+		for (const f of PLANNER_CATALOGUE.families) {
 			expect(f.sizes.length).toBeGreaterThan(0);
 			for (const size of f.sizes) {
 				expect(size.widthMm).toBeGreaterThan(0);

@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-	doorPriceRm,
 	doorPriceRmIn,
 	PLANNER_CATALOGUE,
 	RATES,
-	ROOM_TYPES,
-	sizePriceRm,
+	sizePriceRmIn,
 } from "../catalogue";
 import { plannerCatalogueSchema } from "../catalogueSchema";
 import {
@@ -64,7 +62,9 @@ describe("per-unit pricing", () => {
 	it("charges each carcass its own size's price", () => {
 		const result = price(run());
 		const line = result.cabinets.find((l) => l.id === "b1");
-		expect(line?.carcassRm).toBe(sizePriceRm("base-cabinet", 900));
+		expect(line?.carcassRm).toBe(
+			sizePriceRmIn(PLANNER_CATALOGUE, "base-cabinet", 900),
+		);
 	});
 
 	it("re-prices when the size changes", () => {
@@ -89,10 +89,11 @@ describe("per-unit pricing", () => {
 		const result = price(doored);
 		const line = result.cabinets.find((l) => l.id === "b1");
 
-		expect(line?.doorRm).toBe(doorPriceRm("shaker", 900));
+		expect(line?.doorRm).toBe(doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900));
 		expect(line?.doorLabel).toBe("Shaker");
 		expect(line?.amountRm).toBe(
-			sizePriceRm("base-cabinet", 900) + doorPriceRm("shaker", 900),
+			sizePriceRmIn(PLANNER_CATALOGUE, "base-cabinet", 900) +
+				doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900),
 		);
 	});
 
@@ -173,9 +174,9 @@ describe("catalogue is a real parameter, not just an import default", () => {
 		).toBeGreaterThan(price(run()).totalRm);
 	});
 
-	it("the explicit-catalogue read agrees with the module-palette one", () => {
-		expect(doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900)).toBe(
-			doorPriceRm("shaker", 900),
+	it("charges the next rung up for a width between rungs", () => {
+		expect(doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 850)).toBe(
+			doorPriceRmIn(PLANNER_CATALOGUE, "shaker", 900),
 		);
 	});
 
@@ -238,7 +239,7 @@ describe("catalogue is a real parameter, not just an import default", () => {
 
 describe("every room prices", () => {
 	it("gives each room's starter a believable, non-zero total", () => {
-		for (const room of ROOM_TYPES) {
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
 			const result = price(starterFor(room.id));
 			expect(result.totalRm).toBeGreaterThan(0);
 			// A single wall of cabinetry should not read as a car.

@@ -1,5 +1,6 @@
 import type {
 	Construction,
+	DoorStyle,
 	Family,
 	Finish,
 	PlannerCatalogue,
@@ -41,13 +42,20 @@ export type RoomTypeId = "kitchen" | "living" | "bedroom" | "foyer";
  * types" rule exists to prevent: the copies drift, and the schema is the one
  * that actually validates.
  */
-export type { Construction, Family, Finish, Rates, RoomType, SizeOption };
+export type {
+	Construction,
+	DoorStyle,
+	Family,
+	Finish,
+	Rates,
+	RoomType,
+	SizeOption,
+};
 
 /**
- * Workshop constants a published catalogue can override — board thickness,
- * toe-kick height and slab thickness are per-maker choices, not universals.
- * Mutable so `setActivePlannerCatalogue` can swap them the same way it swaps
- * the families; the values here are the fallback when a catalogue omits them.
+ * Workshop constants — board thickness, toe-kick height and slab thickness
+ * are per-maker choices, not universals. The fallback `constructionOf` fills
+ * in for whatever a published catalogue omits.
  */
 export const CONSTRUCTION = {
 	panelThicknessMm: 16,
@@ -57,8 +65,7 @@ export const CONSTRUCTION = {
 	doorLeavesThresholdMm: 650,
 };
 
-/** Rates a published catalogue can override. Mutable, same as
- * `CONSTRUCTION` — the value here is the fallback. */
+/** The fallback `ratesOf` fills in for whatever a published catalogue omits. */
 export const RATES = {
 	/** PLACEHOLDER — RM per running foot of worktop. */
 	worktopRmPerFt: 200,
@@ -70,9 +77,7 @@ export const RATES = {
 	 * time to scribe it to a floor that is never flat. */
 	skirtingRmPerFt: 42,
 	/** PLACEHOLDER — RM per finished end panel, one rate per kind because a
-	 * tall unit's panel is several times the board of a wall unit's. Flat keys
-	 * rather than a nested object: `setActivePlannerCatalogue` merges rates with
-	 * `Object.assign`, so a nested partial would drop whatever it omitted. */
+	 * tall unit's panel is several times the board of a wall unit's. */
 	endPanelBaseRm: 150,
 	endPanelWallRm: 90,
 	endPanelTallRm: 330,
@@ -290,56 +295,17 @@ export const FAMILIES: Family[] = [
 	},
 ];
 
-const FAMILY_BY_ID = new Map(FAMILIES.map((f) => [f.id, f]));
-
-export function family(familyId: string): Family | undefined {
-	return FAMILY_BY_ID.get(familyId);
-}
-
-/** The size ladder for a family, cheapest first. */
-function sizesOf(familyId: string): SizeOption[] {
-	return family(familyId)?.sizes ?? [];
-}
-
-export function sizePriceRm(familyId: string, widthMm: number): number {
-	return (
-		sizesOf(familyId).find((size) => size.widthMm === widthMm)?.priceRm ?? 0
-	);
-}
-
-/** The size a freshly placed cabinet takes: the middle of its ladder. */
-export function defaultWidthMm(familyId: string): number {
-	const sizes = sizesOf(familyId);
-	return sizes[Math.floor(sizes.length / 2)]?.widthMm ?? 600;
-}
-
 // ------------------------------------------------------------------ doors --
-
-/**
- * Deliberately NOT the schema's `DoorStyle`: that one keys prices by string,
- * because JSON object keys always are. In memory the ladder is looked up by
- * a number (`doorPriceRm`), so `setActivePlannerCatalogue` re-keys on the way
- * in and this is the shape everything downstream sees.
- */
-export type DoorStyle = {
-	id: string;
-	label: string;
-	/** How it is drawn: a flat slab, a framed shaker, or a glazed frame. */
-	look: "slab" | "shaker" | "glass";
-	/** PLACEHOLDER — RM per door, by the carcass width it covers. */
-	priceRmBySizeMm: Record<number, number>;
-	note?: string;
-};
 
 /** The width ladder doors are priced against — the union of the families'. */
 const DOOR_WIDTHS = [300, 400, 600, 800, 900, 1200, 1500, 1800];
 
-const doorPrices = (rmPer100Mm: number): Record<number, number> =>
+const doorPrices = (rmPer100Mm: number): Record<string, number> =>
 	Object.fromEntries(
-		DOOR_WIDTHS.map((mm) => [mm, Math.round((mm / 100) * rmPer100Mm)]),
+		DOOR_WIDTHS.map((mm) => [String(mm), Math.round((mm / 100) * rmPer100Mm)]),
 	);
 
-export const DOOR_STYLES: DoorStyle[] = [
+const SEED_DOOR_STYLES: DoorStyle[] = [
 	{
 		id: "slab",
 		label: "Slab",
@@ -363,26 +329,6 @@ export const DOOR_STYLES: DoorStyle[] = [
 	},
 ];
 
-const DOOR_BY_ID = new Map(DOOR_STYLES.map((d) => [d.id, d]));
-
-export function doorStyle(doorStyleId: string): DoorStyle | undefined {
-	return DOOR_BY_ID.get(doorStyleId);
-}
-
-/**
- * What a door costs on a carcass of this width. Widths between rungs are
- * charged at the next rung up — you cannot buy half a door.
- */
-export function doorPriceRm(doorStyleId: string, widthMm: number): number {
-	const style = doorStyle(doorStyleId);
-	if (!style) return 0;
-	const exact = style.priceRmBySizeMm[widthMm];
-	if (exact !== undefined) return exact;
-
-	const rung = DOOR_WIDTHS.find((mm) => mm >= widthMm) ?? DOOR_WIDTHS.at(-1);
-	return rung === undefined ? 0 : (style.priceRmBySizeMm[rung] ?? 0);
-}
-
 /** How many door leaves a carcass of this width carries. */
 export const doorLeavesFor = (
 	widthMm: number,
@@ -392,14 +338,9 @@ export const doorLeavesFor = (
 // ------------------------------------------------- explicit-catalogue reads --
 
 /**
- * The same three lookups, against a catalogue passed in rather than the live
- * module palette above.
- *
- * `pricing.ts` is the money path and CLAUDE.md makes it server-authoritative,
- * so it must never read whatever `setActivePlannerCatalogue` last happened to
- * install — it takes its catalogue as an argument. Everything else (the 3D
- * scene, the palette UI, `layout.ts`) reads the module palette, which is what
- * that swap exists to update.
+ * Every planner read takes its catalogue as a parameter — `pricing.ts`,
+ * `layout.ts`, the client tree via `CatalogueContext`. Nothing reads a module
+ * global; see CLAUDE.md's Known issues 1–3 for why that used to be true.
  *
  * Linear scans, not indexed: a catalogue holds tens of families and door
  * styles, and building a Map per call costs more than the scan it saves.
@@ -545,70 +486,6 @@ export const ROOM_TYPES: RoomType[] = [
 	},
 ];
 
-const ROOM_BY_ID = new Map(ROOM_TYPES.map((room) => [room.id, room]));
-
-export function roomType(id: RoomTypeId): RoomType {
-	const found = ROOM_BY_ID.get(id);
-	if (!found) throw new Error(`unknown room type ${id}`);
-	return found;
-}
-
-/**
- * Swap the live palette to a fetched catalogue, in place — every consumer
- * (`layout.ts`'s `family`/`roomType`/`starterFor`, the UI's direct
- * `FAMILIES`/`ROOM_TYPES` iteration) reads through `FAMILIES`/`ROOM_TYPES`,
- * so mutating the same array objects everyone already holds a reference to
- * updates them everywhere without threading a catalogue parameter through
- * every call site.
- *
- * ponytail: global mutable module state instead of real dependency
- * injection (which `pricing.ts` already uses for the
- * server-priced surface). Safe here because this only ever runs client-side
- * — each browser tab owns its own JS module instance, no cross-request
- * leakage — and no test calls this, so `FAMILIES`/`ROOM_TYPES` stay the
- * static fixtures for `__tests__/*`. Ceiling: breaks if the app ever needs
- * two different live catalogues in one tab at once; upgrade to explicit DI
- * (like `pricing.ts`) if that happens.
- */
-export function setActivePlannerCatalogue(catalogue: PlannerCatalogue): void {
-	FAMILIES.length = 0;
-	FAMILIES.push(...catalogue.families);
-	FAMILY_BY_ID.clear();
-	for (const f of FAMILIES) FAMILY_BY_ID.set(f.id, f);
-
-	ROOM_TYPES.length = 0;
-	ROOM_TYPES.push(...(catalogue.roomTypes as RoomType[]));
-	ROOM_BY_ID.clear();
-	for (const r of ROOM_TYPES) ROOM_BY_ID.set(r.id, r);
-
-	// Door styles arrive with string-keyed price maps (JSON object keys always
-	// are); the in-memory shape is number-keyed, so re-key on the way in.
-	DOOR_STYLES.length = 0;
-	DOOR_STYLES.push(
-		...catalogue.doorStyles.map((style) => ({
-			...style,
-			priceRmBySizeMm: Object.fromEntries(
-				Object.entries(style.priceRmBySizeMm).map(([mm, price]) => [
-					Number(mm),
-					price,
-				]),
-			) as Record<number, number>,
-		})),
-	);
-	DOOR_BY_ID.clear();
-	for (const d of DOOR_STYLES) DOOR_BY_ID.set(d.id, d);
-
-	DOOR_WIDTHS.length = 0;
-	DOOR_WIDTHS.push(...catalogue.doorWidthLadderMm);
-
-	FINISHES.length = 0;
-	FINISHES.push(...catalogue.finishes);
-
-	if (catalogue.construction)
-		Object.assign(CONSTRUCTION, catalogue.construction);
-	if (catalogue.rates) Object.assign(RATES, catalogue.rates);
-}
-
 // --------------------------------------------------------------- finishes --
 
 /**
@@ -642,20 +519,19 @@ export const GLASS_COLOR = "#dfe9ec";
 // -------------------------------------------------------- bundled shape --
 
 /**
- * The catalogue bundled into the shape `catalogueSchema.ts` describes, so
- * money-path functions (`pricing.ts`) can take it as a parameter instead of
- * importing the individual constants above. This is today's — and, until
- * the DB-backed catalogue lands, the only — catalogue.
+ * The catalogue this repo ships: the seed the DB is loaded from, and the
+ * disaster-recovery copy. It is **not** the live catalogue — the live one
+ * comes from the published `CatalogueVersion` and is passed explicitly, to
+ * `plannerEngine`, `computePlannerPrice` and `CatalogueProvider`.
+ *
+ * Frozen because a mutable version of this object is what Known issues 1–3
+ * were: a palette swapped in place, half of it by reference and half by copy,
+ * so which values a caller saw depended on when it read them.
  */
-export const PLANNER_CATALOGUE: PlannerCatalogue = {
+export const PLANNER_CATALOGUE: PlannerCatalogue = Object.freeze({
 	families: FAMILIES,
-	doorStyles: DOOR_STYLES.map((style) => ({
-		...style,
-		priceRmBySizeMm: Object.fromEntries(
-			Object.entries(style.priceRmBySizeMm).map(([mm, rm]) => [String(mm), rm]),
-		),
-	})),
+	doorStyles: SEED_DOOR_STYLES,
 	doorWidthLadderMm: DOOR_WIDTHS,
 	roomTypes: ROOM_TYPES,
-	finishes: [...FINISHES],
-};
+	finishes: FINISHES,
+});

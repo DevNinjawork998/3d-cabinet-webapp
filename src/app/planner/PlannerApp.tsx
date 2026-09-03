@@ -12,7 +12,7 @@ import {
 } from "@/components/planner/StartScreen";
 import { StudioScreen } from "@/components/planner/StudioScreen";
 import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
-import { roomTypeIn, setActivePlannerCatalogue } from "@/lib/planner/catalogue";
+import { roomTypeIn } from "@/lib/planner/catalogue";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
 import {
 	emptyLayout,
@@ -62,15 +62,14 @@ function PlannerScreens({
 	finishTextures,
 }: {
 	initialRoomId: RoomTypeId;
-	/** The live published catalogue — swapped into the module-level palette
-	 * before anything below reads it. See `setActivePlannerCatalogue`. */
+	/** The live published catalogue. Passed down through `CatalogueProvider`;
+	 * nothing reads it from a module global. */
 	catalogue: PlannerCatalogue;
 	/** Finish id → uploaded decor photo, for the finishes that have one. The
 	 * same upload that gives the landing page its swatch, so the strip and the
 	 * cabinet show the same board. */
 	finishTextures: Record<string, string>;
 }) {
-	setActivePlannerCatalogue(catalogue);
 	const { removeModules } = useEngine();
 
 	const [screen, setScreen] = useState<Screen>("start");
