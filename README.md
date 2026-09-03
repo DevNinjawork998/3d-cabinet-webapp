@@ -44,9 +44,40 @@ Routes:
 - `/` — landing page, prices its hero figure off the live published catalogue.
 - `/planner` — the planner. `?room=kitchen|living|bedroom|foyer`.
 - `/designs` — public gallery of published cabinet designs.
-- `/admin/cabinet-designs`, `/admin/catalogue`, `/admin/import` — the admin
-  surface. Shared-secret login at `/admin/login`; set `ADMIN_PASSWORD`. There is
-  no `/admin` index.
+- `/admin/cabinet-designs`, `/admin/catalogue`, `/admin/import`,
+  `/admin/logistics` — the admin surface. Shared-secret login at `/admin/login`;
+  set `ADMIN_PASSWORD`. There is no `/admin` index.
+
+## Deliveries
+
+`/admin/logistics` books a pickup with a logistics partner and follows it to
+site. The job is typed in by an admin — there is no order table yet (Phase 3),
+so nothing feeds it automatically.
+
+Only the partners whose credentials are present appear in the comparison. Out of
+the box that is `manual` — the company's own lorry, booked by phone and moved
+along its timeline by hand — which is what keeps the screen usable before any
+carrier integration exists.
+
+| Variable | For |
+|---|---|
+| `CRON_SECRET` | The tracking sweep at `/api/cron/track-deliveries`. Vercel sends it as `Authorization: Bearer`; without it the route refuses to run. |
+| `LALAMOVE_API_KEY`, `LALAMOVE_API_SECRET` | Lalamove — vehicle class, the one that moves cabinets |
+| `EASYPARCEL_API_KEY` | EasyParcel — parcels |
+| `GDEX_API_KEY` | GDEX — parcels |
+| `CITYLINK_API_KEY` | City-Link — parcels |
+| `<CARRIER>_WEBHOOK_SECRET` | Verifying callbacks from a partner that signs them |
+
+The four carrier adapters in `lib/logistics/adapters/` are stubs. Each one is a
+single file, plus its statuses in `lib/logistics/status.ts` and its webhook
+secret — nothing else changes when one is implemented.
+
+Status reaches the app two ways. A partner that supports callbacks posts to
+`/api/webhooks/<carrier>`, which sits outside `/api/admin` on purpose (the proxy
+would 401 a carrier) and so verifies its own signature. Everything else is
+covered by the cron sweep, which polls jobs that are booked but not yet
+finished. Both paths write through one function, so the row means the same thing
+either way.
 
 ## Scripts
 
@@ -75,6 +106,7 @@ src/
     pricing.ts         (layout, catalogue) => itemised price
     measure.ts         The in-scene measuring tool
   lib/catalogue/       DB-backed catalogue: read path, versions, diffs, blob storage
+  lib/logistics/       Delivery jobs: carrier adapters, quoting, booking, tracking
   lib/skp/             Reads a SketchUp job file into a draft catalogue
   components/planner/  React Three Fiber scene and the planner screens
   app/planner/         The planner route

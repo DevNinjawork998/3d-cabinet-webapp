@@ -16,11 +16,11 @@
 		"db:studio": "prisma studio"
 	},
 	"dependencies": {
-		"@mux/mux-node": "^15.0.0",
+		"@mux/mux-node": "^15.1.0",
 		"@mux/mux-player-react": "^3.13.2",
 		"@mux/upchunk": "^3.5.0",
-		"@prisma/adapter-pg": "^7.9.1",
-		"@prisma/client": "^7.9.1",
+		"@prisma/adapter-pg": "^7.10.0",
+		"@prisma/client": "^7.10.0",
 		"@react-three/drei": "^10.7.8",
 		"@react-three/fiber": "^9.7.0",
 		"@vercel/blob": "^2.8.0",
@@ -31,10 +31,10 @@
 		"react-dom": "19.2.8",
 		"server-only": "^0.0.1",
 		"three": "^0.185.1",
-		"zod": "^4.4.3"
+		"zod": "^4.5.4"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.10",
+		"@biomejs/biome": "^2.5.11",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^20.19.43",
 		"@types/pg": "^8.23.1",
@@ -42,9 +42,9 @@
 		"@types/react-dom": "^19.2.5",
 		"@types/three": "^0.185.4",
 		"dotenv": "^17.4.2",
-		"prisma": "^7.9.1",
+		"prisma": "^7.10.0",
 		"tailwindcss": "^4.3.3",
-		"tsx": "^4.23.12",
+		"tsx": "^4.23.13",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.11"
 	},

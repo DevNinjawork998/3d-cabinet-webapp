@@ -79,6 +79,13 @@ src/
     versions.ts          ← createDraftVersion, the one place a DRAFT is numbered
     publishDesigns.ts    ← designs → one merge, one draft (single and batch)
     siteImages.ts        ← homepage/finish photo slots, derived from the catalogue
+  lib/logistics/         ← delivery jobs and the logistics partners that move them
+    carriers.ts          ← the partner vocabulary; isomorphic, no secrets
+    types.ts             ← zod payloads + the CarrierAdapter contract
+    measure.ts           ← items => weight, volume, the vehicle that fits
+    status.ts            ← a carrier's word for a state => ours; unknown => null
+    registry.ts          ← which partners we can reach right now
+    adapters/            ← one file per partner; only `manual` is implemented
   lib/mesh/              ← reads an OBJ export into catalogue data
     archive.ts           ← unzip; the .obj text and the texture filenames
     objRead.ts           ← OBJ parse: named boxes in the file's own units
@@ -109,13 +116,35 @@ src/
 
 If a change to `lib/planner` requires importing React or three.js, the change is wrong.
 
-### The catalogue: two reads, and why
+### The catalogue is a parameter, never a global
 
-`catalogue.ts` holds both the seed data and a **live module palette** — `FAMILIES`, `DOOR_STYLES`, `ROOM_TYPES`, `FINISHES`, `CONSTRUCTION`, `RATES` — that `setActivePlannerCatalogue()` swaps in place from the published DB row. The 3D scene, the palette UI, and `layout.ts` read that palette directly.
+`catalogue.ts` holds the **seed**: the data this repo ships, the disaster-recovery
+copy, and the fallbacks (`CONSTRUCTION`, `RATES`) that fill in whatever a
+published catalogue omits. `PLANNER_CATALOGUE` is frozen. Nothing swaps it.
 
-**`pricing.ts` does not.** It takes its catalogue as an argument and reads it through `sizePriceRmIn` / `doorStyleIn` / `doorPriceRmIn`. The money path must never depend on what a mutable global last happened to hold. Keep it that way.
+The live catalogue comes from the published `CatalogueVersion` and is passed
+explicitly to the three things that consume it:
 
-That split is a known compromise, not a design to extend — see Known issues.
+- `plannerEngine(catalogue)` — the placement functions in `layout.ts`, bound to
+  one catalogue. A factory rather than a per-function parameter because
+  `positioned` is the only place a `familyId` becomes a `Family`, but nearly
+  every export reaches it.
+- `computePlannerPrice(layout, finish, catalogue)` — the money path, which also
+  takes its rates off that catalogue via `ratesOf`.
+- `<CatalogueProvider catalogue={…}>` in `components/planner/CatalogueContext.tsx`
+  — the client tree, which reads `useCatalogue()` for palettes and `useEngine()`
+  for placement.
+
+This replaced a mutable module palette that `setActivePlannerCatalogue` swapped
+in place. It was three bugs at once: a door-price copy that never got swapped, a
+global mutated during React's render phase, and a server-rendered starter layout
+built from the seed but priced against the published catalogue — which fell
+through `?? 0` whenever a publish changed a size ladder. A fourth, quieter bug
+rode along with it: `pricing.ts` read worktop, ceiling-trim, skirting and all
+three end-panel rates off the module-level `RATES` global rather than the
+catalogue argument, so on the server — where price is authoritative — those six
+rates always priced at the bundled placeholders regardless of what was
+published. "Which catalogue is live" is now a value with an owner.
 
 ### Non-negotiables
 
@@ -197,76 +226,11 @@ positions, `Uint32` indices) is hand-rolled for the same reason
 `scripts/generate-grain-texture.mjs` hand-rolls a PNG — a GLB writer is a
 dependency and an exporter's worth of spec for a file only this app reads.
 
-### Every stage infers, none assumes
+### Design intake lives in `src/lib/mesh/CLAUDE.md`
 
-The admin keeps adding designs, so each import is a file nobody has seen. A
-`.skp` gave cabinets for free — component instances *are* cabinets — but an OBJ
-is one flat namespace of boxes with no units and no up-axis. So:
-
-- **Scale** (`normalise.ts`) is found by trying mm/cm/inch/metre and keeping the
-  one that puts the modal panel thickness in 12–25mm. Board thickness is a
-  constant of the trade; model size is not.
-- **Up-axis** is found by settling *depth first* (this product plans one wall, so
-  depth is the smallest extent) and then voting between the two axes left, on
-  which one panels are thin on. Voting across all three gets it wrong on a real
-  file, because doors and backs are thin on depth and outvote the shelves.
-- **Which end is the wall.** A *named* front wins — if the drafter typed
-  `Door_L_`, that panel's side is the front, full stop. `inferFrontSide` is the
-  fallback, and it deliberately ignores anything standing on the floor: feet are
-  hardware by every test but a leveller sits under the middle of the carcass and
-  says nothing about which way it faces. Four of them with no knobs flipped the
-  client's `BC 800mm.obj` back to front.
-- **Getting this wrong is now visible, not subtle.** Mirroring the depth axis
-  reverses triangle winding, so the indices are emitted backwards to compensate;
-  without that every normal points inward and the cabinet renders black.
-- **Panel roles** (`roles.ts`) come from one ordered naming table, with a
-  geometric fallback. `NAMING_RULES` is the only place cabinet semantics live; a
-  drafter who renames something is an edit there and nowhere else.
-- **Cabinets in a run** (`strategies.ts`) are found by three strategies,
-  best-first: gaps between end panels (high confidence), connected components of
-  touching panels (medium), the whole file as one row (low).
-
-Finish names do not survive the export: materials come through as `7#752#-1`
-pointing at re-encoded texture copies. The real names survive only as the texture
-filenames in the folder, so the confirm step asks a human to name and colour
-each one. Do not try to auto-map them.
-
-### Two intake paths, one merge
-
-A whole-wall export and a single-cabinet file are different problems, so there
-are two front doors into the same merge.
-
-| | `/admin/import` | `/admin/cabinet-designs` |
-| --- | --- | --- |
-| File | a run of cabinets | one product |
-| Reader | `mesh/read.ts` → `strategies.ts` groups it | `mesh/measureDesign.ts` |
-| Size | per cabinet, found between end panels | the whole file's bounding box |
-| Then | confirm table → `mergeIntoCatalogue` | `POST [id]/publish` → `mergeIntoCatalogue` |
-
-`measureDesign` deliberately skips the run-grouping. Over a lone cabinet
-`byEndPanels` measures the opening *between* the end panels, so an 800 carcass
-reports 768 — its clear width, minus two 16mm boards. The form wants the size on
-the invoice, which is the bounding box. `coalesceParts` unions the records an
-exporter split a panel into (safe here because it is one cabinet; across a run it
-would merge neighbours).
-
-Both ends land in `mergeIntoCatalogue` and both **create a DRAFT and stop**.
-Publishing stays one deliberate act at `/admin/catalogue`, because that document
-prices real kitchens and a bad parse must never reach a customer unreviewed. The
-publish route re-fetches the bytes from Blob and re-parses them — trust comes
-from the file, never from what a client claims about it.
-
-`CabinetDesign.familyId` records which family a design merged into.
-`SizeOption.meshDesignId` records which design a *rung* is drawn from — one per
-width, because that is how the client draws them.
-
-**Several files, one draft.** `publishDesigns` takes an array, so BC 600 / BC
-800 / BC 900 become three rungs of one ladder in a single DRAFT rather than
-three stacked drafts each based on the last. `/admin/cabinet-designs` takes
-several files at once for the same reason; only SKU and price are per file,
-because only SKU and price genuinely differ between widths of the same cabinet.
-A file that will not parse fails on its own row and the rest of the batch still
-lands.
+How a file becomes a cabinet — scale and up-axis inference, which end is the
+wall, panel roles, run grouping, the two intake paths, and the additive merge —
+is documented next to the code that does it, and loads when you work there.
 
 ### Coverage is the thing to watch
 
@@ -285,28 +249,6 @@ nothing else would ever surface that.
 **Undrafted rungs stay sellable.** Hiding them would make 1:1 a guarantee rather
 than a maybe, and it is the right end state — but only once coverage is high.
 Today it would leave the planner with one placeable cabinet.
-
-### Imports are additive
-
-`mergeIntoCatalogue` can create a family and it can add a rung to an existing
-family's size ladder. **It cannot delete a family, remove a rung, or overwrite a
-`priceRm` that already has a value.** An earlier version replaced the family list
-wholesale, which meant the second import silently destroyed everything the first
-one had contributed and the client had priced. A cabinet matching an existing
-family's shape and fit-out — within 20mm, since 607 and 600 are the same carcass
-read with and without its door — extends that family's ladder at RM 0 rather
-than forking a duplicate.
-
-`meshDesignId` is the one exception, and deliberately: a price is a decision a
-human made and an import must never touch it, but a mesh id is derived cache and
-re-publishing a design after fixing its file has to replace the stale one.
-
-**`geometry` is additive one level deeper.** A family with none takes the
-design's wholesale; a family that has one keeps every field that has a value and
-fills only the ones that never did. That is not a nicety — when `legDiameterMm`
-and `legInsetMm` were added, `base-cabinet` already carried a `geometry` learned
-before they existed, so the old all-or-nothing rule would have left it guessing
-a 50mm foot forever with no re-upload able to correct it.
 
 ### `parts.ts`, and what it is still for
 
@@ -443,14 +385,8 @@ Separate Postgres database from Factory Tracker.
 
 Recorded rather than fixed. Do not paper over them; fix them deliberately.
 
-1. **`PLANNER_CATALOGUE.doorStyles` is a copy**, so `setActivePlannerCatalogue` never updates it — door prices read from that object stay at the bundled fixture.
-2. **`PlannerApp.tsx` calls `setActivePlannerCatalogue` during render**, not in an effect. Global mutation in React's render phase; double-invoked under Strict Mode.
-3. **`app/page.tsx` prices a starter layout against the DB catalogue while `layout.ts` built that layout from the bundled fixtures.** If a published catalogue changes a size ladder, widths fall through `?? 0` and price at zero.
-
-All three have the same root: the live palette is a mutable module global rather than an explicit parameter. The fix is to thread the catalogue through `layout.ts` and the client tree (context) the way `pricing.ts` already does.
-
-4. **Drafter naming is load-bearing now.** `roles.ts` classifies mesh groups from the drafter's own names, and that classification decides which triangles take the customer's finish and which disappear on the doors-hidden toggle. A renamed group used to cost an inferred shelf count; it now costs the finish picker on that cabinet. The review table shows the classification before publish and the fallback is one material across the whole mesh, but this belongs in the Phase 0 conversation about drafting conventions.
-5. **A junk `Testing123` family, 1000–1000mm, is still in the live catalogue.** Left behind by `lib/catalogue/cabinetDesignToFamily.ts` (deleted in `84f4cb7`), which mapped a design straight to a family with a single-rung ladder; the design row it came from was deleted long ago. Harmless but visible — remove it in a catalogue-only commit.
+1. **Drafter naming is load-bearing now.** `roles.ts` classifies mesh groups from the drafter's own names, and that classification decides which triangles take the customer's finish and which disappear on the doors-hidden toggle. A renamed group used to cost an inferred shelf count; it now costs the finish picker on that cabinet. The review table shows the classification before publish and the fallback is one material across the whole mesh, but this belongs in the Phase 0 conversation about drafting conventions.
+2. **A junk `Testing123` family, 1000–1000mm, is still in the live catalogue.** Left behind by `lib/catalogue/cabinetDesignToFamily.ts` (deleted in `84f4cb7`), which mapped a design straight to a family with a single-rung ladder; the design row it came from was deleted long ago. Harmless but visible — remove it in a catalogue-only commit.
 
 ## Open questions — resolve before trusting pricing.ts
 
@@ -458,6 +394,11 @@ All three have the same root: the live palette is a mutable module global rather
 - **Does the public tool show a firm price or an indicative range?** Sales teams often resist public exact pricing. This is a business decision and it changes the UI.
 - **The real size ladders** per family — widths, heights, depths — from their standard modules.
 - **Their real module standard** for living room, bedroom, and foyer. Only the kitchen dimensions come from a real design export; the rest are invented.
+- **What does `Door_L_` mean?** The left-hand leaf of a pair, or a door hinged
+  on its left stile? `hingeSideFromName` reads the token, but only trusts it for
+  a *lone* door — on a pair the outward rule already answers it, and guessing
+  the convention would be reading handedness into what may only be position.
+  Their answer decides whether a single door's drawn name can seed its swing.
 - **Design-intake cadence.** How often do new exports arrive, and will the panel naming (`G-UEnd_(L)`, `G-Door(R)`, …) stay stable? Extraction depends on it, so a change in their drawing habits is a change to `lib/mesh`.
 - Does Prisma Postgres offer an ap-southeast region? If not, quote submission eats a transpacific round trip.
 

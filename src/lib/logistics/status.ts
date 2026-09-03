@@ -1,0 +1,95 @@
+import type { DeliveryStatusName } from "./types";
+
+/**
+ * One carrier's word for where a job is, translated into ours.
+ *
+ * Pure, and the only place a carrier's vocabulary is allowed to appear. Every
+ * partner has its own spelling of the same six or seven states, and letting
+ * those strings reach the UI is how a page ends up with a switch per carrier.
+ *
+ * An unrecognised status returns null and the caller leaves the row alone. That
+ * is deliberate: a status we cannot read is not a reason to invent a transition,
+ * and the raw payload is kept on the DeliveryEvent for whoever investigates.
+ */
+
+/** `"IN TRANSIT"`, `"in-transit"` and `"In_Transit"` are one key. */
+export function normaliseStatusKey(raw: string): string {
+	return raw
+		.trim()
+		.toLowerCase()
+		.replace(/[\s-]+/g, "_");
+}
+
+/**
+ * Per-carrier translation tables, keyed by normalised status.
+ *
+ * Only `manual` is filled in. The four real partners stay empty until their API
+ * documentation arrives — a guessed table would map a status nobody sends and
+ * silently fail to map the ones they do.
+ *
+ * ponytail: empty tables until the carrier docs land; add each partner's real
+ * statuses with its adapter, in the same commit.
+ */
+export const CARRIER_STATUS_MAPS: Record<
+	string,
+	Record<string, DeliveryStatusName>
+> = {
+	manual: {
+		booked: "BOOKED",
+		driver_assigned: "DRIVER_ASSIGNED",
+		picked_up: "PICKED_UP",
+		in_transit: "IN_TRANSIT",
+		delivered: "DELIVERED",
+		cancelled: "CANCELLED",
+		failed: "FAILED",
+	},
+	lalamove: {},
+	gdex: {},
+	citylink: {},
+	easyparcel: {},
+};
+
+export function mapCarrierStatus(
+	carrierId: string,
+	raw: string,
+): DeliveryStatusName | null {
+	const table = CARRIER_STATUS_MAPS[carrierId];
+	if (!table) return null;
+	return table[normaliseStatusKey(raw)] ?? null;
+}
+
+/**
+ * Which way a job is meant to move. Used to reject a stale update: a webhook
+ * and a poll can arrive out of order, and a late "picked up" must not drag a
+ * delivered job backwards.
+ *
+ * The terminal three sit at the end together — nothing follows them, and
+ * nothing outranks them.
+ */
+const RANK: Record<DeliveryStatusName, number> = {
+	DRAFT: 0,
+	QUOTED: 1,
+	BOOKED: 2,
+	DRIVER_ASSIGNED: 3,
+	PICKED_UP: 4,
+	IN_TRANSIT: 5,
+	DELIVERED: 6,
+	CANCELLED: 6,
+	FAILED: 6,
+};
+
+/**
+ * True when `next` is a forward move from `current`.
+ *
+ * Terminal states are final: once a job is delivered, cancelled or failed, a
+ * straggling update can add an event but must not reopen it. Correcting a
+ * wrongly-terminal job is an admin action, not something a carrier retry does.
+ */
+export function isForwardTransition(
+	current: DeliveryStatusName,
+	next: DeliveryStatusName,
+): boolean {
+	if (current === next) return false;
+	if (RANK[current] === 6) return false;
+	return RANK[next] > RANK[current];
+}

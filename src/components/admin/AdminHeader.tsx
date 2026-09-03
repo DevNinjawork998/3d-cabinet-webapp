@@ -19,6 +19,7 @@ const TABS = [
 	{ label: "Cabinet designs", href: "/admin/cabinet-designs" },
 	{ label: "Catalogue", href: "/admin/catalogue" },
 	{ label: "Import design", href: "/admin/import" },
+	{ label: "Logistics", href: "/admin/logistics" },
 	{ label: "Site content", href: "/admin/site-content" },
 	{ label: "Tutorials", href: "/admin/tutorials" },
 ];

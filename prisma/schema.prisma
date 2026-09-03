@@ -182,3 +182,107 @@ model Tutorial {
 
   @@index([status, sortOrder])
 }
+
+enum DeliveryStatus {
+  DRAFT
+  QUOTED
+  BOOKED
+  DRIVER_ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+  FAILED
+}
+
+/// Where a status write came from. A carrier can tell us the same thing twice
+/// through two channels — a webhook and the next poll — and when the two
+/// disagree it matters which one said what.
+enum DeliveryEventSource {
+  ADMIN
+  CARRIER_WEBHOOK
+  POLL
+}
+
+/// One delivery job: finished cabinets leaving the workshop for a customer's
+/// site, moved by a logistics partner.
+///
+/// Free-standing on purpose. There is no order, lead or customer table yet
+/// (Phase 3), so the admin types the job in. When lead capture lands it
+/// pre-fills this form rather than replacing it — a `leadId` column then, not a
+/// different model.
+model Delivery {
+  id             String          @id @default(cuid())
+  /// The job number staff say out loud on the phone. Sequential because
+  /// "delivery forty-one" is sayable and a cuid is not.
+  number         Int             @unique @default(autoincrement())
+  customerName   String
+  customerPhone  String
+  siteAddress    String
+  /// Gate codes, unit numbers, "call on arrival" — the things that decide
+  /// whether a lorry gets in, kept out of the address line the carrier geocodes.
+  addressNotes   String?
+  pickupAddress  String
+  /// Line items: `[{ label, qty, widthMm, heightMm, depthMm, weightKg }]`.
+  /// Json rather than a table because nothing queries inside it — it is written
+  /// whole by the form and read whole by the carrier payload builder.
+  items          Json            @default("[]")
+  /// Derived from `items` by `lib/logistics/measure.ts`, stored because every
+  /// carrier quote wants them and recomputing on each fan-out is pointless.
+  totalWeightKg  Float?
+  totalVolumeM3  Float?
+  scheduledAt    DateTime?
+  /// Validated against CARRIER_IDS in lib/logistics/carriers.ts, not a Prisma
+  /// enum: same reasoning as `Tutorial.category` — the partner list is data,
+  /// and signing a new courier should not be a migration.
+  carrierId      String?
+  status         DeliveryStatus  @default(DRAFT)
+  /// The figure the admin saw and confirmed. Kept even after the carrier
+  /// invoices differently, because it is what the decision was made on.
+  quotedPriceRm  Float?
+  /// The carrier's own id for this job. Unique because that uniqueness *is* the
+  /// double-book guard: booking spends real money, and a retried request must
+  /// not buy a second lorry.
+  carrierOrderId String?         @unique
+  trackingUrl    String?
+  driverName     String?
+  driverPhone    String?
+  vehiclePlate   String?
+  /// Last known position, as text on the page rather than a map — a map means a
+  /// tile provider, a key and bundle weight on a mid-range Android target.
+  lastLatitude   Float?
+  lastLongitude  Float?
+  lastLocationAt DateTime?
+  /// Typed on the confirm step. Admin auth is one shared password with no
+  /// per-user identity, so this plus DeliveryEvent is the whole audit story
+  /// until accounts exist.
+  bookedBy       String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  events         DeliveryEvent[]
+
+  @@index([status, scheduledAt])
+}
+
+/// Every booking, every status change, every webhook payload we accepted.
+/// Doubles as the timeline the detail panel renders — the status column is the
+/// current state, this is how it got there.
+model DeliveryEvent {
+  id         String              @id @default(cuid())
+  deliveryId String
+  delivery   Delivery            @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  at         DateTime            @default(now())
+  source     DeliveryEventSource
+  /// Null when the event records something other than a transition — a quote
+  /// fan-out, an edit, a failed poll.
+  status     DeliveryStatus?
+  message    String
+  /// Who, when we know: the `bookedBy` name for admin actions, null otherwise.
+  actor      String?
+  /// The carrier's untouched payload. Kept because the first thing anyone asks
+  /// about a wrong status is what the carrier actually sent.
+  raw        Json?
+
+  @@index([deliveryId, at])
+}
