@@ -4,6 +4,7 @@ import { useRef } from "react";
 import type { Group } from "three";
 import { MathUtils } from "three";
 import type { HingeSide } from "@/lib/planner/layout";
+import type { SwingSpec } from "@/lib/planner/swing";
 
 /**
  * A door leaf that swings on its stile.
@@ -12,6 +13,12 @@ import type { HingeSide } from "@/lib/planner/layout";
  * `DesignedCabinet.tsx` draws the drafted mesh, and `Cabinet.tsx` already
  * imports from `DesignedCabinet.tsx`, so this cannot live in either without a
  * cycle.
+ *
+ * This component decides nothing about geometry. Where the axis sits, how far
+ * the leaf opens, and whether it should open at all are worked out by `swingOf`
+ * in `lib/planner/swing.ts` from the leaf's own box and the carcass it hangs
+ * on — so they are checkable by reading arithmetic rather than pixels. What is
+ * left here is the easing.
  *
  * Children stay in the cabinet's own frame: the outer group pivots at the
  * hinge, the inner one undoes that offset. So a caller passes the same
@@ -23,10 +30,6 @@ import type { HingeSide } from "@/lib/planner/layout";
  * independent — which matters on the mid-range Android this is built for, where
  * a fixed per-frame lerp would swing visibly slower than on a desktop.
  */
-
-/** How far a door stands open. A real hinge goes to ~110°; a shade under that
- * keeps a leaf at the end of a run from reading as detached from its carcass. */
-const OPEN_RAD = MathUtils.degToRad(100);
 
 /** Close enough to stop writing to the transform. */
 const SETTLED_RAD = 0.001;
@@ -41,34 +44,40 @@ export const hingeOf = (
 ): HingeSide => (leaves === 1 ? chosen : index === 0 ? "left" : "right");
 
 export function Hinge({
-	/** Where the stile is, in the cabinet's own frame, in metres. */
-	x,
-	/**
-	 * How far forward the leaf sits, in the cabinet's own frame, in metres.
-	 *
-	 * Load-bearing, and it was the bug: the pivot used to be `[x, 0, 0]`, which
-	 * put the axis at the carcass's depth CENTRE while the leaf lives at its
-	 * front face. A door ~290mm in front of its own hinge line does not swing,
-	 * it orbits — the leaf swept backwards through the carcass and sideways out
-	 * of the cabinet, and its hinge edge travelled 438mm instead of staying put.
-	 */
-	z,
-	side,
+	spec,
 	open,
 	children,
 }: {
-	x: number;
-	z: number;
-	side: HingeSide;
+	/**
+	 * Where this leaf turns and how far, derived from its own geometry.
+	 *
+	 * The axis being a *derived* value rather than a constant is the whole
+	 * point: the pivot used to sit at the carcass's depth centre, ~290mm behind
+	 * a leaf that lives at the front face, so the leaf orbited instead of
+	 * swinging and its hinge edge travelled 438mm. `swingOf` reads the depths
+	 * off the design, which is what makes an uploaded carcass with its doors
+	 * somewhere else still hinge correctly.
+	 */
+	spec: SwingSpec;
 	open: boolean;
 	children: ReactNode;
 }) {
 	const pivot = useRef<Group>(null);
 
+	const x = spec.pivotXMm / 1000;
+	const z = spec.pivotZMm / 1000;
+
 	// Hinged left, the leaf extends toward +x, and a *negative* rotation about y
 	// is what brings its free edge forward to the customer. Hinged right it
 	// extends toward -x and the sign flips with it.
-	const target = open ? OPEN_RAD * (side === "left" ? -1 : 1) : 0;
+	//
+	// A leaf shaped like a lift-up flap stays shut: swinging it about a vertical
+	// stile would send it sideways through the neighbouring cabinet, and drawing
+	// it closed is the honest failure. `/admin/cabinet-designs` reports it.
+	const target =
+		open && !spec.suspectFlap
+			? spec.maxRad * (spec.side === "left" ? -1 : 1)
+			: 0;
 
 	useFrame((_, delta) => {
 		const group = pivot.current;

@@ -20,6 +20,7 @@ import {
 	type PartBoxMm,
 	standOf,
 } from "@/lib/planner/parts";
+import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
@@ -162,6 +163,50 @@ export function Cabinet({
 			part.role !== "drawerFront" &&
 			part.role !== "leg",
 	);
+
+	// The box the doors hang on, unioned from the carcass's own parts rather
+	// than from `family.depthMm`. `swingOf` compares a leaf's back face against
+	// this front face to tell an overlay door from an inset one, so it has to be
+	// the same geometry the scene actually draws — the drafted path unions the
+	// carcass mesh group the same way.
+	const carcassMm: BoxMm = carcassParts.length
+		? carcassParts.reduce<BoxMm>(
+				(box, part) => {
+					const b = boxOf(part);
+					return {
+						min: {
+							x: Math.min(box.min.x, b.min.x),
+							y: Math.min(box.min.y, b.min.y),
+							z: Math.min(box.min.z, b.min.z),
+						},
+						max: {
+							x: Math.max(box.max.x, b.max.x),
+							y: Math.max(box.max.y, b.max.y),
+							z: Math.max(box.max.z, b.max.z),
+						},
+					};
+				},
+				{
+					min: {
+						x: Number.POSITIVE_INFINITY,
+						y: Number.POSITIVE_INFINITY,
+						z: Number.POSITIVE_INFINITY,
+					},
+					max: {
+						x: Number.NEGATIVE_INFINITY,
+						y: Number.NEGATIVE_INFINITY,
+						z: Number.NEGATIVE_INFINITY,
+					},
+				},
+			)
+		: {
+				min: { x: -widthMm / 2, y: 0, z: -family.depthMm / 2 },
+				max: {
+					x: widthMm / 2,
+					y: family.heightMm,
+					z: family.depthMm / 2,
+				},
+			};
 	const legParts = parts.filter((part) => part.role === "leg");
 	const leaves = parts.filter((part) => part.role === "doorLeaf");
 	const drawerFronts = parts.filter((part) => part.role === "drawerFront");
@@ -274,6 +319,7 @@ export function Cabinet({
 						) : (
 							<Doors
 								parts={leaves}
+								carcassMm={carcassMm}
 								finishPhoto={finishPhoto}
 								door={door}
 								hinge={hinge}
@@ -497,8 +543,23 @@ function Handle({
 	);
 }
 
+/** A part's box in the cabinet's own frame — the frame `swingOf` works in. */
+const boxOf = (part: PartBoxMm): BoxMm => ({
+	min: {
+		x: part.centreMm.x - part.sizeMm.x / 2,
+		y: part.centreMm.y - part.sizeMm.y / 2,
+		z: part.centreMm.z - part.sizeMm.z / 2,
+	},
+	max: {
+		x: part.centreMm.x + part.sizeMm.x / 2,
+		y: part.centreMm.y + part.sizeMm.y / 2,
+		z: part.centreMm.z + part.sizeMm.z / 2,
+	},
+});
+
 function Doors({
 	parts,
+	carcassMm,
 	door,
 	hinge,
 	open,
@@ -508,6 +569,9 @@ function Doors({
 	emphasis,
 }: {
 	parts: PartBoxMm[];
+	/** The box the leaves hang on, so `swingOf` can tell an overlay door from
+	 * an inset one and pivot on the right edge. */
+	carcassMm: BoxMm;
 	door: DoorStyle;
 	hinge: HingeSide;
 	open: boolean;
@@ -527,15 +591,10 @@ function Doors({
 				const y = m(leaf.centreMm.y);
 				const z = m(leaf.centreMm.z);
 				const leafW = m(leaf.sizeMm.x);
+				const spec = swingOf(boxOf(leaf), carcassMm, side);
 
 				return (
-					<Hinge
-						key={leaf.index}
-						x={x + (side === "left" ? -leafW / 2 : leafW / 2)}
-						z={z}
-						side={side}
-						open={open}
-					>
+					<Hinge key={leaf.index} spec={spec} open={open}>
 						<Front
 							door={door}
 							width={leafW}

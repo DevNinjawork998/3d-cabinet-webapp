@@ -14,6 +14,7 @@ import {
 } from "@/lib/planner/catalogue";
 import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
+import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import { useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
 
@@ -39,6 +40,12 @@ import { Hinge, hingeOf } from "./Hinge";
  */
 
 const m = (mm: number) => mm / 1000;
+
+/** The mesh carries a bbox as two triples; `swingOf` works in `{x,y,z}`. */
+const boxOf = (bbox: MeshGroup["bboxMm"]): BoxMm => ({
+	min: { x: bbox.min[0], y: bbox.min[1], z: bbox.min[2] },
+	max: { x: bbox.max[0], y: bbox.max[1], z: bbox.max[2] },
+});
 
 /**
  * One fetch per design, shared by every placement of it.
@@ -274,6 +281,16 @@ export function DesignedCabinet({
 
 	const leaves = drawn.filter((group) => group.role === "door").length;
 
+	// The box the doors hang on. `swingOf` compares a leaf's back face against
+	// this front face to tell an overlay door from an inset one; without a
+	// carcass group there is nothing to compare against, so fall back to
+	// treating the leaf as an overlay — which is what every design the client
+	// has sent so far actually is.
+	const carcassMm = useMemo((): BoxMm | null => {
+		const carcass = groups.find((group) => group.role === "carcass");
+		return carcass ? boxOf(carcass.bboxMm) : null;
+	}, [groups]);
+
 	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
 	const emissive = highlighted ? "#15803d" : "#2b6cb0";
 
@@ -306,14 +323,17 @@ export function DesignedCabinet({
 				if (group.role !== "door") return rendered;
 
 				const side = hingeOf(leafIndex++, leaves, hinge);
+				const leafMm = boxOf(group.bboxMm);
+				// No carcass to measure against means no way to tell overlay from
+				// inset, so assume the leaf sits proud of a front at its own back
+				// face — the overlay case, and the only one drawn so far.
+				const spec = swingOf(
+					leafMm,
+					carcassMm ?? { ...leafMm, max: { ...leafMm.max, z: leafMm.min.z } },
+					side,
+				);
 				return (
-					<Hinge
-						key={key}
-						x={m(side === "left" ? group.bboxMm.min[0] : group.bboxMm.max[0])}
-						z={m((group.bboxMm.min[2] + group.bboxMm.max[2]) / 2)}
-						side={side}
-						open={open}
-					>
+					<Hinge key={key} spec={spec} open={open}>
 						{rendered}
 					</Hinge>
 				);
