@@ -532,6 +532,7 @@ function Doors({
 					<Hinge
 						key={leaf.index}
 						x={x + (side === "left" ? -leafW / 2 : leafW / 2)}
+						z={z}
 						side={side}
 						open={open}
 					>

@@ -310,6 +310,7 @@ export function DesignedCabinet({
 					<Hinge
 						key={key}
 						x={m(side === "left" ? group.bboxMm.min[0] : group.bboxMm.max[0])}
+						z={m((group.bboxMm.min[2] + group.bboxMm.max[2]) / 2)}
 						side={side}
 						open={open}
 					>

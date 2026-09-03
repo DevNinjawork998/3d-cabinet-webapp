@@ -43,11 +43,22 @@ export const hingeOf = (
 export function Hinge({
 	/** Where the stile is, in the cabinet's own frame, in metres. */
 	x,
+	/**
+	 * How far forward the leaf sits, in the cabinet's own frame, in metres.
+	 *
+	 * Load-bearing, and it was the bug: the pivot used to be `[x, 0, 0]`, which
+	 * put the axis at the carcass's depth CENTRE while the leaf lives at its
+	 * front face. A door ~290mm in front of its own hinge line does not swing,
+	 * it orbits — the leaf swept backwards through the carcass and sideways out
+	 * of the cabinet, and its hinge edge travelled 438mm instead of staying put.
+	 */
+	z,
 	side,
 	open,
 	children,
 }: {
 	x: number;
+	z: number;
 	side: HingeSide;
 	open: boolean;
 	children: ReactNode;
@@ -72,8 +83,8 @@ export function Hinge({
 	});
 
 	return (
-		<group ref={pivot} position={[x, 0, 0]}>
-			<group position={[-x, 0, 0]}>{children}</group>
+		<group ref={pivot} position={[x, 0, z]}>
+			<group position={[-x, 0, -z]}>{children}</group>
 		</group>
 	);
 }
