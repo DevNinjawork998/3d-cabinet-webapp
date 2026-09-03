@@ -1,3 +1,4 @@
+import type { HingeSide } from "@/lib/planner/layout";
 import { normalise } from "./normalise";
 import {
 	coalesceParts,
@@ -7,7 +8,13 @@ import {
 	readObjMesh,
 	type Vec3,
 } from "./objRead";
-import { boundsOf, classify, type PartRole, roleFromName } from "./roles";
+import {
+	boundsOf,
+	classify,
+	hingeSideFromName,
+	type PartRole,
+	roleFromName,
+} from "./roles";
 
 /**
  * The drafted cabinet, ready to draw.
@@ -78,6 +85,20 @@ export type MeshGroup = {
 	/** The measuring tool's snap targets. Kept per group because a snap onto
 	 * "the shelf" is worth more than a snap onto "the cabinet". */
 	bboxMm: { min: Vec3; max: Vec3 };
+	/**
+	 * Which stile the drafter hung this door on, when they said so.
+	 *
+	 * Only ever set for a file holding a SINGLE door. A pair already hinges
+	 * outward from the middle — the only way a pair is hung — so a name adds
+	 * nothing there, and `Door_L_` more likely means "the left-hand leaf" than
+	 * "hinged left". A lone leaf is the case where nothing else in the file
+	 * says which stile, so it is the case worth carrying.
+	 *
+	 * Advisory, not authoritative: the customer's own choice rides in the
+	 * layout document and reaches the SKU list, so this seeds a review in
+	 * `/admin/cabinet-designs` rather than overriding what they picked.
+	 */
+	hingeSide?: HingeSide;
 };
 
 export type RenderMesh = {
@@ -169,6 +190,13 @@ export function buildRenderMesh(objText: string): RenderMesh | null {
 		...measured,
 		frontSide: frontSideFromFronts(parts) ?? measured.frontSide,
 	};
+
+	// The drafter's own handedness, kept only when the file holds exactly one
+	// door. See `MeshGroup.hingeSide` for why a pair is deliberately left out.
+	const namedSides = parts
+		.map((part) => hingeSideFromName(part.name))
+		.filter((side): side is HingeSide => side !== null);
+	const hingeSide = namedSides.length === 1 ? namedSides[0] : undefined;
 
 	const roleByName = new Map<string, PartRole>();
 	for (const { part, role } of classify(parts, bounds)) {
@@ -278,6 +306,7 @@ export function buildRenderMesh(objText: string): RenderMesh | null {
 			positions: new Float32Array(positions),
 			indices: new Uint32Array(indices),
 			bboxMm: { min: gLo, max: gHi },
+			...(role === "door" && hingeSide ? { hingeSide } : {}),
 		});
 	}
 
@@ -408,6 +437,8 @@ type HeaderGroup = {
 	vertexCount: number;
 	indexCount: number;
 	bboxMm: { min: Vec3; max: Vec3 };
+	/** Optional, so a mesh built before this existed still decodes. */
+	hingeSide?: HingeSide;
 };
 
 type Header = {
@@ -426,6 +457,7 @@ export function encodeRenderMesh(mesh: RenderMesh): Uint8Array {
 			vertexCount: g.positions.length / 3,
 			indexCount: g.indices.length,
 			bboxMm: g.bboxMm,
+			...(g.hingeSide ? { hingeSide: g.hingeSide } : {}),
 		})),
 		sizeMm: mesh.sizeMm,
 		triangleCount: mesh.triangleCount,
@@ -502,6 +534,10 @@ export function decodeRenderMesh(input: Uint8Array): RenderMesh {
 			positions: positions[i],
 			indices,
 			bboxMm: group.bboxMm,
+			// Absent on every mesh built before handedness was carried, which is
+			// exactly what the optional field is for — an old mesh decodes and the
+			// renderer falls back to the outward rule.
+			...(group.hingeSide ? { hingeSide: group.hingeSide } : {}),
 		};
 	});
 

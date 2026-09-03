@@ -1,3 +1,4 @@
+import type { HingeSide } from "@/lib/planner/layout";
 import type { MeshPart } from "./objRead";
 
 /**
@@ -83,6 +84,34 @@ export function roleFromName(name: string): PartRole | null {
 	for (const rule of NAMING_RULES) {
 		if (rule.pattern.test(probe)) return rule.role;
 	}
+	return null;
+}
+
+/**
+ * Which stile a door hangs on, from the drafter's own name for it.
+ *
+ * The best signal in the file about handedness, and until now it was thrown
+ * away: `NAMING_RULES` matches a bare `\bdoor\b`, so `Door_L_` and `Door_R_`
+ * classify identically and the side is gone by the time anything draws the
+ * cabinet.
+ *
+ * Read the caveat before trusting it. `Door_L_` most likely names *the
+ * left-hand door of a pair* — its position, not its hinge. For a pair that
+ * agrees with the outward rule the renderer already applies, so it adds
+ * confirmation rather than information; its real value is a lone leaf, where
+ * nothing else in the file says which stile. Which of those the client means
+ * is a Phase 0 question about drafting conventions, not ours to guess.
+ *
+ * Null when the panel is not a door, or is a door the drafter did not hand.
+ */
+export function hingeSideFromName(name: string): HingeSide | null {
+	// Same trick `roleFromName` uses, and for the same reason: underscores are
+	// word separators to a drafter and word *characters* to a regex, so
+	// `\bl\b` would never match `Door_L_`.
+	const probe = name.replace(/_/g, " ");
+	if (!/\bdoor\b/i.test(probe)) return null;
+	if (/\b(l|left)\b/i.test(probe)) return "left";
+	if (/\b(r|right)\b/i.test(probe)) return "right";
 	return null;
 }
 

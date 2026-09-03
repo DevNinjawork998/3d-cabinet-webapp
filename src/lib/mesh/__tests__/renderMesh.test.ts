@@ -283,3 +283,53 @@ describe("splitDoorLeaves", () => {
 		expect(splitDoorLeaves(door)).toEqual([door]);
 	});
 });
+
+describe("the drafter's handedness survives intake", () => {
+	/**
+	 * `NAMING_RULES` matches a bare `\bdoor\b`, so `Door_L_` and `Door_R_` used
+	 * to classify identically and the side was gone by the time anything drew
+	 * the cabinet. It is carried now — but only where it says something the
+	 * geometry does not.
+	 */
+	const doorOf = (obj: string) => {
+		const mesh = buildRenderMesh(obj);
+		if (!mesh) throw new Error("no mesh");
+		const door = mesh.groups.find((g) => g.role === "door");
+		if (!door) throw new Error("no door group");
+		return door;
+	};
+
+	it("keeps the side of a lone door the drafter handed", () => {
+		// CABINET carries a single `Door_L_`.
+		expect(doorOf(CABINET).hingeSide).toBe("left");
+	});
+
+	it("leaves a pair alone, because the outward rule already answers it", () => {
+		// A pair hinges outward from the middle — the only way a pair is hung —
+		// so a name adds nothing, and `Door_L_` more likely means "the left-hand
+		// leaf" than "hinged left".
+		const PAIR = [
+			inchBox("G-UEnd_(L)", [0, 0, 0], [mm(16), mm(600), mm(720)], 0),
+			inchBox("G-UEnd_(R)", [mm(784), 0, 0], [mm(800), mm(600), mm(720)], 8),
+			inchBox("G-UBack", [0, mm(584), 0], [mm(800), mm(600), mm(720)], 16),
+			inchBox("Door_L_", [0, 0, 0], [mm(398), mm(16), mm(720)], 24),
+			inchBox("Door_R_", [mm(402), 0, 0], [mm(800), mm(16), mm(720)], 32),
+			inchBox("G-Bottom", [mm(16), 0, 0], [mm(784), mm(584), mm(16)], 40),
+			inchBox("G-Top", [mm(16), 0, mm(704)], [mm(784), mm(584), mm(720)], 48),
+			inchBox(
+				"G-Fixed_Shelf",
+				[mm(16), 0, mm(400)],
+				[mm(784), mm(584), mm(416)],
+				56,
+			),
+		].join("\n");
+		expect(doorOf(PAIR).hingeSide).toBeUndefined();
+	});
+
+	it("survives the round trip through the binary", () => {
+		const mesh = buildRenderMesh(CABINET);
+		if (!mesh) throw new Error("no mesh");
+		const back = decodeRenderMesh(encodeRenderMesh(mesh));
+		expect(back.groups.find((g) => g.role === "door")?.hingeSide).toBe("left");
+	});
+});
