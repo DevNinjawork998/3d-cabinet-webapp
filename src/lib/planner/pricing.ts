@@ -8,13 +8,7 @@ import {
 	sizePriceRmIn,
 } from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
-import {
-	endPanels,
-	type PlannerLayout,
-	type Positioned,
-	positionsOf,
-	skirtingSpans,
-} from "./layout";
+import { type PlannerLayout, type Positioned, plannerEngine } from "./layout";
 
 /**
  * Indicative planner pricing.
@@ -88,8 +82,12 @@ function cabinetPriceRm(
  * 3D uses to decide where the slab stops. Only families that carry one count,
  * and gaps break it, so the customer is not charged for the breaks.
  */
-export function worktopFt(layout: PlannerLayout): number {
-	const mm = positionsOf(layout, "floor")
+export function worktopFt(
+	layout: PlannerLayout,
+	catalogue: PlannerCatalogue,
+): number {
+	const mm = plannerEngine(catalogue)
+		.positionsOf(layout, "floor")
 		.filter((position) => position.family.hasWorktop)
 		.reduce((total, position) => total + position.widthMm, 0);
 	return ftOf(mm);
@@ -100,12 +98,14 @@ export function worktopFt(layout: PlannerLayout): number {
  * a length, cut to the cabinets under it. Nothing to charge when the run
  * hangs, because then there is no strip.
  */
-export function ceilingTrimFt(layout: PlannerLayout): number {
+export function ceilingTrimFt(
+	layout: PlannerLayout,
+	catalogue: PlannerCatalogue,
+): number {
 	if (!layout.wallToCeiling) return 0;
-	const mm = positionsOf(layout, "wall").reduce(
-		(total, position) => total + position.widthMm,
-		0,
-	);
+	const mm = plannerEngine(catalogue)
+		.positionsOf(layout, "wall")
+		.reduce((total, position) => total + position.widthMm, 0);
 	return ftOf(mm);
 }
 
@@ -114,11 +114,13 @@ export function ceilingTrimFt(layout: PlannerLayout): number {
  * cabinets' total width — a gap in the run breaks the board, and charging
  * across the gap would bill for a piece nobody fits. Same rule as the worktop.
  */
-export function skirtingFt(layout: PlannerLayout): number {
-	const mm = skirtingSpans(layout).reduce(
-		(total, span) => total + (span.endMm - span.startMm),
-		0,
-	);
+export function skirtingFt(
+	layout: PlannerLayout,
+	catalogue: PlannerCatalogue,
+): number {
+	const mm = plannerEngine(catalogue)
+		.skirtingSpans(layout)
+		.reduce((total, span) => total + (span.endMm - span.startMm), 0);
 	return ftOf(mm);
 }
 
@@ -141,7 +143,7 @@ export function endPanelPriceRm(
 	amountRm: number;
 } {
 	const rates = ratesOf(catalogue);
-	const panels = endPanels(layout);
+	const panels = plannerEngine(catalogue).endPanels(layout);
 	return {
 		count: panels.length,
 		amountRm: panels.reduce(
@@ -157,9 +159,10 @@ export function computePlannerPrice(
 	catalogue: PlannerCatalogue,
 ): KitchenPrice {
 	const rates = ratesOf(catalogue);
+	const engine = plannerEngine(catalogue);
 	const placed: Positioned[] = [
-		...positionsOf(layout, "floor"),
-		...positionsOf(layout, "wall"),
+		...engine.positionsOf(layout, "floor"),
+		...engine.positionsOf(layout, "wall"),
 	];
 
 	const cabinets = placed.map((position) => {
@@ -181,9 +184,9 @@ export function computePlannerPrice(
 	const carcassTotal = cabinets.reduce((sum, line) => sum + line.carcassRm, 0);
 	const doorTotal = cabinets.reduce((sum, line) => sum + line.doorRm, 0);
 	const doorCount = cabinets.filter((line) => line.doorRm > 0).length;
-	const tops = worktopFt(layout);
-	const trim = ceilingTrimFt(layout);
-	const skirting = skirtingFt(layout);
+	const tops = worktopFt(layout, catalogue);
+	const trim = ceilingTrimFt(layout, catalogue);
+	const skirting = skirtingFt(layout, catalogue);
 	const panels = endPanelPriceRm(layout, catalogue);
 
 	const categories: PriceLine[] = [

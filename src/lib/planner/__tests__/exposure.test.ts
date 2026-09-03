@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { PLANNER_CATALOGUE } from "../catalogue";
 import { exposedSides, FULLY_EXPOSED } from "../exposure";
-import { addModule, emptyLayout, positionsOf } from "../layout";
+import { emptyLayout, plannerEngine } from "../layout";
+
+const { addModule, positionsOf } = plannerEngine(PLANNER_CATALOGUE);
 
 const WALL_MM = 4200;
 

@@ -8,19 +8,24 @@ import {
 	sizePriceRm,
 } from "../catalogue";
 import { plannerCatalogueSchema } from "../catalogueSchema";
-import type { PlannerLayout } from "../layout";
 import {
-	addModule,
 	emptyLayout,
+	type PlannerLayout,
+	plannerEngine,
+	setDoor,
+} from "../layout";
+
+const {
+	addModule,
 	removeModule,
 	setBaseSkirting,
-	setDoor,
 	setWallToCeiling,
 	setWallToWall,
 	setWallWidth,
 	setWidth,
 	starterFor,
-} from "../layout";
+} = plannerEngine(PLANNER_CATALOGUE);
+
 import {
 	ceilingTrimFt,
 	computePlannerPrice,
@@ -129,12 +134,15 @@ describe("worktop", () => {
 	it("measures only the families that carry one", () => {
 		// 900 base + 400 drawer base carry a worktop; the tall unit and the wall
 		// cabinet do not.
-		expect(worktopFt(run())).toBeCloseTo(1300 / MM_PER_FT, 6);
+		expect(worktopFt(run(), PLANNER_CATALOGUE)).toBeCloseTo(
+			1300 / MM_PER_FT,
+			6,
+		);
 	});
 
 	it("is nothing in a room whose products have no worktop", () => {
 		const bedroom = starterFor("bedroom");
-		expect(worktopFt(bedroom)).toBe(0);
+		expect(worktopFt(bedroom, PLANNER_CATALOGUE)).toBe(0);
 	});
 });
 
@@ -242,7 +250,7 @@ describe("every room prices", () => {
 describe("ceiling trim", () => {
 	it("charges nothing while the run hangs", () => {
 		const result = price(run());
-		expect(ceilingTrimFt(run())).toBe(0);
+		expect(ceilingTrimFt(run(), PLANNER_CATALOGUE)).toBe(0);
 		expect(result.ceilingTrimFt).toBe(0);
 		expect(result.categories.some((c) => c.label === "Ceiling trim")).toBe(
 			false,
@@ -252,7 +260,10 @@ describe("ceiling trim", () => {
 	it("charges the wall run's length once it goes to the ceiling", () => {
 		const flushed = setWallToCeiling(run(), true);
 		// One 900mm wall unit is the whole hung row.
-		expect(ceilingTrimFt(flushed)).toBeCloseTo(900 / MM_PER_FT, 6);
+		expect(ceilingTrimFt(flushed, PLANNER_CATALOGUE)).toBeCloseTo(
+			900 / MM_PER_FT,
+			6,
+		);
 		expect(
 			price(flushed).categories.some((c) => c.label === "Ceiling trim"),
 		).toBe(true);
@@ -271,7 +282,9 @@ describe("ceiling trim", () => {
 	it("charges nothing for a ceiling run with nothing hung on the wall", () => {
 		let floorOnly = empty();
 		floorOnly = addModule(floorOnly, "base-cabinet", 0, "b1", 900);
-		expect(ceilingTrimFt(setWallToCeiling(floorOnly, true))).toBe(0);
+		expect(
+			ceilingTrimFt(setWallToCeiling(floorOnly, true), PLANNER_CATALOGUE),
+		).toBe(0);
 	});
 });
 
@@ -279,7 +292,10 @@ describe("skirting", () => {
 	it("charges every base run, since the legs always need covering", () => {
 		const result = price(run());
 		// base 900 + drawers 400 + tall 600, all touching from 0.
-		expect(skirtingFt(run())).toBeCloseTo(1900 / MM_PER_FT, 6);
+		expect(skirtingFt(run(), PLANNER_CATALOGUE)).toBeCloseTo(
+			1900 / MM_PER_FT,
+			6,
+		);
 		expect(result.categories.some((c) => c.label === "Skirting")).toBe(true);
 	});
 
@@ -294,8 +310,14 @@ describe("skirting", () => {
 
 		// Same cabinets either way, so the same board length — the gap splits the
 		// board in two, it does not add a third piece bridging it.
-		expect(skirtingFt(apart)).toBeCloseTo(skirtingFt(together), 6);
-		expect(skirtingFt(apart)).toBeCloseTo(1800 / MM_PER_FT, 6);
+		expect(skirtingFt(apart, PLANNER_CATALOGUE)).toBeCloseTo(
+			skirtingFt(together, PLANNER_CATALOGUE),
+			6,
+		);
+		expect(skirtingFt(apart, PLANNER_CATALOGUE)).toBeCloseTo(
+			1800 / MM_PER_FT,
+			6,
+		);
 	});
 
 	it("drops the line entirely when the customer turns the board off", () => {
@@ -312,7 +334,7 @@ describe("skirting", () => {
 
 	it("charges nothing in a room with only wall units", () => {
 		const wallOnly = addModule(empty(), "wall-cabinet", 0, "w", 900);
-		expect(skirtingFt(wallOnly)).toBe(0);
+		expect(skirtingFt(wallOnly, PLANNER_CATALOGUE)).toBe(0);
 		expect(price(wallOnly).categories.some((c) => c.label === "Skirting")).toBe(
 			false,
 		);

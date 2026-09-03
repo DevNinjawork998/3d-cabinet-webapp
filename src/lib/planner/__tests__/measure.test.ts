@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { addModule, allPositions, emptyLayout, setDoor } from "../layout";
+import { PLANNER_CATALOGUE } from "../catalogue";
+import { emptyLayout, plannerEngine, setDoor } from "../layout";
+
+const { addModule, allPositions } = plannerEngine(PLANNER_CATALOGUE);
+
 import {
 	APERTURE_PX,
 	apertureMm,

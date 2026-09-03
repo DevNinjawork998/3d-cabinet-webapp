@@ -3,16 +3,33 @@ import {
 	CEILING_LIMITS,
 	FAMILIES,
 	family,
+	PLANNER_CATALOGUE,
 	ROOM_DEPTH_LIMITS,
 	ROOM_TYPES,
 	WALL_HANG_LIMITS,
 } from "../catalogue";
 import {
+	emptyLayout,
+	type PlannerLayout,
+	plannerEngine,
+	type Row,
+	rowFor,
+	SNAP_MM,
+	setDoor,
+	setDoors,
+	setHinge,
+	WALL_LIMITS,
+} from "../layout";
+import { standOf } from "../parts";
+
+/** The seed is the right catalogue for engine tests: they assert placement
+ * rules, not a publish. Destructured so the assertions below read exactly as
+ * they did when these were module functions. */
+const {
 	addModule,
 	closeGaps,
 	dropModule,
 	duplicateModule,
-	emptyLayout,
 	endPanels,
 	firstFreeXMm,
 	fits,
@@ -25,20 +42,13 @@ import {
 	occupiedSpans,
 	overhangingIds,
 	overhangMm,
-	type PlannerLayout,
 	positionsOf,
-	type Row,
 	removeModule,
 	removeModules,
-	rowFor,
 	runExtentMm,
-	SNAP_MM,
 	setBaseSkirting,
 	setCeilingHeight,
-	setDoor,
-	setDoors,
 	setHangingHeight,
-	setHinge,
 	setRoomDepth,
 	setWallToCeiling,
 	setWallToWall,
@@ -46,10 +56,8 @@ import {
 	setWidth,
 	skirtingSpans,
 	starterFor,
-	WALL_LIMITS,
 	widthOptionsFor,
-} from "../layout";
-import { standOf } from "../parts";
+} = plannerEngine(PLANNER_CATALOGUE);
 
 const WALL_MM = 4000;
 
@@ -873,5 +881,59 @@ describe("catalogue integrity", () => {
 		expect(rowFor("wall")).toBe("wall");
 		expect(rowFor("base")).toBe("floor");
 		expect(rowFor("tall")).toBe("floor");
+	});
+});
+
+describe("the engine is bound to the catalogue it was given", () => {
+	it("places off the catalogue's own size ladder", () => {
+		const narrow = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.map((f) =>
+				f.id === "base-cabinet"
+					? { ...f, sizes: [{ widthMm: 500, priceRm: 1 }] }
+					: f,
+			),
+		};
+		const engine = plannerEngine(narrow);
+		const placed = engine.addModule(emptyLayout(4000), "base-cabinet", 0);
+		expect(placed.floor[0].widthMm).toBe(500);
+	});
+
+	it("refuses a family the catalogue does not carry", () => {
+		const without = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.filter(
+				(f) => f.id !== "base-cabinet",
+			),
+		};
+		const engine = plannerEngine(without);
+		expect(engine.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
+		expect(
+			engine.addModule(emptyLayout(4000), "base-cabinet", 0).floor,
+		).toHaveLength(0);
+	});
+
+	it("builds a starter from the catalogue's own room, not the seed's", () => {
+		const short = {
+			...PLANNER_CATALOGUE,
+			roomTypes: PLANNER_CATALOGUE.roomTypes.map((r) =>
+				r.id === "kitchen"
+					? { ...r, starter: [{ familyId: "base-cabinet", widthMm: 600 }] }
+					: r,
+			),
+		};
+		expect(plannerEngine(short).starterFor("kitchen").floor).toHaveLength(1);
+	});
+
+	it("two engines over two catalogues do not see each other", () => {
+		const a = plannerEngine(PLANNER_CATALOGUE);
+		const b = plannerEngine({
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.filter(
+				(f) => f.id !== "base-cabinet",
+			),
+		});
+		expect(a.fits(emptyLayout(4000), "base-cabinet")).toBe(true);
+		expect(b.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
 	});
 });
