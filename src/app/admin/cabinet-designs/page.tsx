@@ -41,7 +41,17 @@ type CabinetDesign = {
 	 * the conversion found nothing drawable, so the planner falls back to
 	 * procedural geometry for this cabinet. */
 	meshBytes: number | null;
-	meshGroups: { role: string; triangles: number }[] | null;
+	meshGroups:
+		| {
+				role: string;
+				triangles: number;
+				/** Doors only: how the leaf will actually behave when a customer
+				 * opens it, decided at intake so a wrong reading shows up here
+				 * rather than in front of a customer. */
+				hingeSide?: "left" | "right" | null;
+				fit?: "overlay" | "inset";
+		  }[]
+		| null;
 	updatedAt: string;
 };
 
@@ -57,7 +67,15 @@ function meshSummary(d: CabinetDesign): string | null {
 	if (!d.meshGroups?.length) return "no mesh — drawn procedurally";
 	const triangles = d.meshGroups.reduce((n, g) => n + g.triangles, 0);
 	const size = d.meshBytes ? ` · ${Math.round(d.meshBytes / 1024)} KB` : "";
-	return `${triangles.toLocaleString()} tris${size}`;
+	// An inset door hinges on its outer front arris rather than its back face,
+	// and opens less far before it binds — worth seeing before publish, because
+	// every design so far has been an overlay and a stray inset reading is far
+	// more likely a mis-read front side than a real inset cabinet.
+	const door = d.meshGroups.find((g) => g.role === "door");
+	const swing = door?.fit
+		? ` · ${door.fit}${door.hingeSide ? ` · hinged ${door.hingeSide}` : ""}`
+		: "";
+	return `${triangles.toLocaleString()} tris${size}${swing}`;
 }
 
 /**
@@ -1083,7 +1101,12 @@ export default function CabinetDesignsPage() {
 													}`}
 													title={
 														d.meshGroups
-															?.map((g) => `${g.role} ${g.triangles}`)
+															?.map(
+																(g) =>
+																	`${g.role} ${g.triangles}` +
+																	(g.fit ? ` (${g.fit})` : "") +
+																	(g.hingeSide ? ` hinged ${g.hingeSide}` : ""),
+															)
 															.join(" · ") ?? undefined
 													}
 												>
