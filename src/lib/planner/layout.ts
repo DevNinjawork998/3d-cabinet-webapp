@@ -7,7 +7,6 @@ import {
 	DEFAULT_ROOM_DEPTH_MM,
 	defaultWidthMmIn,
 	type Family,
-	family,
 	familyIn,
 	type ModuleKind,
 	ROOM_DEPTH_LIMITS,
@@ -158,11 +157,10 @@ const newId = () => `m${++counter}`;
 const find = (
 	layout: PlannerLayout,
 	id: string,
-): { row: Row; placed: PlacedModule; family: Family } | null => {
+): { row: Row; placed: PlacedModule } | null => {
 	for (const row of ["floor", "wall"] as const) {
 		const placed = layout[row].find((module) => module.id === id);
-		const found = placed && family(placed.familyId);
-		if (placed && found) return { row, placed, family: found };
+		if (placed) return { row, placed };
 	}
 	return null;
 };
@@ -1074,9 +1072,11 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	): Array<{ widthMm: number; priceRm: number; fits: boolean }> {
 		const found = find(layout, id);
 		if (!found) return [];
+		const family = familyIn(catalogue, found.placed.familyId);
+		if (!family) return [];
 
 		const spans = occupiedSpans(layout, found.row, id);
-		return found.family.sizes.map((size) => ({
+		return family.sizes.map((size) => ({
 			widthMm: size.widthMm,
 			priceRm: size.priceRm,
 			fits:

@@ -8,45 +8,20 @@ import {
 	CEILING_LIMITS,
 	type Construction,
 	constructionOf,
-	DOOR_STYLES,
-	FINISHES,
 	type FinishId,
-	family,
+	familyIn,
 	ROOM_DEPTH_LIMITS,
-	ROOM_TYPES,
 	type RoomTypeId,
-	roomType,
+	roomTypeIn,
 	WALL_HANG_LIMITS,
 } from "@/lib/planner/catalogue";
 import {
-	addModule,
-	allPositions,
-	closeGaps,
-	duplicateModule,
-	fits,
-	flushWallToTallTops,
-	freeSpans,
 	type HingeSide,
-	hangingHeightMmOf,
-	minWallWidthMm,
-	overhangMm,
 	type PlannerLayout,
 	type Positioned,
-	removeModules,
-	rowEndMm,
-	setBaseSkirting,
-	setCeilingHeight,
 	setDoors,
-	setHangingHeight,
 	setHinge,
-	setRoomDepth,
-	setWallToCeiling,
-	setWallToWall,
-	setWallWidth,
-	setWidth,
-	starterFor,
 	WALL_LIMITS,
-	widthOptionsFor,
 } from "@/lib/planner/layout";
 import {
 	AXIS_COLOR,
@@ -60,7 +35,7 @@ import {
 } from "@/lib/planner/measure";
 import { fitOutOf } from "@/lib/planner/parts";
 import { computePlannerPrice } from "@/lib/planner/pricing";
-import { useCatalogue } from "./CatalogueContext";
+import { useCatalogue, useEngine } from "./CatalogueContext";
 import { peekDesignMesh } from "./DesignedCabinet";
 import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
@@ -204,7 +179,32 @@ export function StudioScreen({
 	onGoToQuoteAction: () => void;
 	onBackToStartAction: () => void;
 }) {
-	const room = roomType(roomId);
+	const catalogue = useCatalogue();
+	const {
+		addModule,
+		allPositions,
+		closeGaps,
+		duplicateModule,
+		fits,
+		flushWallToTallTops,
+		freeSpans,
+		hangingHeightMmOf,
+		minWallWidthMm,
+		overhangMm,
+		removeModules,
+		rowEndMm,
+		setBaseSkirting,
+		setCeilingHeight,
+		setHangingHeight,
+		setRoomDepth,
+		setWallToCeiling,
+		setWallToWall,
+		setWallWidth,
+		setWidth,
+		starterFor,
+		widthOptionsFor,
+	} = useEngine();
+	const room = roomTypeIn(catalogue, roomId);
 	const selectedSet = new Set(selectedIds);
 
 	// Filled in by the scene: screen-point → run position / cabinet under it.
@@ -258,7 +258,6 @@ export function StudioScreen({
 	// Usually the run rather than the catalogue floor — worth naming which,
 	// because a slider that stops for no visible reason reads as broken.
 	const minWallMm = minWallWidthMm(layout);
-	const catalogue = useCatalogue();
 	const construction = constructionOf(catalogue);
 	const price = computePlannerPrice(layout, finish, catalogue);
 	// Named so the customer knows what the extra lines are for. Both are added
@@ -387,7 +386,7 @@ export function StudioScreen({
 							Sets the space every cabinet has to fit in.
 						</p>
 						<div className="mb-3 flex flex-wrap gap-1">
-							{ROOM_TYPES.map((option) => (
+							{catalogue.roomTypes.map((option) => (
 								<button
 									key={option.id}
 									type="button"
@@ -446,7 +445,9 @@ export function StudioScreen({
 								}
 							/>
 
-							{room.familyIds.some((id) => family(id)?.kind === "wall") && (
+							{room.familyIds.some(
+								(id) => familyIn(catalogue, id)?.kind === "wall",
+							) && (
 								<div>
 									<fieldset
 										aria-label="Wall units"
@@ -639,7 +640,7 @@ export function StudioScreen({
 						</p>
 						<div className="grid grid-cols-2 gap-2">
 							{room.familyIds.map((familyId) => {
-								const option = family(familyId);
+								const option = familyIn(catalogue, familyId);
 								if (!option) return null;
 								const canFit = fits(layout, familyId);
 								return (
@@ -870,7 +871,7 @@ export function StudioScreen({
 											Front
 										</p>
 										<div className="flex flex-wrap gap-1.5">
-											{DOOR_STYLES.map((style) => (
+											{catalogue.doorStyles.map((style) => (
 												<button
 													key={style.id}
 													type="button"
@@ -1007,7 +1008,7 @@ export function StudioScreen({
 											Front
 										</p>
 										<div className="flex flex-wrap gap-1.5">
-											{DOOR_STYLES.map((style) => (
+											{catalogue.doorStyles.map((style) => (
 												<button
 													key={style.id}
 													type="button"
@@ -1061,7 +1062,7 @@ export function StudioScreen({
 							Front finish · whole run
 						</p>
 						<div className="flex gap-1.5">
-							{FINISHES.map((option) => (
+							{catalogue.finishes.map((option) => (
 								<button
 									key={option.id}
 									type="button"
@@ -1082,8 +1083,8 @@ export function StudioScreen({
 							))}
 						</div>
 						<p className="mt-2 text-[12px] text-neutral-500">
-							{FINISHES.find((f) => f.id === finish)?.label} · one colour for
-							the whole room
+							{catalogue.finishes.find((f) => f.id === finish)?.label} · one
+							colour for the whole room
 						</p>
 					</div>
 

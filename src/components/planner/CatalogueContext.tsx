@@ -1,11 +1,13 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo } from "react";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
+import { type PlannerEngine, plannerEngine } from "@/lib/planner/layout";
 
 /**
  * The published catalogue, handed down instead of installed into a module
- * global.
+ * global — and the engine built from it, so every consumer shares one
+ * identity and `useMemo`/`useCallback` deps downstream stay honest.
  *
  * It replaced `setActivePlannerCatalogue`, which swapped a mutable palette in
  * `catalogue.ts` that every consumer read directly. That made three bugs
@@ -14,7 +16,9 @@ import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
  * catalogue it was not built from — because "which catalogue is live" was
  * ambient rather than passed. Here it is a value with one owner.
  */
-const CatalogueContext = createContext<PlannerCatalogue | null>(null);
+type CatalogueValue = { catalogue: PlannerCatalogue; engine: PlannerEngine };
+
+const CatalogueContext = createContext<CatalogueValue | null>(null);
 
 export function CatalogueProvider({
 	catalogue,
@@ -23,8 +27,14 @@ export function CatalogueProvider({
 	catalogue: PlannerCatalogue;
 	children: React.ReactNode;
 }) {
+	// One engine per catalogue, not one per consumer: the closures it returns
+	// end up in hook dependency arrays downstream.
+	const value = useMemo(
+		() => ({ catalogue, engine: plannerEngine(catalogue) }),
+		[catalogue],
+	);
 	return (
-		<CatalogueContext.Provider value={catalogue}>
+		<CatalogueContext.Provider value={value}>
 			{children}
 		</CatalogueContext.Provider>
 	);
@@ -33,10 +43,12 @@ export function CatalogueProvider({
 /** Throws rather than falling back to the seed: a component rendering the
  * bundled fixtures because someone forgot a provider is exactly the silent
  * wrong-price failure this context exists to make impossible. */
-export function useCatalogue(): PlannerCatalogue {
-	const catalogue = useContext(CatalogueContext);
-	if (!catalogue) {
-		throw new Error("useCatalogue outside a CatalogueProvider");
-	}
-	return catalogue;
+function useCatalogueValue(): CatalogueValue {
+	const value = useContext(CatalogueContext);
+	if (!value) throw new Error("useCatalogue outside a CatalogueProvider");
+	return value;
 }
+
+export const useCatalogue = (): PlannerCatalogue =>
+	useCatalogueValue().catalogue;
+export const useEngine = (): PlannerEngine => useCatalogueValue().engine;

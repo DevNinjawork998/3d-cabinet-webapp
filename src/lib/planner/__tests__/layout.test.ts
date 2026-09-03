@@ -789,6 +789,44 @@ describe("sizing a placed cabinet", () => {
 		// Every option carries its own price for the dropdown to show.
 		for (const option of options) expect(option.priceRm).toBeGreaterThan(0);
 	});
+
+	it("prices rungs from the catalogue the engine was built with, not the seed", () => {
+		const customCatalogue: typeof PLANNER_CATALOGUE = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.map((f) =>
+				f.id === "base-cabinet"
+					? {
+							...f,
+							sizes: f.sizes.map((size) => ({
+								...size,
+								priceRm: size.priceRm + 10_000,
+							})),
+						}
+					: f,
+			),
+		};
+		const customEngine = plannerEngine(customCatalogue);
+		const next = customEngine.addModule(
+			emptyLayout(WALL_MM),
+			"base-cabinet",
+			0,
+			"a",
+			900,
+		);
+
+		const options = customEngine.widthOptionsFor(next, "a");
+		const seedPrice = PLANNER_CATALOGUE.families
+			.find((f) => f.id === "base-cabinet")
+			?.sizes.find((s) => s.widthMm === 900)?.priceRm;
+
+		for (const option of options) {
+			const customPrice = customCatalogue.families
+				.find((f) => f.id === "base-cabinet")
+				?.sizes.find((s) => s.widthMm === option.widthMm)?.priceRm;
+			expect(option.priceRm).toBe(customPrice);
+		}
+		expect(options.find((o) => o.widthMm === 900)?.priceRm).not.toBe(seedPrice);
+	});
 });
 
 describe("doors", () => {

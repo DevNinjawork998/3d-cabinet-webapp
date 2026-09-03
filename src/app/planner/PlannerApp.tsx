@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CatalogueProvider } from "@/components/planner/CatalogueContext";
+import {
+	CatalogueProvider,
+	useEngine,
+} from "@/components/planner/CatalogueContext";
 import { QuoteScreen } from "@/components/planner/QuoteScreen";
 import {
 	type StartPreset,
@@ -9,26 +12,25 @@ import {
 } from "@/components/planner/StartScreen";
 import { StudioScreen } from "@/components/planner/StudioScreen";
 import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
-import {
-	ROOM_TYPES,
-	roomType,
-	setActivePlannerCatalogue,
-} from "@/lib/planner/catalogue";
+import { roomTypeIn, setActivePlannerCatalogue } from "@/lib/planner/catalogue";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
 import {
 	emptyLayout,
 	type PlannerLayout,
-	removeModules,
-	starterFor,
+	plannerEngine,
 } from "@/lib/planner/layout";
 
 type Screen = "start" | "studio" | "quote";
 
 /** Every room starts from its own preset, and keeps its own work. */
-const initialRooms = (): Record<RoomTypeId, PlannerLayout> =>
-	Object.fromEntries(
-		ROOM_TYPES.map((room) => [room.id, starterFor(room.id)]),
+const initialRooms = (
+	catalogue: PlannerCatalogue,
+): Record<RoomTypeId, PlannerLayout> => {
+	const engine = plannerEngine(catalogue);
+	return Object.fromEntries(
+		catalogue.roomTypes.map((room) => [room.id, engine.starterFor(room.id)]),
 	) as Record<RoomTypeId, PlannerLayout>;
+};
 
 export function PlannerApp({
 	initialRoomId,
@@ -69,14 +71,16 @@ function PlannerScreens({
 	finishTextures: Record<string, string>;
 }) {
 	setActivePlannerCatalogue(catalogue);
+	const { removeModules } = useEngine();
 
 	const [screen, setScreen] = useState<Screen>("start");
 	const [roomId, setRoomId] = useState<RoomTypeId>(initialRoomId);
 	const [preset, setPreset] = useState<StartPreset>("starter");
 	// One layout per room, so switching to the foyer and back does not throw
 	// away the kitchen the customer just arranged.
-	const [rooms, setRooms] =
-		useState<Record<RoomTypeId, PlannerLayout>>(initialRooms);
+	const [rooms, setRooms] = useState<Record<RoomTypeId, PlannerLayout>>(() =>
+		initialRooms(catalogue),
+	);
 	// Defaults to whatever the catalogue lists first — hardcoding an id here
 	// would render an unstyled room for any catalogue that drops it.
 	const [finish, setFinish] = useState<FinishId>(catalogue.finishes[0].id);
@@ -98,7 +102,7 @@ function PlannerScreens({
 	const removeSelected = useCallback(() => {
 		setLayout((prev) => removeModules(prev, selectedIds));
 		setSelectedIds([]);
-	}, [selectedIds, setLayout]);
+	}, [selectedIds, setLayout, removeModules]);
 
 	useEffect(() => {
 		if (screen !== "studio") return;
@@ -125,7 +129,9 @@ function PlannerScreens({
 					if (preset === "blank") {
 						setRooms((prev) => ({
 							...prev,
-							[roomId]: emptyLayout(roomType(roomId).defaultWallWidthMm),
+							[roomId]: emptyLayout(
+								roomTypeIn(catalogue, roomId).defaultWallWidthMm,
+							),
 						}));
 					}
 					setSelectedIds([]);

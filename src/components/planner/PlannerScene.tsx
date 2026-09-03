@@ -13,25 +13,17 @@ import {
 	CEILING_TRIM_MM,
 	type Construction,
 	constructionOf,
-	doorStyle,
-	FINISHES,
+	doorStyleIn,
 	type FinishId,
 	WALL_GAP_MM,
 	WORKTOP_COLOR,
 } from "@/lib/planner/catalogue";
+import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
 import { type ExposedSides, exposedSides } from "@/lib/planner/exposure";
-import {
-	allPositions,
-	dropModule,
-	floorHeightMmOf,
-	hangingHeightMmOf,
-	moveModule,
-	overhangingIds,
-	type PlannerLayout,
-	type Positioned,
-	positionsOf,
-	rowEndMm,
-	skirtingSpans,
+import type {
+	PlannerEngine,
+	PlannerLayout,
+	Positioned,
 } from "@/lib/planner/layout";
 import {
 	apertureMm,
@@ -42,7 +34,7 @@ import {
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
-import { useCatalogue } from "./CatalogueContext";
+import { useCatalogue, useEngine } from "./CatalogueContext";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
@@ -273,6 +265,8 @@ function CabinetHitTest({
  */
 function Run({
 	layout,
+	catalogue,
+	engine,
 	finishHex,
 	finishPhoto,
 	selectedIds,
@@ -288,6 +282,12 @@ function Run({
 	construction,
 }: {
 	layout: PlannerLayout;
+	/** The published catalogue, resolved outside the canvas: `Run` renders
+	 * inside `<Canvas>`, a separate reconciler root the outer React context
+	 * does not reach. */
+	catalogue: PlannerCatalogue;
+	/** Likewise the engine built from it. */
+	engine: PlannerEngine;
 	finishHex: string;
 	/** The uploaded decor photo for this finish, if the client has supplied one. */
 	finishPhoto: string | null;
@@ -320,6 +320,14 @@ function Run({
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 	const camera = useThree((s) => s.camera);
 	const viewportHeightPx = useThree((s) => s.size.height);
+	const {
+		allPositions,
+		dropModule,
+		floorHeightMmOf,
+		moveModule,
+		overhangingIds,
+		positionsOf,
+	} = engine;
 
 	/**
 	 * The snap under this pointer event.
@@ -361,6 +369,7 @@ function Run({
 			hitMm,
 			position,
 			layout,
+			engine,
 			apertureMm(e.distance, fov, viewportHeightPx),
 			design,
 			construction,
@@ -417,7 +426,7 @@ function Run({
 		if (!current) return;
 		const next = dropModule(layoutRef.current, drag.id, current.xMm);
 		if (next !== layoutRef.current) onLayoutChange(next);
-	}, [controls, onLayoutChange]);
+	}, [controls, onLayoutChange, dropModule]);
 
 	// A drag can end anywhere — off the plane, outside the canvas, or with this
 	// unmounting mid-gesture. All of them have to give orbiting back.
@@ -450,7 +459,10 @@ function Run({
 	// floor and wall, and judging them together would have a hung wall unit
 	// cover a base unit's end panel — they are at different heights and hide
 	// nothing of each other.
-	const overhanging = useMemo(() => overhangingIds(layout), [layout]);
+	const overhanging = useMemo(
+		() => overhangingIds(layout),
+		[layout, overhangingIds],
+	);
 
 	const exposure = useMemo(() => {
 		// A return wall buries an end as surely as a neighbour does, so a run
@@ -467,7 +479,7 @@ function Run({
 			});
 		}
 		return map;
-	}, [layout]);
+	}, [layout, positionsOf]);
 
 	// The group sits on the wall plane itself: everything in the run is placed
 	// by its back face from here, with a scribe gap so the carcasses do not
@@ -513,19 +525,21 @@ function Run({
 				<meshBasicMaterial transparent opacity={0} depthWrite={false} />
 			</mesh>
 
-			<ContactShadows layout={layout} runWidthMm={runWidthMm} />
+			<ContactShadows layout={layout} runWidthMm={runWidthMm} engine={engine} />
 			<Worktop
 				layout={layout}
 				runWidthMm={runWidthMm}
 				construction={construction}
+				engine={engine}
 			/>
 			<CeilingTrim
 				layout={layout}
 				runWidthMm={runWidthMm}
 				finishHex={finishHex}
 				finishPhoto={finishPhoto}
+				engine={engine}
 			/>
-			<Skirting layout={layout} runWidthMm={runWidthMm} />
+			<Skirting layout={layout} runWidthMm={runWidthMm} engine={engine} />
 
 			{allPositions(layout).map((position) => (
 				<Cabinet
@@ -538,7 +552,7 @@ function Run({
 					overhanging={overhanging.has(position.placed.id)}
 					door={
 						position.placed.doorStyleId
-							? (doorStyle(position.placed.doorStyleId) ?? null)
+							? (doorStyleIn(catalogue, position.placed.doorStyleId) ?? null)
 							: null
 					}
 					hinge={position.placed.hinge}
@@ -618,10 +632,13 @@ function Run({
 function ContactShadows({
 	layout,
 	runWidthMm,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	engine: PlannerEngine;
 }) {
+	const { positionsOf, hangingHeightMmOf } = engine;
 	return (
 		<>
 			{positionsOf(layout, "floor").map((position) => (
@@ -671,11 +688,14 @@ function Worktop({
 	layout,
 	runWidthMm,
 	construction,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
 	construction: Construction;
+	engine: PlannerEngine;
 }) {
+	const { positionsOf } = engine;
 	// One slab per unbroken stretch of units that carry one — a worktop is cut
 	// to the cabinets under it, not to the wall, so a unit without a top, a
 	// unit of a different height, or a deliberate gap splits it. Contiguity is
@@ -756,13 +776,15 @@ function Worktop({
 function Skirting({
 	layout,
 	runWidthMm,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	engine: PlannerEngine;
 }) {
 	return (
 		<>
-			{skirtingSpans(layout).map((span) => {
+			{engine.skirtingSpans(layout).map((span) => {
 				const widthMm = span.endMm - span.startMm;
 				// From the wall out to just short of the carcass front. The span
 				// carries the recess because only the engine knows how far in the
@@ -803,15 +825,17 @@ function CeilingTrim({
 	runWidthMm,
 	finishHex,
 	finishPhoto,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
 	finishHex: string;
 	finishPhoto: string | null;
+	engine: PlannerEngine;
 }) {
 	const spans: Array<{ startMm: number; endMm: number; depthMm: number }> = [];
 	if (layout.wallToCeiling) {
-		for (const position of positionsOf(layout, "wall")) {
+		for (const position of engine.positionsOf(layout, "wall")) {
 			const previous = spans[spans.length - 1];
 			if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
 				previous.endMm = position.xMm + position.widthMm;
@@ -956,10 +980,13 @@ export default function PlannerScene({
 		((clientX: number, clientY: number) => string | null) | null
 	>;
 }) {
-	const construction = constructionOf(useCatalogue());
+	const catalogue = useCatalogue();
+	const engine = useEngine();
+	const construction = constructionOf(catalogue);
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
-		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
+		catalogue.finishes.find((f) => f.id === finish)?.hex ??
+		catalogue.finishes[0].hex;
 	const finishPhoto = finishTextures[finish] ?? null;
 	const [hoverPoint, setHoverPoint] = useState<SnapPoint | null>(null);
 	// Only the first point anchors the lock; with two down the next click starts
@@ -994,6 +1021,8 @@ export default function PlannerScene({
 
 			<Run
 				layout={layout}
+				catalogue={catalogue}
+				engine={engine}
 				finishHex={finishHex}
 				finishPhoto={finishPhoto}
 				selectedIds={selectedIds}
@@ -1028,7 +1057,7 @@ export default function PlannerScene({
 				maxPolarAngle={Math.PI / 2 - 0.05}
 			/>
 			<FitCamera
-				runWidthMm={Math.max(runWidthMm, rowEndMm(layout, "floor"))}
+				runWidthMm={Math.max(runWidthMm, engine.rowEndMm(layout, "floor"))}
 				roomDepthMm={layout.roomDepthMm}
 				ceilingHeightMm={layout.ceilingHeightMm}
 				view={view}
