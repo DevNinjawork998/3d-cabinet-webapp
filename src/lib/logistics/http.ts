@@ -24,6 +24,11 @@ type Options = {
 	carrierId: string;
 	method?: "GET" | "POST" | "PUT" | "DELETE";
 	headers?: Record<string, string>;
+	/**
+	 * An object is serialised; a string is sent byte for byte. The string form
+	 * exists for signed APIs — an HMAC is computed over exactly what goes on
+	 * the wire, and re-serialising here would sign something else.
+	 */
 	body?: unknown;
 	/**
 	 * Whether this call is safe to send twice. Quotes and tracking reads are;
@@ -55,7 +60,12 @@ export async function carrierFetch<T>(
 					accept: "application/json",
 					...headers,
 				},
-				body: body === undefined ? undefined : JSON.stringify(body),
+				body:
+					body === undefined
+						? undefined
+						: typeof body === "string"
+							? body
+							: JSON.stringify(body),
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
 
