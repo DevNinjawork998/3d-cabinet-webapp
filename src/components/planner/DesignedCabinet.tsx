@@ -14,9 +14,11 @@ import {
 } from "@/lib/planner/catalogue";
 import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
+import { drawerTravelMm } from "@/lib/planner/parts";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import { useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
+import { Slide } from "./Slide";
 
 /**
  * A cabinet drawn from the model the drafter actually made.
@@ -320,6 +322,24 @@ export function DesignedCabinet({
 						emphasis={emphasis}
 					/>
 				);
+				// A drafted drawer runs out on the same toggle that swings the doors.
+				// Without this a design's drawer bank sits frozen beside its own
+				// opening doors, which is what reads as broken.
+				if (group.role === "drawerFront") {
+					const depthMm = carcassMm
+						? carcassMm.max.z - carcassMm.min.z
+						: group.bboxMm.max[2] - group.bboxMm.min[2];
+					return (
+						<Slide
+							key={key}
+							travel={drawerTravelMm(depthMm) / 1000}
+							open={open}
+						>
+							{rendered}
+						</Slide>
+					);
+				}
+
 				if (group.role !== "door") return rendered;
 
 				const side = hingeOf(leafIndex++, leaves, hinge);

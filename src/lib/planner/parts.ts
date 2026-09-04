@@ -81,6 +81,20 @@ export const PLINTH_RECESS_MM = 30;
 /** A door or drawer front is thicker board than the carcass. */
 export const FRONT_THICKNESS_MM = 18;
 
+/**
+ * How far a drawer runs out of its carcass when the cabinet is opened.
+ *
+ * Full-extension runners pull the box clear of the carcass front, and a little
+ * short of that is what keeps the front from reading as detached from the unit
+ * it belongs to. A fraction of the depth rather than a constant because a
+ * 300mm-deep wall drawer and a 600mm base drawer should not travel the same.
+ */
+const DRAWER_TRAVEL_FRACTION = 0.75;
+
+export function drawerTravelMm(depthMm: number): number {
+	return Math.round(Math.max(0, depthMm) * DRAWER_TRAVEL_FRACTION);
+}
+
 /** Interior faces render darker so an open carcass reads as a box you can see
  * into. Derived from the role rather than stored, so there is one fewer field
  * to keep true. */

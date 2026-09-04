@@ -15,6 +15,7 @@ import { FULLY_EXPOSED } from "@/lib/planner/exposure";
 import type { HingeSide } from "@/lib/planner/layout";
 import {
 	cabinetPartsMm,
+	drawerTravelMm,
 	FRONT_THICKNESS_MM,
 	isInteriorPart,
 	type PartBoxMm,
@@ -24,6 +25,7 @@ import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
+import { Slide } from "./Slide";
 
 /**
  * One cabinet, generated from its family and the size the customer chose.
@@ -310,6 +312,8 @@ export function Cabinet({
 						(drawerFronts.length > 0 ? (
 							<Drawers
 								parts={drawerFronts}
+								open={doorsOpen}
+								travel={m(drawerTravelMm(carcassMm.max.z - carcassMm.min.z))}
 								finishPhoto={finishPhoto}
 								door={door}
 								finishHex={finishHex}
@@ -623,6 +627,8 @@ function Doors({
 
 function Drawers({
 	parts,
+	open,
+	travel,
 	door,
 	finishHex,
 	finishPhoto,
@@ -630,6 +636,10 @@ function Drawers({
 	emphasis,
 }: {
 	parts: PartBoxMm[];
+	/** Runs the drawers out, the same toggle that swings the doors. */
+	open: boolean;
+	/** How far out, in metres. */
+	travel: number;
 	door: DoorStyle;
 	finishHex: string;
 	finishPhoto: string | null;
@@ -644,7 +654,7 @@ function Drawers({
 				const z = m(front.centreMm.z);
 
 				return (
-					<group key={front.index}>
+					<Slide key={front.index} travel={travel} open={open}>
 						<Front
 							door={door}
 							width={m(front.sizeMm.x)}
@@ -660,7 +670,7 @@ function Drawers({
 							position={[x, y, z + m(FRONT_THICKNESS_MM)]}
 							vertical={false}
 						/>
-					</group>
+					</Slide>
 				);
 			})}
 		</>

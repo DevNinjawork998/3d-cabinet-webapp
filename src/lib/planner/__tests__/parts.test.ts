@@ -8,6 +8,7 @@ import {
 import {
 	cabinetPartsMm,
 	DOOR_GAP_MM,
+	drawerTravelMm,
 	FRONT_THICKNESS_MM,
 	frontZMm,
 	LEG_DIAMETER_MM,
@@ -356,5 +357,25 @@ describe("door leaf count is a property of width, not of the family", () => {
 			(part) => part.role === "doorLeaf",
 		);
 		expect(leaves).toHaveLength(0);
+	});
+});
+
+describe("drawerTravelMm", () => {
+	it("runs a drawer most of the way out of its carcass", () => {
+		// Full-extension runners pull the box clear of the carcass front; a
+		// little short of that keeps the front from reading as detached.
+		expect(drawerTravelMm(560)).toBe(420);
+		expect(drawerTravelMm(600)).toBe(450);
+	});
+
+	it("never travels further than the carcass is deep", () => {
+		for (const depth of [300, 560, 600, 900]) {
+			expect(drawerTravelMm(depth)).toBeLessThan(depth);
+			expect(drawerTravelMm(depth)).toBeGreaterThan(0);
+		}
+	});
+
+	it("is zero for a carcass with no depth, rather than negative", () => {
+		expect(drawerTravelMm(0)).toBe(0);
 	});
 });
