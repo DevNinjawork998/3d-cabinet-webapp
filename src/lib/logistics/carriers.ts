@@ -57,3 +57,13 @@ export const KIND: Record<string, CarrierKind> = Object.fromEntries(
  */
 export const WORKSHOP_ADDRESS =
 	"Infinite Cabinet Sdn Bhd, Klang Valley, Selangor";
+
+/**
+ * The number a driver rings from the loading bay. Beside the address for the
+ * same reason it is: one workshop, one string, no settings table.
+ *
+ * ponytail: a placeholder until the client gives us the real line. It is sent
+ * to Lalamove as the pickup contact, so a wrong number here is a driver who
+ * cannot reach anyone — see the open question in CLAUDE.md.
+ */
+export const WORKSHOP_PHONE = "03-1234 5678";
