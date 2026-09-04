@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/catalogue/db";
+import { getAdapter } from "@/lib/logistics/registry";
 import { isForwardTransition } from "@/lib/logistics/status";
 import {
 	DELIVERY_STATUSES,
@@ -50,6 +51,36 @@ export async function POST(
 			{ error: "invalid_transition", from: current, to: status },
 			{ status: 409 },
 		);
+	}
+
+	// Cancelling our row is not cancelling the delivery. A booked carrier has
+	// a driver on the way, and marking the job cancelled here while a lorry is
+	// still coming is worse than not offering the button at all.
+	if (status === "CANCELLED" && delivery.carrierId && delivery.carrierOrderId) {
+		const adapter = getAdapter(delivery.carrierId);
+		if (adapter.cancel) {
+			try {
+				await adapter.cancel(delivery.carrierOrderId);
+			} catch (error) {
+				// Record the attempt, then refuse. The admin has to ring the
+				// carrier, and the row must not read "cancelled" until they have.
+				await prisma.deliveryEvent.create({
+					data: {
+						deliveryId: id,
+						source: "ADMIN",
+						actor,
+						message: `Cancelling with ${delivery.carrierId} failed: ${(error as Error).message}`,
+					},
+				});
+				return NextResponse.json(
+					{
+						error: "carrier_refused_cancel",
+						message: (error as Error).message,
+					},
+					{ status: 409 },
+				);
+			}
+		}
 	}
 
 	const updated = await prisma.delivery.update({

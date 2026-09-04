@@ -645,7 +645,12 @@ function DeliveryDetail({
 		});
 		setBusy(null);
 		if (!res.ok) {
-			onError("Could not update this job");
+			const body = await res.json().catch(() => null);
+			onError(
+				body?.error === "carrier_refused_cancel"
+					? `The carrier would not cancel this job — ring them. (${body.message})`
+					: "Could not update this job",
+			);
 			return;
 		}
 		await read();
