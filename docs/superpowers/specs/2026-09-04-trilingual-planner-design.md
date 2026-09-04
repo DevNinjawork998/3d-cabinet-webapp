@@ -100,9 +100,15 @@ so **a missing or misspelled key is a compile error**. This is the one place we
 improve on the Next.js guide, which loads JSON and would let a missing `zh` key
 render as a blank on a customer's screen.
 
-Flat-ish, grouped by surface (`landing`, `planner`, `quote`, `tutorials`,
-`common`). No interpolation machinery: the few strings needing a value take a
-function (`(n: number) => string`), which the type gate covers for free.
+Grouped by surface (`meta`, `common`, `landing`, `planner`, `quote`,
+`tutorials`).
+
+**Every value is a plain string.** The dictionary is passed from a server
+component into `CopyProvider`, so it crosses the React Server Component
+boundary and must be serializable — a function value would throw at runtime.
+The few strings needing a number carry a `{placeholder}` token and are
+rendered through a `fill(template, vars)` helper, which is pure and tested
+alongside the rest of `lib/copy`.
 
 ### Routing and the proxy
 
