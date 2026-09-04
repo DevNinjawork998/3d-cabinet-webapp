@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
 import { WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
+import { resolveCoordinates } from "@/lib/logistics/geocode";
 import {
 	suggestVehicle,
 	totalVolumeM3,
@@ -27,12 +28,50 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const { items, scheduledAt, ...rest } = parsed.data;
+	const {
+		items,
+		scheduledAt,
+		// Pulled out of `rest` on purpose: these are the admin's *override*, not
+		// columns to write. Left in the spread they would overwrite the pin
+		// `resolveCoordinates` is about to find, with the null they usually are.
+		siteLat,
+		siteLng,
+		pickupLat,
+		pickupLng,
+		...rest
+	} = parsed.data;
+
+	// Geocode here rather than at quote time: an address Google cannot place is
+	// the admin's typo, and they are far more likely to fix it now than when a
+	// partner comparison silently comes back one row short.
+	const blank = { lat: null, lng: null, geocodedFor: null };
+	const [site, pickup] = await Promise.all([
+		resolveCoordinates(
+			rest.siteAddress,
+			blank,
+			siteLat !== null && siteLng !== null
+				? { lat: siteLat, lng: siteLng }
+				: null,
+		),
+		resolveCoordinates(
+			rest.pickupAddress,
+			blank,
+			pickupLat !== null && pickupLng !== null
+				? { lat: pickupLat, lng: pickupLng }
+				: null,
+		),
+	]);
 
 	const delivery = await prisma.delivery.create({
 		data: {
 			...rest,
 			items,
+			siteLat: site.lat,
+			siteLng: site.lng,
+			siteGeocodedFor: site.geocodedFor,
+			pickupLat: pickup.lat,
+			pickupLng: pickup.lng,
+			pickupGeocodedFor: pickup.geocodedFor,
 			scheduledAt: scheduledAt === null ? null : new Date(scheduledAt),
 			// Derived on write so the carrier payload builders and the list can
 			// read them without recomputing, and so a later change to the maths

@@ -95,3 +95,41 @@ export async function geocodeAddress(
 		return null;
 	}
 }
+
+export type StoredPin = {
+	lat: number | null;
+	lng: number | null;
+	/** The address string this pin was resolved for; null when there is none. */
+	geocodedFor: string | null;
+};
+
+/**
+ * The pin a delivery row should carry after a save.
+ *
+ * Three rules, in order:
+ *
+ * 1. An admin-typed override wins outright. It is the escape hatch for the
+ *    geocode that landed on the wrong Taman, and second-guessing it would make
+ *    the hatch useless.
+ * 2. An unchanged address keeps its pin. A PATCH that only fixed a phone number
+ *    must not spend a geocoding call, and must not risk a different answer.
+ * 3. Otherwise geocode, and store null when that fails — a stale pin belonging
+ *    to the previous address is worse than no pin, because nothing on screen
+ *    would say it is wrong.
+ */
+export async function resolveCoordinates(
+	address: string,
+	current: StoredPin,
+	override: { lat: number; lng: number } | null,
+): Promise<StoredPin> {
+	if (override) {
+		return { lat: override.lat, lng: override.lng, geocodedFor: address };
+	}
+	if (current.geocodedFor === address && current.lat !== null) {
+		return current;
+	}
+	const found = await geocodeAddress(address);
+	return found
+		? { lat: found.lat, lng: found.lng, geocodedFor: address }
+		: { lat: null, lng: null, geocodedFor: null };
+}

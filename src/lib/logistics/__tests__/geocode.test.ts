@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { geocodeAddress, isGeocodingConfigured } from "../geocode";
+import {
+	geocodeAddress,
+	isGeocodingConfigured,
+	resolveCoordinates,
+} from "../geocode";
 
 /** One Google Geocoding response, trimmed to the fields the module reads. */
 const okResponse = (locationType: string) => ({
@@ -17,7 +21,7 @@ const okResponse = (locationType: string) => ({
 
 function stubFetch(body: unknown) {
 	const fetchMock = vi.fn(
-		async () =>
+		async (..._args: unknown[]) =>
 			new Response(JSON.stringify(body), {
 				status: 200,
 				headers: { "content-type": "application/json" },
@@ -96,5 +100,61 @@ describe("geocodeAddress", () => {
 		);
 
 		expect(await geocodeAddress("Jalan PJU 5/20")).toBeNull();
+	});
+});
+
+describe("resolveCoordinates", () => {
+	it("takes an admin override without calling Google", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(okResponse("ROOFTOP"));
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{ lat: null, lng: null, geocodedFor: null },
+				{ lat: 3.2, lng: 101.6 },
+			),
+		).toEqual({ lat: 3.2, lng: 101.6, geocodedFor: "Jalan PJU 5/20" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("keeps an existing pin when the address has not changed", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(okResponse("ROOFTOP"));
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{ lat: 3.1, lng: 101.5, geocodedFor: "Jalan PJU 5/20" },
+				null,
+			),
+		).toEqual({ lat: 3.1, lng: 101.5, geocodedFor: "Jalan PJU 5/20" });
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("geocodes when the address changed", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch(okResponse("ROOFTOP"));
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{ lat: 3.1, lng: 101.5, geocodedFor: "Somewhere else" },
+				null,
+			),
+		).toEqual({ lat: 3.1509, lng: 101.5931, geocodedFor: "Jalan PJU 5/20" });
+	});
+
+	it("clears the pin when the new address will not geocode", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch({ status: "ZERO_RESULTS", results: [] });
+
+		expect(
+			await resolveCoordinates(
+				"nowhere at all",
+				{ lat: 3.1, lng: 101.5, geocodedFor: "Somewhere else" },
+				null,
+			),
+		).toEqual({ lat: null, lng: null, geocodedFor: null });
 	});
 });

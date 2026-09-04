@@ -36,6 +36,15 @@ export const deliveryInputSchema = z.object({
 	siteAddress: z.string().trim().min(1).max(500),
 	addressNotes: z.string().trim().max(500).nullable().default(null),
 	pickupAddress: z.string().trim().min(1).max(500),
+	/**
+	 * The admin's own pin, when they have one. Normally absent: the address is
+	 * geocoded on save. Present only when the geocode landed somewhere wrong and
+	 * someone corrected it by hand, so it overrides rather than seeds.
+	 */
+	siteLat: z.number().min(-90).max(90).nullable().default(null),
+	siteLng: z.number().min(-180).max(180).nullable().default(null),
+	pickupLat: z.number().min(-90).max(90).nullable().default(null),
+	pickupLng: z.number().min(-180).max(180).nullable().default(null),
 	items: z.array(deliveryItemSchema).max(200).default([]),
 	// Accepts the ISO string a JSON body carries; null clears the date.
 	scheduledAt: z.iso.datetime().nullable().default(null),
@@ -67,6 +76,11 @@ export type DeliveryJob = {
 	siteAddress: string;
 	addressNotes: string | null;
 	pickupAddress: string;
+	/** Null when the address would not geocode — see `lib/logistics/geocode.ts`. */
+	siteLat: number | null;
+	siteLng: number | null;
+	pickupLat: number | null;
+	pickupLng: number | null;
 	items: DeliveryItem[];
 	totalWeightKg: number | null;
 	totalVolumeM3: number | null;

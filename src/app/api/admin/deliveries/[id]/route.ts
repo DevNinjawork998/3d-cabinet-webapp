@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
+import { resolveCoordinates } from "@/lib/logistics/geocode";
 import { totalVolumeM3, totalWeightKg } from "@/lib/logistics/measure";
 import { deliveryInputSchema } from "@/lib/logistics/types";
 
@@ -48,13 +49,56 @@ export async function PATCH(
 		);
 	}
 
-	const { items, scheduledAt, ...rest } = parsed.data;
+	const {
+		items,
+		scheduledAt,
+		// Out of the spread — see the same note on the create route. These are the
+		// admin's override, not the columns to write.
+		siteLat,
+		siteLng,
+		pickupLat,
+		pickupLng,
+		...rest
+	} = parsed.data;
+
+	// `existing` seeds the current pin, so an edit that did not touch the address
+	// keeps it and spends no geocoding call.
+	const [site, pickup] = await Promise.all([
+		resolveCoordinates(
+			rest.siteAddress,
+			{
+				lat: existing.siteLat,
+				lng: existing.siteLng,
+				geocodedFor: existing.siteGeocodedFor,
+			},
+			siteLat !== null && siteLng !== null
+				? { lat: siteLat, lng: siteLng }
+				: null,
+		),
+		resolveCoordinates(
+			rest.pickupAddress,
+			{
+				lat: existing.pickupLat,
+				lng: existing.pickupLng,
+				geocodedFor: existing.pickupGeocodedFor,
+			},
+			pickupLat !== null && pickupLng !== null
+				? { lat: pickupLat, lng: pickupLng }
+				: null,
+		),
+	]);
 
 	const delivery = await prisma.delivery.update({
 		where: { id },
 		data: {
 			...rest,
 			items,
+			siteLat: site.lat,
+			siteLng: site.lng,
+			siteGeocodedFor: site.geocodedFor,
+			pickupLat: pickup.lat,
+			pickupLng: pickup.lng,
+			pickupGeocodedFor: pickup.geocodedFor,
 			scheduledAt: scheduledAt === null ? null : new Date(scheduledAt),
 			totalVolumeM3: totalVolumeM3(items),
 			totalWeightKg: totalWeightKg(items),
