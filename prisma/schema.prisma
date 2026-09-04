@@ -212,55 +212,68 @@ enum DeliveryEventSource {
 /// pre-fills this form rather than replacing it — a `leadId` column then, not a
 /// different model.
 model Delivery {
-  id             String          @id @default(cuid())
+  id                String         @id @default(cuid())
   /// The job number staff say out loud on the phone. Sequential because
   /// "delivery forty-one" is sayable and a cuid is not.
-  number         Int             @unique @default(autoincrement())
-  customerName   String
-  customerPhone  String
-  siteAddress    String
+  number            Int            @unique @default(autoincrement())
+  customerName      String
+  customerPhone     String
+  siteAddress       String
   /// Gate codes, unit numbers, "call on arrival" — the things that decide
   /// whether a lorry gets in, kept out of the address line the carrier geocodes.
-  addressNotes   String?
-  pickupAddress  String
+  addressNotes      String?
+  pickupAddress     String
+  /// Where the site actually is. Lalamove prices stop to stop by coordinate and
+  /// will not take an address string, so a job without a pin cannot be quoted
+  /// by a vehicle partner at all.
+  ///
+  /// `…GeocodedFor` holds the address the pin was resolved for. Comparing it to
+  /// the current address is what keeps an edit that only changed the phone
+  /// number from re-geocoding, and what marks an admin-typed override as final.
+  siteLat           Float?
+  siteLng           Float?
+  siteGeocodedFor   String?
+  pickupLat         Float?
+  pickupLng         Float?
+  pickupGeocodedFor String?
   /// Line items: `[{ label, qty, widthMm, heightMm, depthMm, weightKg }]`.
   /// Json rather than a table because nothing queries inside it — it is written
   /// whole by the form and read whole by the carrier payload builder.
-  items          Json            @default("[]")
+  items             Json           @default("[]")
   /// Derived from `items` by `lib/logistics/measure.ts`, stored because every
   /// carrier quote wants them and recomputing on each fan-out is pointless.
-  totalWeightKg  Float?
-  totalVolumeM3  Float?
-  scheduledAt    DateTime?
+  totalWeightKg     Float?
+  totalVolumeM3     Float?
+  scheduledAt       DateTime?
   /// Validated against CARRIER_IDS in lib/logistics/carriers.ts, not a Prisma
   /// enum: same reasoning as `Tutorial.category` — the partner list is data,
   /// and signing a new courier should not be a migration.
-  carrierId      String?
-  status         DeliveryStatus  @default(DRAFT)
+  carrierId         String?
+  status            DeliveryStatus @default(DRAFT)
   /// The figure the admin saw and confirmed. Kept even after the carrier
   /// invoices differently, because it is what the decision was made on.
-  quotedPriceRm  Float?
+  quotedPriceRm     Float?
   /// The carrier's own id for this job. Unique because that uniqueness *is* the
   /// double-book guard: booking spends real money, and a retried request must
   /// not buy a second lorry.
-  carrierOrderId String?         @unique
-  trackingUrl    String?
-  driverName     String?
-  driverPhone    String?
-  vehiclePlate   String?
+  carrierOrderId    String?        @unique
+  trackingUrl       String?
+  driverName        String?
+  driverPhone       String?
+  vehiclePlate      String?
   /// Last known position, as text on the page rather than a map — a map means a
   /// tile provider, a key and bundle weight on a mid-range Android target.
-  lastLatitude   Float?
-  lastLongitude  Float?
-  lastLocationAt DateTime?
+  lastLatitude      Float?
+  lastLongitude     Float?
+  lastLocationAt    DateTime?
   /// Typed on the confirm step. Admin auth is one shared password with no
   /// per-user identity, so this plus DeliveryEvent is the whole audit story
   /// until accounts exist.
-  bookedBy       String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  bookedBy          String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
-  events         DeliveryEvent[]
+  events DeliveryEvent[]
 
   @@index([status, scheduledAt])
 }
