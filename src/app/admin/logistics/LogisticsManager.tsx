@@ -29,6 +29,10 @@ export type DeliveryRow = {
 	siteAddress: string;
 	addressNotes: string | null;
 	pickupAddress: string;
+	siteLat: number | null;
+	siteLng: number | null;
+	pickupLat: number | null;
+	pickupLng: number | null;
 	items: DeliveryItem[];
 	totalWeightKg: number | null;
 	totalVolumeM3: number | null;
@@ -133,12 +137,30 @@ const emptyItem = (): FormItem => ({
 	weightKg: null,
 });
 
+/**
+ * `"3.1509, 101.5931"` as the admin pasted it, or null.
+ *
+ * Deliberately only a bare pair — a Google Maps share link is a shortened URL
+ * that has to be followed server-side to learn anything, and long-pressing the
+ * map already puts exactly this on the clipboard.
+ */
+function parseCoords(raw: string): { lat: number; lng: number } | null {
+	const match = raw.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+	if (!match) return null;
+	const lat = Number(match[1]);
+	const lng = Number(match[2]);
+	if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+	return { lat, lng };
+}
+
 const blankForm = (workshopAddress: string) => ({
 	customerName: "",
 	customerPhone: "",
 	siteAddress: "",
 	addressNotes: "",
 	pickupAddress: workshopAddress,
+	siteCoords: "",
+	pickupCoords: "",
 	scheduledAt: "",
 	items: [emptyItem()],
 });
@@ -183,6 +205,10 @@ export function LogisticsManager({
 				siteAddress: state.siteAddress,
 				addressNotes: state.addressNotes || null,
 				pickupAddress: state.pickupAddress,
+				siteLat: parseCoords(state.siteCoords)?.lat ?? null,
+				siteLng: parseCoords(state.siteCoords)?.lng ?? null,
+				pickupLat: parseCoords(state.pickupCoords)?.lat ?? null,
+				pickupLng: parseCoords(state.pickupCoords)?.lng ?? null,
 				scheduledAt: state.scheduledAt
 					? new Date(state.scheduledAt).toISOString()
 					: null,
@@ -379,6 +405,16 @@ function DeliveryForm({
 						onChange={(e) => set("addressNotes", e.target.value)}
 					/>
 				</label>
+				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
+					Site pin — only if the address lands in the wrong place. Paste
+					“3.1509, 101.5931”
+					<input
+						className={fieldClass(false)}
+						placeholder="Found from the address"
+						value={state.siteCoords}
+						onChange={(e) => set("siteCoords", e.target.value)}
+					/>
+				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Pickup from
 					<input
@@ -386,6 +422,15 @@ function DeliveryForm({
 						className={fieldClass(false)}
 						value={state.pickupAddress}
 						onChange={(e) => set("pickupAddress", e.target.value)}
+					/>
+				</label>
+				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
+					Pickup pin
+					<input
+						className={fieldClass(false)}
+						placeholder="Found from the address"
+						value={state.pickupCoords}
+						onChange={(e) => set("pickupCoords", e.target.value)}
 					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
@@ -624,6 +669,17 @@ function DeliveryDetail({
 				<p>Phone: {delivery.customerPhone}</p>
 				<p>Pickup: {delivery.pickupAddress}</p>
 				{delivery.addressNotes && <p>Access: {delivery.addressNotes}</p>}
+				{delivery.siteLat === null ? (
+					<p className="text-amber-700 sm:col-span-2">
+						Site address did not resolve to a map location. Vehicle partners
+						price by coordinate, so only own lorry can be booked — edit the
+						address, or paste a pin.
+					</p>
+				) : (
+					<p>
+						Site pin: {delivery.siteLat}, {delivery.siteLng}
+					</p>
+				)}
 				<p>
 					{delivery.totalVolumeM3 ?? 0} m³
 					{delivery.totalWeightKg === null
