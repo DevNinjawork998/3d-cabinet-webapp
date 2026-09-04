@@ -150,12 +150,27 @@ export function rowEndMm(layout: PlannerLayout, row: Row): number {
 	);
 }
 
+/** Whether the cabinet being moved out of the way is itself a tall unit. Only
+ * the floor row can hold one, so that is the only array worth searching. */
+const isTallModule = (layout: PlannerLayout, id: string | undefined) =>
+	id !== undefined &&
+	family(layout.floor.find((placed) => placed.id === id)?.familyId ?? "")
+		?.kind === "tall";
+
 /**
  * The spans a cabinet in this row cannot occupy.
  *
- * A tall unit is floor-to-ceiling, so it blocks the hung row as well as its
- * own. That is the only place the two rows have to agree, and putting it here
- * means every move, drop and add gets it for free.
+ * A tall unit is floor-to-ceiling, so the two rows have to agree about it, and
+ * the agreement runs **both ways**: a tall unit blocks the hung row, and every
+ * wall cabinet blocks the tall unit. Putting both here means every move, drop,
+ * resize and add gets it for free.
+ *
+ * The second direction was missing, and `addModule` was quietly the only path
+ * that compensated — via `evictBlockedWallUnits`. So a tall unit could be
+ * *placed* correctly and then dragged or widened straight through the wall
+ * cabinet beside it, which on screen is one cabinet merged into the next.
+ * `ignoreId` is the cabinet being settled, so it is also what says which of
+ * the two directions applies.
  */
 export function occupiedSpans(
 	layout: PlannerLayout,
@@ -163,14 +178,16 @@ export function occupiedSpans(
 	ignoreId?: string,
 ): Span[] {
 	const own = positionsOf(layout, row);
-	const talls =
+	const crossRow =
 		row === "wall"
 			? positionsOf(layout, "floor").filter(
 					(position) => position.family.kind === "tall",
 				)
-			: [];
+			: isTallModule(layout, ignoreId)
+				? positionsOf(layout, "wall")
+				: [];
 
-	return [...own, ...talls]
+	return [...own, ...crossRow]
 		.filter((position) => position.placed.id !== ignoreId)
 		.map((position) => ({
 			startMm: position.xMm,

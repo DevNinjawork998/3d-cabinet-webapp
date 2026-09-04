@@ -263,6 +263,69 @@ describe("tall units", () => {
 		expect(next.wall).toHaveLength(1);
 		expect(at(next, "hung")).toBeGreaterThanOrEqual(900);
 	});
+
+	/**
+	 * The other direction. A tall unit blocking the hung row was already true;
+	 * the hung row blocking a tall unit was not, so a tall unit placed clear
+	 * could then be dragged or widened straight through the wall cabinet
+	 * beside it — one cabinet merged into the next.
+	 */
+	it("stop against a wall cabinet when dragged under it", () => {
+		let next = addModule(layout, "wall-cabinet", 0, "hung", 900);
+		next = addModule(next, "tall-cabinet", 2000, "tall", 600);
+
+		next = dropModule(next, "tall", 0);
+		expect(at(next, "tall")).toBe(900);
+		expectNoOverlaps(next);
+	});
+
+	it("stop against a wall cabinet mid-drag, not only on release", () => {
+		let next = addModule(layout, "wall-cabinet", 0, "hung", 900);
+		next = addModule(next, "tall-cabinet", 2000, "tall", 600);
+
+		next = moveModule(next, "tall", 400);
+		expect(at(next, "tall")).toBe(900);
+		expectNoOverlaps(next);
+	});
+
+	it("cannot be widened into a wall cabinet", () => {
+		let next = addModule(layout, "tall-cabinet", 0, "tall", 600);
+		next = addModule(next, "wall-cabinet", 600, "hung", 900);
+
+		const wider = family("tall-cabinet")?.sizes.find(
+			(size) => size.widthMm > 600,
+		)?.widthMm;
+		if (wider === undefined) throw new Error("tall ladder has no wider rung");
+
+		expect(
+			widthOptionsFor(next, "tall").find((option) => option.widthMm === wider)
+				?.fits,
+		).toBe(false);
+		expect(setWidth(next, "tall", wider)).toBe(next);
+		expectNoOverlaps(next);
+	});
+
+	it("still resizes freely with the hung row out of its way", () => {
+		let next = addModule(layout, "tall-cabinet", 0, "tall", 600);
+		next = addModule(next, "wall-cabinet", 2000, "hung", 900);
+
+		const wider = family("tall-cabinet")?.sizes.find(
+			(size) => size.widthMm > 600,
+		)?.widthMm;
+		if (wider === undefined) throw new Error("tall ladder has no wider rung");
+
+		expect(at(setWidth(next, "tall", wider), "tall")).toBe(0);
+		expect(setWidth(next, "tall", wider).floor[0].widthMm).toBe(wider);
+	});
+
+	it("leave a base cabinet free to sit under a wall cabinet", () => {
+		let next = addModule(layout, "wall-cabinet", 0, "hung", 900);
+		next = addModule(next, "base-cabinet", 2000, "base", 600);
+
+		// The block is a property of tall units, not of the floor row.
+		next = dropModule(next, "base", 0);
+		expect(at(next, "base")).toBe(0);
+	});
 });
 
 describe("freeSpans", () => {
