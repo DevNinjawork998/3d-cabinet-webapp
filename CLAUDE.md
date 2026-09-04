@@ -83,9 +83,13 @@ src/
     carriers.ts          ← the partner vocabulary; isomorphic, no secrets
     types.ts             ← zod payloads + the CarrierAdapter contract
     measure.ts           ← items => weight, volume, the vehicle that fits
+    phone.ts             ← an admin's typing => E.164, which carriers demand
+    geocode.ts           ← an address => the pin Lalamove prices against
     status.ts            ← a carrier's word for a state => ours; unknown => null
+    http.ts              ← the one outbound fetch: timeout, retry only if safe
+    store.ts             ← the single write path for a tracking update
     registry.ts          ← which partners we can reach right now
-    adapters/            ← one file per partner; only `manual` is implemented
+    adapters/            ← one file per partner; manual and lalamove are live
   lib/mesh/              ← reads an OBJ export into catalogue data
     archive.ts           ← unzip; the .obj text and the texture filenames
     objRead.ts           ← OBJ parse: named boxes in the file's own units
@@ -400,6 +404,11 @@ Recorded rather than fixed. Do not paper over them; fix them deliberately.
   the convention would be reading handedness into what may only be position.
   Their answer decides whether a single door's drawn name can seed its swing.
 - **Design-intake cadence.** How often do new exports arrive, and will the panel naming (`G-UEnd_(L)`, `G-Door(R)`, …) stay stable? Extraction depends on it, so a change in their drawing habits is a change to `lib/mesh`.
+- **The workshop's real street address and phone.** `WORKSHOP_ADDRESS` is
+  `"Infinite Cabinet Sdn Bhd, Klang Valley, Selangor"`, which does not geocode
+  to a pin, so Lalamove cannot price a pickup from it — every delivery would be
+  quoted from wherever that phrase happens to resolve to. `WORKSHOP_PHONE` is a
+  placeholder, and it is the number a Lalamove driver rings from the loading bay.
 - Does Prisma Postgres offer an ap-southeast region? If not, quote submission eats a transpacific round trip.
 
 ## Conventions

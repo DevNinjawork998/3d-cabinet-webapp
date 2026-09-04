@@ -62,15 +62,27 @@ carrier integration exists.
 | Variable | For |
 |---|---|
 | `CRON_SECRET` | The tracking sweep at `/api/cron/track-deliveries`. Vercel sends it as `Authorization: Bearer`; without it the route refuses to run. |
-| `LALAMOVE_API_KEY`, `LALAMOVE_API_SECRET` | Lalamove — vehicle class, the one that moves cabinets |
+| `LALAMOVE_API_KEY`, `LALAMOVE_API_SECRET` | Lalamove — vehicle class, the one that moves cabinets. A `pk_test…` key selects the sandbox host, anything else production. |
+| `GOOGLE_GEOCODING_API_KEY` | Turns a delivery's address into the pin Lalamove prices against. Without it no vehicle partner can quote. |
 | `EASYPARCEL_API_KEY` | EasyParcel — parcels |
 | `GDEX_API_KEY` | GDEX — parcels |
 | `CITYLINK_API_KEY` | City-Link — parcels |
 | `<CARRIER>_WEBHOOK_SECRET` | Verifying callbacks from a partner that signs them |
 
-The four carrier adapters in `lib/logistics/adapters/` are stubs. Each one is a
-single file, plus its statuses in `lib/logistics/status.ts` and its webhook
-secret — nothing else changes when one is implemented.
+Lalamove is implemented. The other three adapters in `lib/logistics/adapters/`
+are stubs, and each is a single file plus its statuses in
+`lib/logistics/status.ts` — nothing else changes when one is written.
+
+A delivery is geocoded when it is **saved**, not when it is quoted, so an
+address Google cannot place shows as a warning on the job rather than as a
+missing row in the partner comparison. Google returning `APPROXIMATE` — it found
+the town and nothing finer — counts as a failure, because a lorry sent to the
+town centre is a wrong delivery. An admin can paste a `3.1509, 101.5931` pin to
+override the result.
+
+Lalamove's webhook goes to `POST /api/webhooks/lalamove`, set in the Partner
+Portal or via `PATCH /v3/webhook`. It is authenticated by the `apiKey` in the
+payload matching `LALAMOVE_API_KEY`, because Lalamove does not sign callbacks.
 
 Status reaches the app two ways. A partner that supports callbacks posts to
 `/api/webhooks/<carrier>`, which sits outside `/api/admin` on purpose (the proxy
