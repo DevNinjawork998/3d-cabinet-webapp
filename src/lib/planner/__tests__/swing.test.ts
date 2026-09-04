@@ -121,3 +121,54 @@ describe("a leaf shaped like a flap is flagged, not animated", () => {
 		expect(swingOf(wide, carcass, "left").suspectFlap).toBe(false);
 	});
 });
+
+describe("a leaf with a neighbour on its hinge side", () => {
+	/**
+	 * How far the free edge lands from the hinge stile, along the wall.
+	 *
+	 * This is the number the bug was made of. Past 90° a leaf swings forward
+	 * and then back toward its own hinge, so its free edge crosses the stile
+	 * and ends up over the neighbour's frontage — where the neighbour's own
+	 * open leaf already is.
+	 */
+	const overhangMm = (widthMm: number, maxRad: number) =>
+		-widthMm * Math.cos(maxRad);
+
+	it("stops at 90 degrees so the leaf never crosses its own stile", () => {
+		expect(swingOf(overlayLeaf, carcass, "left", true).maxRad).toBeCloseTo(
+			Math.PI / 2,
+		);
+	});
+
+	it("keeps the full swing when nothing is beside it", () => {
+		expect(swingOf(overlayLeaf, carcass, "left", false).maxRad).toBe(
+			OVERLAY_OPEN_RAD,
+		);
+	});
+
+	it("defaults to the full swing, so an un-threaded caller is unchanged", () => {
+		expect(swingOf(overlayLeaf, carcass, "left").maxRad).toBe(OVERLAY_OPEN_RAD);
+	});
+
+	it("never widens a swing — an inset door still binds at its own limit", () => {
+		/** Sitting inside the opening, as in the inset block above. */
+		const inset: BoxMm = {
+			min: { x: -280, y: 110, z: 240 },
+			max: { x: -10, y: 860, z: 258 },
+		};
+		const spec = swingOf(inset, carcass, "left", true);
+		expect(spec.maxRad).toBeLessThanOrEqual(INSET_OPEN_RAD);
+		expect(spec.maxRad).toBeCloseTo(Math.PI / 2);
+	});
+
+	it("boxed in, the free edge lands on the stile rather than past it", () => {
+		const widthMm = overlayLeaf.max.x - overlayLeaf.min.x;
+		const spec = swingOf(overlayLeaf, carcass, "left", true);
+		expect(overhangMm(widthMm, spec.maxRad)).toBeCloseTo(0);
+	});
+
+	it("free, the 600mm leaf overhangs by the 205mm that caused this", () => {
+		const spec = swingOf(overlayLeaf, carcass, "left", false);
+		expect(overhangMm(600, spec.maxRad)).toBeCloseTo(205, 0);
+	});
+});
