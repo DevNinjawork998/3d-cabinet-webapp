@@ -12,7 +12,6 @@ import {
 	type DoorStyle,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
-import type { ExposedSides } from "@/lib/planner/exposure";
 import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
@@ -236,7 +235,6 @@ export function DesignedCabinet({
 	groups,
 	door,
 	hinge,
-	exposed,
 	open,
 	finishHex,
 	finishPhoto,
@@ -249,10 +247,6 @@ export function DesignedCabinet({
 	door: DoorStyle | null;
 	/** Which stile a lone leaf hangs on. */
 	hinge: HingeSide;
-	/** Which outer sides nothing sits against. A leaf hangs on the cabinet's
-	 * outer stile, so this is what decides whether it may take the full swing
-	 * or has to stop square to the wall. */
-	exposed: ExposedSides;
 	/** Swing the doors open. */
 	open: boolean;
 	finishHex: string;
@@ -337,7 +331,6 @@ export function DesignedCabinet({
 					leafMm,
 					carcassMm ?? { ...leafMm, max: { ...leafMm.max, z: leafMm.min.z } },
 					side,
-					!exposed[side],
 				);
 				return (
 					<Hinge key={key} spec={spec} open={open}>

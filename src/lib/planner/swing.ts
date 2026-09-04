@@ -76,19 +76,6 @@ export const OVERLAY_OPEN_RAD = (110 * Math.PI) / 180;
 /** An inset leaf binds on the carcass sooner than an overlay one clears it. */
 export const INSET_OPEN_RAD = (95 * Math.PI) / 180;
 
-/**
- * As far as a leaf may open with a neighbour against its hinge stile.
- *
- * Exactly a right angle, and the reason is arithmetic rather than taste. A
- * leaf's free edge sits `width · cos(angle)` from its hinge along the wall, so
- * past 90° the cosine goes negative and the edge crosses back over its own
- * stile — a 600mm door at 110° ends up 205mm into the neighbour's frontage,
- * which is where the neighbour's own open leaf already is. At 90° the cosine
- * is zero: the leaf stands square to the wall, its free edge dead on the
- * stile, and two neighbouring leaves are parallel planes that cannot meet.
- */
-export const BOXED_IN_OPEN_RAD = Math.PI / 2;
-
 /** Wider than tall by this much reads as a flap rather than a door. A single
  * wide door is only slightly wider than tall; a flap is nothing like it. */
 const FLAP_RATIO = 1.6;
@@ -97,16 +84,6 @@ export function swingOf(
 	leaf: BoxMm,
 	carcass: BoxMm,
 	side: HingeSide,
-	/**
-	 * Whether something sits against the stile this leaf hangs on — a
-	 * neighbouring cabinet, or the wall at the end of a run.
-	 *
-	 * A boolean and not the layout: `swingOf` answers a question about two
-	 * boxes, and the caller already knows what is beside the cabinet because
-	 * `exposure.ts` computes exactly that for the end panels. Defaults to
-	 * false so a caller that has not been threaded yet behaves as before.
-	 */
-	boxedIn = false,
 ): SwingSpec {
 	const fit: DoorFit =
 		leaf.min.z >= carcass.max.z - OVERLAY_TOL_MM ? "overlay" : "inset";
@@ -121,13 +98,7 @@ export function swingOf(
 		// Overlay turns on the face against the carcass; inset turns on the face
 		// away from it. Same leaf, opposite edge, and the depths decide which.
 		pivotZMm: fit === "overlay" ? leaf.min.z : leaf.max.z,
-		// `min`, never a replacement: an inset leaf binds at 95° whether or not
-		// anything is beside it, and being boxed in can only ever close a door
-		// further, never swing it wider.
-		maxRad: Math.min(
-			fit === "overlay" ? OVERLAY_OPEN_RAD : INSET_OPEN_RAD,
-			boxedIn ? BOXED_IN_OPEN_RAD : Number.POSITIVE_INFINITY,
-		),
+		maxRad: fit === "overlay" ? OVERLAY_OPEN_RAD : INSET_OPEN_RAD,
 		suspectFlap: heightMm > 0 && widthMm / heightMm >= FLAP_RATIO,
 	};
 }

@@ -251,7 +251,6 @@ export function Cabinet({
 					groups={designGroups}
 					door={door}
 					hinge={hinge}
-					exposed={exposed}
 					open={doorsOpen}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
@@ -321,7 +320,6 @@ export function Cabinet({
 							<Doors
 								parts={leaves}
 								carcassMm={carcassMm}
-								exposed={exposed}
 								finishPhoto={finishPhoto}
 								door={door}
 								hinge={hinge}
@@ -562,7 +560,6 @@ const boxOf = (part: PartBoxMm): BoxMm => ({
 function Doors({
 	parts,
 	carcassMm,
-	exposed,
 	door,
 	hinge,
 	open,
@@ -575,9 +572,6 @@ function Doors({
 	/** The box the leaves hang on, so `swingOf` can tell an overlay door from
 	 * an inset one and pivot on the right edge. */
 	carcassMm: BoxMm;
-	/** Which outer sides nothing sits against — decides how far a leaf may
-	 * open before it would cross into the neighbour. */
-	exposed: ExposedSides;
 	door: DoorStyle;
 	hinge: HingeSide;
 	open: boolean;
@@ -597,10 +591,7 @@ function Doors({
 				const y = m(leaf.centreMm.y);
 				const z = m(leaf.centreMm.z);
 				const leafW = m(leaf.sizeMm.x);
-				// A leaf hangs on the cabinet's outer stile, so whether it is boxed
-				// in is exactly whether that side is exposed — the same question
-				// `exposure.ts` already answers for the end panels.
-				const spec = swingOf(boxOf(leaf), carcassMm, side, !exposed[side]);
+				const spec = swingOf(boxOf(leaf), carcassMm, side);
 
 				return (
 					<Hinge key={leaf.index} spec={spec} open={open}>
