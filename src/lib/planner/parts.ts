@@ -1,4 +1,9 @@
-import { CONSTRUCTION, doorLeavesFor, type Family } from "./catalogue";
+import {
+	CONSTRUCTION,
+	type Construction,
+	doorLeavesFor,
+	type Family,
+} from "./catalogue";
 
 /**
  * Every box a cabinet is drawn from, as numbers.
@@ -94,7 +99,10 @@ export const isInteriorPart = (role: PartRole) =>
  * further and the feet it exists to hide are still showing. The client's own
  * file measures 17mm, so this cannot be a fixed guess.
  */
-export function standOf(family: Family) {
+export function standOf(
+	family: Family,
+	construction: Construction = CONSTRUCTION,
+) {
 	if (family.kind === "wall") {
 		return { heightMm: 0, legs: 0, insetMm: 0 };
 	}
@@ -107,7 +115,7 @@ export function standOf(family: Family) {
 				insetMm: family.geometry?.legInsetMm || LEG_INSET_MM,
 			}
 		: {
-				heightMm: CONSTRUCTION.plinthHeightMm,
+				heightMm: construction.plinthHeightMm,
 				legs: 0,
 				insetMm: PLINTH_RECESS_MM,
 			};
@@ -138,13 +146,24 @@ export function shelfHeightsMm(
  * A family imported before design intake recorded `geometry` — or a
  * hand-written one — keeps the old look: one shelf, leaves derived from width,
  * a back. Same fallbacks `Cabinet.tsx` applied inline before this module. */
-export function fitOutOf(family: Family, widthMm: number) {
+export function fitOutOf(
+	family: Family,
+	widthMm: number,
+	construction: Construction,
+) {
 	return {
 		shelves: family.geometry
 			? family.geometry.shelves + family.geometry.fixedShelves
 			: 1,
 		drawers: family.geometry?.drawers ?? family.drawers,
-		doorLeaves: family.geometry?.doorLeaves || doorLeavesFor(widthMm),
+		// Leaf count is a property of the width, not of the family: `geometry`
+		// is learned from one design at one width, so a family that learned "2"
+		// from its 900 must not draw a pair on its 400. The design only tells
+		// us whether this family has fronts at all.
+		doorLeaves:
+			family.geometry?.doorLeaves === 0
+				? 0
+				: doorLeavesFor(widthMm, construction.doorLeavesThresholdMm),
 		hasBack: family.geometry?.hasBack ?? true,
 	};
 }
@@ -165,18 +184,23 @@ export function cabinetPartsMm(
 	family: Family,
 	widthMm: number,
 	hasDoor: boolean,
+	construction: Construction = CONSTRUCTION,
 ): PartBoxMm[] {
-	const t = CONSTRUCTION.panelThicknessMm;
+	const t = construction.panelThicknessMm;
 	// What the carcass stands on, and how tall it is. A design with feet floats
 	// the box on them; otherwise it is the plinth, as before.
-	const stand = standOf(family);
+	const stand = standOf(family, construction);
 	const plinth = stand.heightMm;
 	const w = widthMm;
 	const d = family.depthMm;
 	const carcassH = family.heightMm - plinth;
 	const midY = plinth + carcassH / 2;
 
-	const { shelves, drawers, doorLeaves, hasBack } = fitOutOf(family, widthMm);
+	const { shelves, drawers, doorLeaves, hasBack } = fitOutOf(
+		family,
+		widthMm,
+		construction,
+	);
 
 	const parts: PartBoxMm[] = [
 		{

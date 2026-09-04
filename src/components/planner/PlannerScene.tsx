@@ -11,26 +11,19 @@ import type {
 import { Raycaster, Vector2, Vector3 } from "three";
 import {
 	CEILING_TRIM_MM,
-	CONSTRUCTION,
-	doorStyle,
-	FINISHES,
+	type Construction,
+	constructionOf,
+	doorStyleIn,
 	type FinishId,
 	WALL_GAP_MM,
 	WORKTOP_COLOR,
 } from "@/lib/planner/catalogue";
+import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
 import { type ExposedSides, exposedSides } from "@/lib/planner/exposure";
-import {
-	allPositions,
-	dropModule,
-	floorHeightMmOf,
-	hangingHeightMmOf,
-	moveModule,
-	overhangingIds,
-	type PlannerLayout,
-	type Positioned,
-	positionsOf,
-	rowEndMm,
-	skirtingSpans,
+import type {
+	PlannerEngine,
+	PlannerLayout,
+	Positioned,
 } from "@/lib/planner/layout";
 import {
 	apertureMm,
@@ -41,6 +34,7 @@ import {
 	type Vec3Mm,
 } from "@/lib/planner/measure";
 import { Cabinet } from "./Cabinet";
+import { useCatalogue, useEngine } from "./CatalogueContext";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
@@ -271,9 +265,12 @@ function CabinetHitTest({
  */
 function Run({
 	layout,
+	catalogue,
+	engine,
 	finishHex,
 	finishPhoto,
 	selectedIds,
+	openIds,
 	doorTargetId,
 	measureMode,
 	measureAxis,
@@ -282,12 +279,21 @@ function Run({
 	onSelect,
 	onMeasurePick,
 	onMeasureHover,
+	construction,
 }: {
 	layout: PlannerLayout;
+	/** The published catalogue, resolved outside the canvas: `Run` renders
+	 * inside `<Canvas>`, a separate reconciler root the outer React context
+	 * does not reach. */
+	catalogue: PlannerCatalogue;
+	/** Likewise the engine built from it. */
+	engine: PlannerEngine;
 	finishHex: string;
 	/** The uploaded decor photo for this finish, if the client has supplied one. */
 	finishPhoto: string | null;
 	selectedIds: ReadonlySet<string>;
+	/** The cabinets whose doors are swung open. */
+	openIds: ReadonlySet<string>;
 	/** The carcass a door is currently being dragged over, if any. */
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
@@ -307,10 +313,21 @@ function Run({
 	/** What the measuring tool would pick right now, so the overlay can show it
 	 * before the click commits. `null` once the pointer leaves. */
 	onMeasureHover: (snap: SnapPoint | null) => void;
+	/** Resolved outside the canvas and passed in: `Run` renders inside
+	 * `<Canvas>`, which is its own reconciler root. */
+	construction: Construction;
 }) {
 	const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 	const camera = useThree((s) => s.camera);
 	const viewportHeightPx = useThree((s) => s.size.height);
+	const {
+		allPositions,
+		dropModule,
+		floorHeightMmOf,
+		moveModule,
+		overhangingIds,
+		positionsOf,
+	} = engine;
 
 	/**
 	 * The snap under this pointer event.
@@ -352,8 +369,10 @@ function Run({
 			hitMm,
 			position,
 			layout,
+			engine,
 			apertureMm(e.distance, fov, viewportHeightPx),
 			design,
+			construction,
 		);
 
 		// The lock is applied after the snap, not instead of it: you snap to the
@@ -407,7 +426,7 @@ function Run({
 		if (!current) return;
 		const next = dropModule(layoutRef.current, drag.id, current.xMm);
 		if (next !== layoutRef.current) onLayoutChange(next);
-	}, [controls, onLayoutChange]);
+	}, [controls, onLayoutChange, dropModule]);
 
 	// A drag can end anywhere — off the plane, outside the canvas, or with this
 	// unmounting mid-gesture. All of them have to give orbiting back.
@@ -440,7 +459,10 @@ function Run({
 	// floor and wall, and judging them together would have a hung wall unit
 	// cover a base unit's end panel — they are at different heights and hide
 	// nothing of each other.
-	const overhanging = useMemo(() => overhangingIds(layout), [layout]);
+	const overhanging = useMemo(
+		() => overhangingIds(layout),
+		[layout, overhangingIds],
+	);
 
 	const exposure = useMemo(() => {
 		// A return wall buries an end as surely as a neighbour does, so a run
@@ -457,7 +479,7 @@ function Run({
 			});
 		}
 		return map;
-	}, [layout]);
+	}, [layout, positionsOf]);
 
 	// The group sits on the wall plane itself: everything in the run is placed
 	// by its back face from here, with a scribe gap so the carcasses do not
@@ -503,15 +525,21 @@ function Run({
 				<meshBasicMaterial transparent opacity={0} depthWrite={false} />
 			</mesh>
 
-			<ContactShadows layout={layout} runWidthMm={runWidthMm} />
-			<Worktop layout={layout} runWidthMm={runWidthMm} />
+			<ContactShadows layout={layout} runWidthMm={runWidthMm} engine={engine} />
+			<Worktop
+				layout={layout}
+				runWidthMm={runWidthMm}
+				construction={construction}
+				engine={engine}
+			/>
 			<CeilingTrim
 				layout={layout}
 				runWidthMm={runWidthMm}
 				finishHex={finishHex}
 				finishPhoto={finishPhoto}
+				engine={engine}
 			/>
-			<Skirting layout={layout} runWidthMm={runWidthMm} />
+			<Skirting layout={layout} runWidthMm={runWidthMm} engine={engine} />
 
 			{allPositions(layout).map((position) => (
 				<Cabinet
@@ -519,13 +547,16 @@ function Run({
 					moduleId={position.placed.id}
 					family={position.family}
 					widthMm={position.widthMm}
+					construction={construction}
 					exposed={exposure.get(position.placed.id)}
 					overhanging={overhanging.has(position.placed.id)}
 					door={
 						position.placed.doorStyleId
-							? (doorStyle(position.placed.doorStyleId) ?? null)
+							? (doorStyleIn(catalogue, position.placed.doorStyleId) ?? null)
 							: null
 					}
+					hinge={position.placed.hinge}
+					doorsOpen={openIds.has(position.placed.id)}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
 					floorHeightMm={floorHeightMmOf(position, layout)}
@@ -601,10 +632,13 @@ function Run({
 function ContactShadows({
 	layout,
 	runWidthMm,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	engine: PlannerEngine;
 }) {
+	const { positionsOf, hangingHeightMmOf } = engine;
 	return (
 		<>
 			{positionsOf(layout, "floor").map((position) => (
@@ -653,10 +687,15 @@ function ContactShadows({
 function Worktop({
 	layout,
 	runWidthMm,
+	construction,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	construction: Construction;
+	engine: PlannerEngine;
 }) {
+	const { positionsOf } = engine;
 	// One slab per unbroken stretch of units that carry one — a worktop is cut
 	// to the cabinets under it, not to the wall, so a unit without a top, a
 	// unit of a different height, or a deliberate gap splits it. Contiguity is
@@ -699,14 +738,14 @@ function Worktop({
 						key={span.startMm}
 						position={[
 							m(span.startMm + widthMm / 2 - runWidthMm / 2),
-							m(span.topMm + CONSTRUCTION.worktopThicknessMm / 2),
+							m(span.topMm + construction.worktopThicknessMm / 2),
 							m((span.depthMm + overhangMm) / 2),
 						]}
 					>
 						<boxGeometry
 							args={[
 								m(widthMm),
-								m(CONSTRUCTION.worktopThicknessMm),
+								m(construction.worktopThicknessMm),
 								m(span.depthMm + overhangMm),
 							]}
 						/>
@@ -737,13 +776,15 @@ function Worktop({
 function Skirting({
 	layout,
 	runWidthMm,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
+	engine: PlannerEngine;
 }) {
 	return (
 		<>
-			{skirtingSpans(layout).map((span) => {
+			{engine.skirtingSpans(layout).map((span) => {
 				const widthMm = span.endMm - span.startMm;
 				// From the wall out to just short of the carcass front. The span
 				// carries the recess because only the engine knows how far in the
@@ -784,15 +825,17 @@ function CeilingTrim({
 	runWidthMm,
 	finishHex,
 	finishPhoto,
+	engine,
 }: {
 	layout: PlannerLayout;
 	runWidthMm: number;
 	finishHex: string;
 	finishPhoto: string | null;
+	engine: PlannerEngine;
 }) {
 	const spans: Array<{ startMm: number; endMm: number; depthMm: number }> = [];
 	if (layout.wallToCeiling) {
-		for (const position of positionsOf(layout, "wall")) {
+		for (const position of engine.positionsOf(layout, "wall")) {
 			const previous = spans[spans.length - 1];
 			if (previous && Math.abs(previous.endMm - position.xMm) < 1) {
 				previous.endMm = position.xMm + position.widthMm;
@@ -877,11 +920,15 @@ function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
 	);
 }
 
+/** Module-level so the default never changes identity between renders. */
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+
 export default function PlannerScene({
 	layout,
 	finish,
 	finishTextures = {},
 	selectedIds,
+	openIds = EMPTY_IDS,
 	doorTargetId,
 	measureMode = false,
 	measurePoints = [],
@@ -905,6 +952,10 @@ export default function PlannerScene({
 	 */
 	finishTextures?: Record<string, string>;
 	selectedIds: ReadonlySet<string>;
+	/** The cabinets whose doors are swung open. Optional and empty by default:
+	 * the quote screen's preview draws the same scene with no controls on it,
+	 * and a shut door is what a customer expects to be quoted. */
+	openIds?: ReadonlySet<string>;
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
 	 * selecting or dragging it. */
@@ -929,9 +980,13 @@ export default function PlannerScene({
 		((clientX: number, clientY: number) => string | null) | null
 	>;
 }) {
+	const catalogue = useCatalogue();
+	const engine = useEngine();
+	const construction = constructionOf(catalogue);
 	const runWidthMm = layout.wallWidthMm;
 	const finishHex =
-		FINISHES.find((f) => f.id === finish)?.hex ?? FINISHES[0].hex;
+		catalogue.finishes.find((f) => f.id === finish)?.hex ??
+		catalogue.finishes[0].hex;
 	const finishPhoto = finishTextures[finish] ?? null;
 	const [hoverPoint, setHoverPoint] = useState<SnapPoint | null>(null);
 	// Only the first point anchors the lock; with two down the next click starts
@@ -966,9 +1021,12 @@ export default function PlannerScene({
 
 			<Run
 				layout={layout}
+				catalogue={catalogue}
+				engine={engine}
 				finishHex={finishHex}
 				finishPhoto={finishPhoto}
 				selectedIds={selectedIds}
+				openIds={openIds}
 				doorTargetId={doorTargetId}
 				measureMode={measureMode}
 				measureAxis={measureAxis}
@@ -977,6 +1035,7 @@ export default function PlannerScene({
 				onSelect={onSelectAction}
 				onMeasurePick={onMeasurePickAction ?? (() => {})}
 				onMeasureHover={setHoverPoint}
+				construction={construction}
 			/>
 			<MeasureOverlay
 				points={measurePoints}
@@ -998,7 +1057,7 @@ export default function PlannerScene({
 				maxPolarAngle={Math.PI / 2 - 0.05}
 			/>
 			<FitCamera
-				runWidthMm={Math.max(runWidthMm, rowEndMm(layout, "floor"))}
+				runWidthMm={Math.max(runWidthMm, engine.rowEndMm(layout, "floor"))}
 				roomDepthMm={layout.roomDepthMm}
 				ceilingHeightMm={layout.ceilingHeightMm}
 				view={view}

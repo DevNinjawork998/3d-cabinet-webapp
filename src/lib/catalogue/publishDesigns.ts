@@ -12,8 +12,10 @@ import {
 	buildRenderMesh,
 	encodeRenderMesh,
 	MAX_TRIANGLES,
+	type MeshGroup,
 } from "@/lib/mesh/renderMesh";
 import { CONSTRUCTION, WALL_CABINET_FLOOR_MM } from "@/lib/planner/catalogue";
+import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import {
 	CATEGORY_TO_FAMILY_SHAPE,
 	ROOM_TO_PLANNER,
@@ -165,6 +167,21 @@ async function prepare(
 					meshGroups: mesh.groups.map((group) => ({
 						role: group.role,
 						triangles: group.indices.length / 3,
+						// How this door will actually behave when a customer opens
+						// it. Recorded here so a wrong reading is visible in the
+						// review table BEFORE publish rather than in front of a
+						// customer — which is the whole reason the swing is decided
+						// at intake instead of at runtime.
+						...(group.role === "door"
+							? {
+									hingeSide: group.hingeSide ?? null,
+									fit: swingOf(
+										boxOf(group.bboxMm),
+										carcassBox(mesh.groups, group),
+										group.hingeSide ?? "left",
+									).fit,
+								}
+							: {}),
 					})),
 				},
 			});
@@ -216,6 +233,27 @@ export type PublishResult =
 			meshNotes: string[];
 			failures: DesignFailure[];
 	  };
+
+/** The mesh carries a bbox as two triples; `swingOf` works in `{x,y,z}`. */
+const boxOf = (bbox: MeshGroup["bboxMm"]): BoxMm => ({
+	min: { x: bbox.min[0], y: bbox.min[1], z: bbox.min[2] },
+	max: { x: bbox.max[0], y: bbox.max[1], z: bbox.max[2] },
+});
+
+/**
+ * The box a design's doors hang on.
+ *
+ * Without a carcass group there is nothing to compare a leaf's back face
+ * against, so fall back to a front plane sitting exactly on that back face —
+ * the overlay reading, and what every design the client has sent so far
+ * actually is.
+ */
+function carcassBox(groups: MeshGroup[], door: MeshGroup): BoxMm {
+	const carcass = groups.find((group) => group.role === "carcass");
+	if (carcass) return boxOf(carcass.bboxMm);
+	const leaf = boxOf(door.bboxMm);
+	return { ...leaf, max: { ...leaf.max, z: leaf.min.z } };
+}
 
 export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 	const designs = await prisma.cabinetDesign.findMany({

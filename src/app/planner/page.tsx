@@ -1,11 +1,9 @@
 import { prisma } from "@/lib/catalogue/db";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
-import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
+import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { PlannerApp } from "./PlannerApp";
-
-const VALID_ROOM_IDS = new Set<string>(ROOM_TYPES.map((r) => r.id));
 
 export default async function PlannerPage({
 	searchParams,
@@ -13,14 +11,20 @@ export default async function PlannerPage({
 	searchParams: Promise<{ room?: string }>;
 }) {
 	const { room } = await searchParams;
-	const initialRoomId: RoomTypeId = VALID_ROOM_IDS.has(room ?? "")
-		? (room as RoomTypeId)
-		: "kitchen";
 
 	const [{ data: catalogue }, siteImages] = await Promise.all([
 		getPublishedPlannerCatalogue(),
 		prisma.siteImage.findMany(),
 	]);
+
+	// Validated against the catalogue that is actually about to be rendered,
+	// not the bundled seed: a publish that adds or drops a room changes what
+	// `?room=` may say.
+	const initialRoomId: RoomTypeId = catalogue.roomTypes.some(
+		(r) => r.id === room,
+	)
+		? (room as RoomTypeId)
+		: "kitchen";
 
 	// The photo an admin uploaded for each finish, if any. The same slot already
 	// feeds the landing page's swatch, so one upload makes the strip and the 3D

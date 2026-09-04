@@ -1,5 +1,5 @@
-import { WALL_GAP_MM } from "./catalogue";
-import { floorHeightMmOf, type PlannerLayout, type Positioned } from "./layout";
+import { CONSTRUCTION, type Construction, WALL_GAP_MM } from "./catalogue";
+import type { PlannerEngine, PlannerLayout, Positioned } from "./layout";
 import { cabinetPartsMm, type PartRole, type Vec3Mm } from "./parts";
 
 /**
@@ -50,9 +50,10 @@ type CabinetBoundsMm = {
 export function cabinetBoundsMm(
 	position: Positioned,
 	layout: PlannerLayout,
+	engine: PlannerEngine,
 ): CabinetBoundsMm {
 	const runWidthMm = layout.wallWidthMm;
-	const floorHeightMm = floorHeightMmOf(position, layout);
+	const floorHeightMm = engine.floorHeightMmOf(position, layout);
 
 	const minX = position.xMm - runWidthMm / 2;
 	const maxX = minX + position.widthMm;
@@ -86,8 +87,9 @@ function cornersOfBox(box: CabinetBoundsMm): Vec3Mm[] {
 export function cabinetCornersMm(
 	position: Positioned,
 	layout: PlannerLayout,
+	engine: PlannerEngine,
 ): Vec3Mm[] {
-	return cornersOfBox(cabinetBoundsMm(position, layout));
+	return cornersOfBox(cabinetBoundsMm(position, layout, engine));
 }
 
 /** The 12 edges, as index pairs into an 8-corner list. */
@@ -178,9 +180,11 @@ type WorldPartBox = { role: PartRole | DesignPartRole; box: CabinetBoundsMm };
 function worldPartBoxes(
 	position: Positioned,
 	layout: PlannerLayout,
+	engine: PlannerEngine,
 	design?: DesignPartBox[] | null,
+	construction: Construction = CONSTRUCTION,
 ): WorldPartBox[] {
-	const carcass = cabinetBoundsMm(position, layout);
+	const carcass = cabinetBoundsMm(position, layout, engine);
 	const centreX = (carcass.minX + carcass.maxX) / 2;
 	const floorY = carcass.minY;
 	const centreZ = (carcass.minZ + carcass.maxZ) / 2;
@@ -210,6 +214,7 @@ function worldPartBoxes(
 		position.family,
 		position.widthMm,
 		position.placed.doorStyleId !== null,
+		construction,
 	);
 
 	return [
@@ -264,11 +269,13 @@ export function snapToCabinet(
 	hit: Vec3Mm,
 	position: Positioned,
 	layout: PlannerLayout,
+	engine: PlannerEngine,
 	snapMm: number = DEFAULT_SNAP_MM,
 	/** The drafted mesh's group boxes, when the scene is drawing one. */
 	design?: DesignPartBox[] | null,
+	construction: Construction = CONSTRUCTION,
 ): SnapPoint {
-	const boxes = worldPartBoxes(position, layout, design);
+	const boxes = worldPartBoxes(position, layout, engine, design, construction);
 
 	for (const kind of ["corner", "midpoint"] as const) {
 		let best: SnapPoint | null = null;

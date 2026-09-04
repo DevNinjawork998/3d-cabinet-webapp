@@ -7,9 +7,9 @@ import {
 	siteImageSrc,
 } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
-import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
+import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
-import { starterFor } from "@/lib/planner/layout";
+import { plannerEngine } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 
 /**
@@ -142,26 +142,19 @@ function Photo({
 }
 
 export default async function Home() {
-	// Read the live catalogue so the swatch row and the hero price can't drift
-	// from what the planner actually offers after a publish.
-	//
-	// ponytail: `starterFor` reads the module-level FAMILIES/ROOM_TYPES, which
-	// server-side are still the static fixtures (`setActivePlannerCatalogue`
-	// is deliberately client-only — see its note in catalogue.ts). So the
-	// starter *layout* is static while its *prices* come from the DB. Fine
-	// while the two agree; if a published catalogue ever changes a room's
-	// starter widths, this headline figure needs `layout.ts` parameterised
-	// like `pricing.ts` already is.
+	// Read the live catalogue so the swatch row, the room strip and the hero
+	// price can't drift from what the planner actually offers after a publish.
 	const [{ data: catalogue }, siteImages] = await Promise.all([
 		getPublishedPlannerCatalogue(),
 		prisma.siteImage.findMany(),
 	]);
+	const engine = plannerEngine(catalogue);
 	const photo = new Map(
 		siteImages.map((i) => [i.key, siteImageSrc(i.key, i.updatedAt)]),
 	);
 
 	const kitchenPrice = computePlannerPrice(
-		starterFor("kitchen"),
+		engine.starterFor("kitchen"),
 		catalogue.finishes[0].id,
 		catalogue,
 	);
@@ -378,7 +371,7 @@ export default async function Home() {
 						already on your wall.
 					</p>
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:auto-rows-[224px]">
-						{ROOM_TYPES.map((room, i) => (
+						{catalogue.roomTypes.map((room, i) => (
 							<Link
 								key={room.id}
 								href={`/planner?room=${room.id}`}

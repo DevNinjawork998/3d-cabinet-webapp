@@ -298,3 +298,63 @@ describe("feet the design measured", () => {
 		expect(centre).toBeCloseTo(400 - 60);
 	});
 });
+
+describe("construction comes from the catalogue, not a global", () => {
+	const base = familyById("base-cabinet");
+	const thicker = { ...CONSTRUCTION, panelThicknessMm: 25 };
+
+	it("draws sides at the construction's board thickness", () => {
+		const side = cabinetPartsMm(base, 600, false, thicker).find(
+			(part) => part.role === "side",
+		);
+		expect(side?.sizeMm.x).toBe(25);
+	});
+
+	it("stands a plinth at the construction's plinth height", () => {
+		const plinthy = { ...CONSTRUCTION, plinthHeightMm: 140 };
+		expect(standOf(base, plinthy).heightMm).toBe(140);
+	});
+
+	it("splits into two leaves at the construction's threshold", () => {
+		const early = { ...CONSTRUCTION, doorLeavesThresholdMm: 400 };
+		const leaves = cabinetPartsMm(base, 600, true, early).filter(
+			(part) => part.role === "doorLeaf",
+		);
+		expect(leaves).toHaveLength(2);
+	});
+
+	it("keeps the seed when no construction is given", () => {
+		const side = cabinetPartsMm(base, 600, false).find(
+			(part) => part.role === "side",
+		);
+		expect(side?.sizeMm.x).toBe(CONSTRUCTION.panelThicknessMm);
+	});
+});
+
+describe("door leaf count is a property of width, not of the family", () => {
+	const base = familyById("base-cabinet");
+
+	it("a family that learned geometry.doorLeaves: 2 from its 900 does not draw a pair on a 400", () => {
+		const family = withGeometry(base, { doorLeaves: 2 });
+		const leaves = cabinetPartsMm(family, 400, true).filter(
+			(part) => part.role === "doorLeaf",
+		);
+		expect(leaves).toHaveLength(1);
+	});
+
+	it("the same family still draws two leaves above the threshold", () => {
+		const family = withGeometry(base, { doorLeaves: 2 });
+		const leaves = cabinetPartsMm(family, 900, true).filter(
+			(part) => part.role === "doorLeaf",
+		);
+		expect(leaves).toHaveLength(2);
+	});
+
+	it("a family that recorded no front stays frontless", () => {
+		const family = withGeometry(base, { doorLeaves: 0 });
+		const leaves = cabinetPartsMm(family, 900, true).filter(
+			(part) => part.role === "doorLeaf",
+		);
+		expect(leaves).toHaveLength(0);
+	});
+});

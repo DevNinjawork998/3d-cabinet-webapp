@@ -1,6 +1,6 @@
-import { ROOM_TYPES, type RoomTypeId } from "@/lib/planner/catalogue";
-import { starterFor } from "@/lib/planner/layout";
+import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { useCatalogue, useEngine } from "./CatalogueContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 
 /**
@@ -150,9 +150,12 @@ export function StartScreen({
 	onPickPreset: (preset: StartPreset) => void;
 	onStart: () => void;
 }) {
-	const room = ROOM_TYPES.find((r) => r.id === roomId) ?? ROOM_TYPES[0];
+	const catalogue = useCatalogue();
+	const { starterFor } = useEngine();
+	const room =
+		catalogue.roomTypes.find((r) => r.id === roomId) ?? catalogue.roomTypes[0];
 	const starter = starterFor(roomId);
-	const starterPrice = computePlannerPrice(starter, "strata-noir");
+	const starterPrice = computePlannerPrice(starter, "strata-noir", catalogue);
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
@@ -180,7 +183,7 @@ export function StartScreen({
 				</div>
 
 				<div className="grid w-full max-w-3xl grid-cols-2 gap-4 sm:grid-cols-4">
-					{ROOM_TYPES.map((option) => {
+					{catalogue.roomTypes.map((option) => {
 						const active = option.id === roomId;
 						return (
 							<button

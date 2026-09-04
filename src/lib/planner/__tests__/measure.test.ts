@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { addModule, allPositions, emptyLayout, setDoor } from "../layout";
+import { PLANNER_CATALOGUE } from "../catalogue";
+import { emptyLayout, plannerEngine, setDoor } from "../layout";
+
+const engine = plannerEngine(PLANNER_CATALOGUE);
+const { addModule, allPositions } = engine;
+
 import {
 	APERTURE_PX,
 	apertureMm,
@@ -21,8 +26,8 @@ describe("measure", () => {
 	it("derives W/D/H from a cabinet's own two opposite corners", () => {
 		const layout = addModule(emptyLayout(WALL_MM), "base-cabinet", 0);
 		const [position] = allPositions(layout);
-		const bounds = cabinetBoundsMm(position, layout);
-		const corners = cabinetCornersMm(position, layout);
+		const bounds = cabinetBoundsMm(position, layout, engine);
+		const corners = cabinetCornersMm(position, layout, engine);
 
 		const result = measure(corners[0], corners[7]);
 
@@ -35,10 +40,10 @@ describe("measure", () => {
 	it("snaps a near-corner hit to the exact vertex", () => {
 		const layout = addModule(emptyLayout(WALL_MM), "base-cabinet", 0);
 		const [position] = allPositions(layout);
-		const [corner] = cabinetCornersMm(position, layout);
+		const [corner] = cabinetCornersMm(position, layout, engine);
 
 		const nearHit = { x: corner.x + 5, y: corner.y - 3, z: corner.z + 2 };
-		const snapped = snapToCabinet(nearHit, position, layout);
+		const snapped = snapToCabinet(nearHit, position, layout, engine);
 
 		expect(snapped.point).toEqual(corner);
 		expect(snapped.kind).toBe("corner");
@@ -47,10 +52,10 @@ describe("measure", () => {
 	it("leaves a hit unsnapped once it's outside the tolerance", () => {
 		const layout = addModule(emptyLayout(WALL_MM), "base-cabinet", 0);
 		const [position] = allPositions(layout);
-		const [corner] = cabinetCornersMm(position, layout);
+		const [corner] = cabinetCornersMm(position, layout, engine);
 
 		const farHit = { x: corner.x + 500, y: corner.y, z: corner.z };
-		const snapped = snapToCabinet(farHit, position, layout);
+		const snapped = snapToCabinet(farHit, position, layout, engine);
 
 		expect(snapped.point).toEqual(farHit);
 		expect(snapped.kind).toBe("surface");
@@ -68,7 +73,7 @@ describe("snap targets from the cabinet's parts", () => {
 		role: string,
 		index = 0,
 	) => {
-		const bounds = cabinetBoundsMm(position, layout);
+		const bounds = cabinetBoundsMm(position, layout, engine);
 		const part = cabinetPartsMm(
 			position.family,
 			position.widthMm,
@@ -99,6 +104,7 @@ describe("snap targets from the cabinet's parts", () => {
 			{ x: shelfCorner.x + 3, y: shelfCorner.y + 2, z: shelfCorner.z - 4 },
 			position,
 			layout,
+			engine,
 		);
 
 		expect(snapped.kind).toBe("corner");
@@ -110,7 +116,7 @@ describe("snap targets from the cabinet's parts", () => {
 	it("snaps to an edge midpoint when no corner is within reach", () => {
 		const layout = layoutWith("base-cabinet");
 		const [position] = allPositions(layout);
-		const bounds = cabinetBoundsMm(position, layout);
+		const bounds = cabinetBoundsMm(position, layout, engine);
 
 		// Halfway up the cabinet's front-left vertical edge: both its corners are
 		// most of a cabinet-height away, so only the midpoint is in the aperture.
@@ -123,6 +129,7 @@ describe("snap targets from the cabinet's parts", () => {
 			{ x: mid.x + 2, y: mid.y + 6, z: mid.z - 1 },
 			position,
 			layout,
+			engine,
 			20,
 		);
 
@@ -133,7 +140,7 @@ describe("snap targets from the cabinet's parts", () => {
 	it("prefers a corner over a nearer midpoint, the way OSNAP ranks", () => {
 		const layout = layoutWith("base-cabinet");
 		const [position] = allPositions(layout);
-		const bounds = cabinetBoundsMm(position, layout);
+		const bounds = cabinetBoundsMm(position, layout, engine);
 
 		// Sit close to the bottom edge's midpoint but still inside the aperture of
 		// the corner it runs to; the corner has to win regardless.
@@ -142,6 +149,7 @@ describe("snap targets from the cabinet's parts", () => {
 			{ x: corner.x + 30, y: corner.y, z: corner.z },
 			position,
 			layout,
+			engine,
 			60,
 		);
 
@@ -166,6 +174,7 @@ describe("snap targets from the cabinet's parts", () => {
 			{ x: front.x + 4, y: front.y + 4, z: front.z },
 			position,
 			dressed,
+			engine,
 		);
 
 		expect(snapped.role).toBe("doorLeaf");
@@ -175,11 +184,15 @@ describe("snap targets from the cabinet's parts", () => {
 	it("widening the aperture snaps where a narrow one does not", () => {
 		const layout = layoutWith("base-cabinet");
 		const [position] = allPositions(layout);
-		const [corner] = cabinetCornersMm(position, layout);
+		const [corner] = cabinetCornersMm(position, layout, engine);
 		const hit = { x: corner.x + 25, y: corner.y + 25, z: corner.z };
 
-		expect(snapToCabinet(hit, position, layout, 5).kind).toBe("surface");
-		expect(snapToCabinet(hit, position, layout, 80).kind).toBe("corner");
+		expect(snapToCabinet(hit, position, layout, engine, 5).kind).toBe(
+			"surface",
+		);
+		expect(snapToCabinet(hit, position, layout, engine, 80).kind).toBe(
+			"corner",
+		);
 	});
 });
 
@@ -258,7 +271,7 @@ describe("snapping to a drafted cabinet", () => {
 		position: ReturnType<typeof allPositions>[number],
 		layout: ReturnType<typeof emptyLayout>,
 	) => {
-		const b = cabinetBoundsMm(position, layout);
+		const b = cabinetBoundsMm(position, layout, engine);
 		return {
 			x: (b.minX + b.maxX) / 2,
 			y: b.minY,
@@ -283,6 +296,7 @@ describe("snapping to a drafted cabinet", () => {
 			{ x: target.x + 6, y: target.y + 4, z: target.z - 3 },
 			position,
 			layout,
+			engine,
 			40,
 			design,
 		);
@@ -311,7 +325,7 @@ describe("snapping to a drafted cabinet", () => {
 
 		// null and [] both mean "no mesh drawn", and must behave identically.
 		for (const design of [null, [] as DesignPartBox[]]) {
-			const snapped = snapToCabinet(hit, position, layout, 60, design);
+			const snapped = snapToCabinet(hit, position, layout, engine, 60, design);
 			expect(snapped.kind).toBe("corner");
 			expect(snapped.point.y).toBeCloseTo(y);
 		}

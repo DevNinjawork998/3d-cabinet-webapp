@@ -1,18 +1,33 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	CEILING_LIMITS,
-	FAMILIES,
-	family,
+	familyIn,
+	PLANNER_CATALOGUE,
 	ROOM_DEPTH_LIMITS,
-	ROOM_TYPES,
 	WALL_HANG_LIMITS,
 } from "../catalogue";
 import {
+	emptyLayout,
+	type PlannerLayout,
+	plannerEngine,
+	type Row,
+	rowFor,
+	SNAP_MM,
+	setDoor,
+	setDoors,
+	setHinge,
+	WALL_LIMITS,
+} from "../layout";
+import { standOf } from "../parts";
+
+/** The seed is the right catalogue for engine tests: they assert placement
+ * rules, not a publish. Destructured so the assertions below read exactly as
+ * they did when these were module functions. */
+const {
 	addModule,
 	closeGaps,
 	dropModule,
 	duplicateModule,
-	emptyLayout,
 	endPanels,
 	firstFreeXMm,
 	fits,
@@ -25,18 +40,12 @@ import {
 	occupiedSpans,
 	overhangingIds,
 	overhangMm,
-	type PlannerLayout,
 	positionsOf,
-	type Row,
 	removeModule,
 	removeModules,
-	rowFor,
 	runExtentMm,
-	SNAP_MM,
 	setBaseSkirting,
 	setCeilingHeight,
-	setDoor,
-	setDoors,
 	setHangingHeight,
 	setRoomDepth,
 	setWallToCeiling,
@@ -45,10 +54,8 @@ import {
 	setWidth,
 	skirtingSpans,
 	starterFor,
-	WALL_LIMITS,
 	widthOptionsFor,
-} from "../layout";
-import { standOf } from "../parts";
+} = plannerEngine(PLANNER_CATALOGUE);
 
 const WALL_MM = 4000;
 
@@ -292,7 +299,7 @@ describe("tall units", () => {
 		let next = addModule(layout, "tall-cabinet", 0, "tall", 600);
 		next = addModule(next, "wall-cabinet", 600, "hung", 900);
 
-		const wider = family("tall-cabinet")?.sizes.find(
+		const wider = familyIn(PLANNER_CATALOGUE, "tall-cabinet")?.sizes.find(
 			(size) => size.widthMm > 600,
 		)?.widthMm;
 		if (wider === undefined) throw new Error("tall ladder has no wider rung");
@@ -309,7 +316,7 @@ describe("tall units", () => {
 		let next = addModule(layout, "tall-cabinet", 0, "tall", 600);
 		next = addModule(next, "wall-cabinet", 2000, "hung", 900);
 
-		const wider = family("tall-cabinet")?.sizes.find(
+		const wider = familyIn(PLANNER_CATALOGUE, "tall-cabinet")?.sizes.find(
 			(size) => size.widthMm > 600,
 		)?.widthMm;
 		if (wider === undefined) throw new Error("tall ladder has no wider rung");
@@ -408,6 +415,7 @@ describe("duplicateModule", () => {
 	it("copies family, size and door, and leaves the original where it was", () => {
 		let next = addModule(layout, "base-cabinet", 0, "a", 900);
 		next = setDoor(next, "a", "shaker");
+		next = setHinge(next, "a", "right");
 
 		const dup = duplicateModule(next, "a", "a2");
 		expect(at(dup, "a")).toBe(0);
@@ -415,6 +423,7 @@ describe("duplicateModule", () => {
 		expect(copy?.family.id).toBe("base-cabinet");
 		expect(copy?.widthMm).toBe(900);
 		expect(copy?.placed.doorStyleId).toBe("shaker");
+		expect(copy?.placed.hinge).toBe("right");
 		expect(copy?.xMm).toBeGreaterThanOrEqual(900);
 	});
 
@@ -841,6 +850,44 @@ describe("sizing a placed cabinet", () => {
 		// Every option carries its own price for the dropdown to show.
 		for (const option of options) expect(option.priceRm).toBeGreaterThan(0);
 	});
+
+	it("prices rungs from the catalogue the engine was built with, not the seed", () => {
+		const customCatalogue: typeof PLANNER_CATALOGUE = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.map((f) =>
+				f.id === "base-cabinet"
+					? {
+							...f,
+							sizes: f.sizes.map((size) => ({
+								...size,
+								priceRm: size.priceRm + 10_000,
+							})),
+						}
+					: f,
+			),
+		};
+		const customEngine = plannerEngine(customCatalogue);
+		const next = customEngine.addModule(
+			emptyLayout(WALL_MM),
+			"base-cabinet",
+			0,
+			"a",
+			900,
+		);
+
+		const options = customEngine.widthOptionsFor(next, "a");
+		const seedPrice = PLANNER_CATALOGUE.families
+			.find((f) => f.id === "base-cabinet")
+			?.sizes.find((s) => s.widthMm === 900)?.priceRm;
+
+		for (const option of options) {
+			const customPrice = customCatalogue.families
+				.find((f) => f.id === "base-cabinet")
+				?.sizes.find((s) => s.widthMm === option.widthMm)?.priceRm;
+			expect(option.priceRm).toBe(customPrice);
+		}
+		expect(options.find((o) => o.widthMm === 900)?.priceRm).not.toBe(seedPrice);
+	});
 });
 
 describe("doors", () => {
@@ -872,11 +919,27 @@ describe("doors", () => {
 		const after = setDoor(before, "a", "glass");
 		expect(at(after, "a")).toBe(at(before, "a"));
 	});
+
+	it("hangs on the left until the customer says otherwise", () => {
+		expect(one().floor[0].hinge).toBe("left");
+	});
+
+	it("rehangs one cabinet without touching its neighbour", () => {
+		let next = one();
+		next = addModule(next, "base-cabinet", 600, "b", 600);
+		next = setHinge(next, "a", "right");
+		expect(next.floor.map((placed) => placed.hinge)).toEqual(["right", "left"]);
+	});
+
+	it("ignores an id that is not placed", () => {
+		const before = one();
+		expect(setHinge(before, "missing", "right")).toBe(before);
+	});
 });
 
 describe("rooms", () => {
 	it("opens every room on a run that fits its wall", () => {
-		for (const room of ROOM_TYPES) {
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
 			const layout = starterFor(room.id);
 			expect(layout.floor.length + layout.wall.length).toBeGreaterThan(0);
 			expect(overhangMm(layout)).toBe(0);
@@ -885,9 +948,9 @@ describe("rooms", () => {
 	});
 
 	it("only offers families the room actually sells", () => {
-		for (const room of ROOM_TYPES) {
+		for (const room of PLANNER_CATALOGUE.roomTypes) {
 			for (const familyId of room.familyIds) {
-				expect(family(familyId)).toBeDefined();
+				expect(familyIn(PLANNER_CATALOGUE, familyId)).toBeDefined();
 			}
 			for (const item of room.starter) {
 				expect(room.familyIds).toContain(item.familyId);
@@ -898,13 +961,13 @@ describe("rooms", () => {
 
 describe("catalogue integrity", () => {
 	it("gives every family a unique, resolvable id", () => {
-		const ids = FAMILIES.map((f) => f.id);
+		const ids = PLANNER_CATALOGUE.families.map((f) => f.id);
 		expect(new Set(ids).size).toBe(ids.length);
-		for (const id of ids) expect(family(id)?.id).toBe(id);
+		for (const id of ids) expect(familyIn(PLANNER_CATALOGUE, id)?.id).toBe(id);
 	});
 
 	it("gives every family at least one priced size", () => {
-		for (const f of FAMILIES) {
+		for (const f of PLANNER_CATALOGUE.families) {
 			expect(f.sizes.length).toBeGreaterThan(0);
 			for (const size of f.sizes) {
 				expect(size.widthMm).toBeGreaterThan(0);
@@ -917,5 +980,59 @@ describe("catalogue integrity", () => {
 		expect(rowFor("wall")).toBe("wall");
 		expect(rowFor("base")).toBe("floor");
 		expect(rowFor("tall")).toBe("floor");
+	});
+});
+
+describe("the engine is bound to the catalogue it was given", () => {
+	it("places off the catalogue's own size ladder", () => {
+		const narrow = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.map((f) =>
+				f.id === "base-cabinet"
+					? { ...f, sizes: [{ widthMm: 500, priceRm: 1 }] }
+					: f,
+			),
+		};
+		const engine = plannerEngine(narrow);
+		const placed = engine.addModule(emptyLayout(4000), "base-cabinet", 0);
+		expect(placed.floor[0].widthMm).toBe(500);
+	});
+
+	it("refuses a family the catalogue does not carry", () => {
+		const without = {
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.filter(
+				(f) => f.id !== "base-cabinet",
+			),
+		};
+		const engine = plannerEngine(without);
+		expect(engine.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
+		expect(
+			engine.addModule(emptyLayout(4000), "base-cabinet", 0).floor,
+		).toHaveLength(0);
+	});
+
+	it("builds a starter from the catalogue's own room, not the seed's", () => {
+		const short = {
+			...PLANNER_CATALOGUE,
+			roomTypes: PLANNER_CATALOGUE.roomTypes.map((r) =>
+				r.id === "kitchen"
+					? { ...r, starter: [{ familyId: "base-cabinet", widthMm: 600 }] }
+					: r,
+			),
+		};
+		expect(plannerEngine(short).starterFor("kitchen").floor).toHaveLength(1);
+	});
+
+	it("two engines over two catalogues do not see each other", () => {
+		const a = plannerEngine(PLANNER_CATALOGUE);
+		const b = plannerEngine({
+			...PLANNER_CATALOGUE,
+			families: PLANNER_CATALOGUE.families.filter(
+				(f) => f.id !== "base-cabinet",
+			),
+		});
+		expect(a.fits(emptyLayout(4000), "base-cabinet")).toBe(true);
+		expect(b.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
 	});
 });
