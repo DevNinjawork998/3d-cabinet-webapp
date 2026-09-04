@@ -43,7 +43,25 @@ export const CARRIER_STATUS_MAPS: Record<
 		cancelled: "CANCELLED",
 		failed: "FAILED",
 	},
-	lalamove: {},
+	/**
+	 * Lalamove's seven order states. Two things to note:
+	 *
+	 * - They spell it `CANCELED`; we spell it `CANCELLED`. Both keys are here
+	 *   because their own docs and dashboard are not consistent.
+	 * - There is no in-transit state. A Lalamove driver who has collected stays
+	 *   `PICKED_UP` until `COMPLETED`, so a Lalamove job never reaches our
+	 *   `IN_TRANSIT` — which is the truth, not a hole in the table.
+	 */
+	lalamove: {
+		assigning_driver: "BOOKED",
+		on_going: "DRIVER_ASSIGNED",
+		picked_up: "PICKED_UP",
+		completed: "DELIVERED",
+		canceled: "CANCELLED",
+		cancelled: "CANCELLED",
+		rejected: "FAILED",
+		expired: "FAILED",
+	},
 	gdex: {},
 	citylink: {},
 	easyparcel: {},

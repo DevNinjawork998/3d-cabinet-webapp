@@ -26,7 +26,7 @@ describe("mapCarrierStatus", () => {
 	});
 
 	it("returns null for a carrier with no table yet", () => {
-		expect(mapCarrierStatus("lalamove", "COMPLETED")).toBeNull();
+		expect(mapCarrierStatus("gdex", "COMPLETED")).toBeNull();
 	});
 
 	it("returns null for a carrier that does not exist", () => {
@@ -57,5 +57,25 @@ describe("isForwardTransition", () => {
 		expect(isForwardTransition("DELIVERED", "IN_TRANSIT")).toBe(false);
 		expect(isForwardTransition("CANCELLED", "DELIVERED")).toBe(false);
 		expect(isForwardTransition("FAILED", "DELIVERED")).toBe(false);
+	});
+});
+
+describe("lalamove statuses", () => {
+	it("maps every order state Lalamove sends", () => {
+		expect(mapCarrierStatus("lalamove", "ASSIGNING_DRIVER")).toBe("BOOKED");
+		expect(mapCarrierStatus("lalamove", "ON_GOING")).toBe("DRIVER_ASSIGNED");
+		expect(mapCarrierStatus("lalamove", "PICKED_UP")).toBe("PICKED_UP");
+		expect(mapCarrierStatus("lalamove", "COMPLETED")).toBe("DELIVERED");
+		expect(mapCarrierStatus("lalamove", "CANCELED")).toBe("CANCELLED");
+		expect(mapCarrierStatus("lalamove", "REJECTED")).toBe("FAILED");
+		expect(mapCarrierStatus("lalamove", "EXPIRED")).toBe("FAILED");
+	});
+
+	it("maps our own spelling of cancelled too", () => {
+		expect(mapCarrierStatus("lalamove", "CANCELLED")).toBe("CANCELLED");
+	});
+
+	it("returns null for a state nobody has seen", () => {
+		expect(mapCarrierStatus("lalamove", "TELEPORTED")).toBeNull();
 	});
 });
