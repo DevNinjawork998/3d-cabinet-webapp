@@ -1,9 +1,20 @@
 import "server-only";
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 import { WORKSHOP_PHONE } from "../carriers";
+import { carrierFetch } from "../http";
 import { suggestVehicle, type VehicleClass } from "../measure";
 import { toE164 } from "../phone";
-import type { DeliveryJob } from "../types";
+import { mapCarrierStatus } from "../status";
+import {
+	type CarrierAdapter,
+	type CarrierBooking,
+	CarrierNotConfigured,
+	type CarrierQuote,
+	type CarrierWebhookEvent,
+	type DeliveryJob,
+	type TrackingUpdate,
+} from "../types";
 
 /**
  * Lalamove — the vehicle partner, and the only one that says where the driver is.
@@ -211,3 +222,243 @@ export function unpackQuoteRef(ref: string | undefined) {
 		recipientStopId: parts[2],
 	};
 }
+
+const KEY = () => process.env.LALAMOVE_API_KEY ?? "";
+const SECRET = () => process.env.LALAMOVE_API_SECRET ?? "";
+
+/**
+ * Sandbox or production, decided by the key rather than a second variable.
+ *
+ * Lalamove prefixes test keys `pk_test`, and a separate LALAMOVE_BASE_URL
+ * would only ever be a way to point a production key at sandbox by accident.
+ */
+function baseUrl(): string {
+	return KEY().startsWith("pk_test")
+		? "https://rest.sandbox.lalamove.com"
+		: "https://rest.lalamove.com";
+}
+
+/** The signed call. `path` is the part after the host, and is what gets signed. */
+async function call<T>(
+	method: "GET" | "POST" | "DELETE",
+	path: string,
+	body?: unknown,
+	idempotent = false,
+): Promise<T> {
+	const key = KEY();
+	const secret = SECRET();
+	if (key === "" || secret === "") throw new CarrierNotConfigured("lalamove");
+
+	// Serialised once, signed and sent — see `signRequest`.
+	const raw = body === undefined ? "" : JSON.stringify(body);
+	const timestamp = String(Date.now());
+
+	return carrierFetch<T>(`${baseUrl()}${path}`, {
+		carrierId: "lalamove",
+		method,
+		headers: {
+			Authorization: `hmac ${key}:${timestamp}:${signRequest(secret, timestamp, method, path, raw)}`,
+			Market: MARKET,
+			"Request-ID": randomUUID(),
+		},
+		...(body === undefined ? {} : { body: raw }),
+		idempotent,
+	});
+}
+
+const quotationSchema = z.object({
+	data: z.object({
+		quotationId: z.string(),
+		stops: z.array(z.object({ stopId: z.string() })).min(2),
+		priceBreakdown: z.object({ total: z.string(), currency: z.string() }),
+	}),
+});
+
+const orderSchema = z.object({
+	data: z.object({
+		orderId: z.string(),
+		status: z.string(),
+		shareLink: z.string().nullish(),
+		driverId: z.string().nullish(),
+	}),
+});
+
+const driverSchema = z.object({
+	data: z.object({
+		name: z.string().nullish(),
+		phone: z.string().nullish(),
+		plateNumber: z.string().nullish(),
+		coordinates: z
+			.object({ lat: z.string().nullish(), lng: z.string().nullish() })
+			.nullish(),
+	}),
+});
+
+/** `"3.12"` -> `3.12`; anything unreadable -> null rather than NaN. */
+function num(value: string | null | undefined): number | null {
+	if (value === null || value === undefined || value === "") return null;
+	const n = Number(value);
+	return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Lalamove's webhook payload. Only the fields we act on, and every one of them
+ * optional — a new event type must be ignorable, not a 500 that makes them
+ * retry it for hours.
+ */
+const webhookSchema = z.object({
+	apiKey: z.string(),
+	eventType: z.string().nullish(),
+	data: z.object({
+		order: z.object({ orderId: z.string(), status: z.string().nullish() }),
+		driver: z
+			.object({
+				name: z.string().nullish(),
+				phone: z.string().nullish(),
+				plateNumber: z.string().nullish(),
+			})
+			.nullish(),
+	}),
+});
+
+/** Constant-time, and length-safe — `timingSafeEqual` throws on a length mismatch. */
+function secretsMatch(a: string, b: string): boolean {
+	const left = Buffer.from(a);
+	const right = Buffer.from(b);
+	return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export const lalamoveAdapter: CarrierAdapter = {
+	id: "lalamove",
+
+	isConfigured: () => KEY() !== "" && SECRET() !== "",
+
+	async quote(job): Promise<CarrierQuote> {
+		const body = quotationBody(job);
+		const parsed = quotationSchema.parse(
+			await call("POST", "/v3/quotations", body, true),
+		);
+		const { quotationId, stops, priceBreakdown } = parsed.data;
+
+		return {
+			carrierId: "lalamove",
+			priceRm: num(priceBreakdown.total),
+			// Lalamove quotes distance, not time. An ETA only exists once a driver
+			// is matched, and inventing one here would put a number on the
+			// comparison screen that nobody promised.
+			etaMinutes: null,
+			quoteRef: packQuoteRef(quotationId, stops[0].stopId, stops[1].stopId),
+			notes: `${SERVICE_TYPE_LABEL[body.data.serviceType] ?? body.data.serviceType}, ${priceBreakdown.currency}`,
+		};
+	},
+
+	async book(job, quote): Promise<CarrierBooking> {
+		const ref = unpackQuoteRef(quote.quoteRef);
+		if (!ref) {
+			throw new LalamoveNotDeliverable(
+				"This quote is missing its Lalamove reference — compare partners again",
+			);
+		}
+
+		// Not idempotent, and `carrierFetch` will not retry it: a retried order
+		// is a second lorry.
+		const parsed = orderSchema.parse(
+			await call(
+				"POST",
+				"/v3/orders",
+				orderBody(job, ref.quotationId, ref.senderStopId, ref.recipientStopId),
+			),
+		);
+
+		return {
+			carrierOrderId: parsed.data.orderId,
+			trackingUrl: parsed.data.shareLink ?? null,
+		};
+	},
+
+	async track(carrierOrderId): Promise<TrackingUpdate> {
+		const order = orderSchema.parse(
+			await call("GET", `/v3/orders/${carrierOrderId}`, undefined, true),
+		);
+		const update: TrackingUpdate = {
+			status: mapCarrierStatus("lalamove", order.data.status),
+			message: `Lalamove reports ${order.data.status}`,
+			raw: order.data,
+		};
+
+		const driverId = order.data.driverId ?? "";
+		if (driverId === "") return update;
+
+		// A second call, and a failure here must not lose the status from the
+		// first: driver details are available only in a window around the pickup,
+		// so a 403 outside it is normal rather than an incident.
+		try {
+			const driver = driverSchema.parse(
+				await call(
+					"GET",
+					`/v3/orders/${carrierOrderId}/drivers/${driverId}`,
+					undefined,
+					true,
+				),
+			);
+			return {
+				...update,
+				driverName: driver.data.name ?? null,
+				driverPhone: driver.data.phone ?? null,
+				vehiclePlate: driver.data.plateNumber ?? null,
+				latitude: num(driver.data.coordinates?.lat),
+				longitude: num(driver.data.coordinates?.lng),
+				raw: { order: order.data, driver: driver.data },
+			};
+		} catch {
+			return update;
+		}
+	},
+
+	async cancel(carrierOrderId): Promise<void> {
+		// Lalamove refuses once a driver has been matched for more than five
+		// minutes (409 ERR_CANCELLATION_FORBIDDEN). The caller turns that into a
+		// message rather than swallowing it — a job that could not be cancelled
+		// still has a lorry on its way.
+		await call("DELETE", `/v3/orders/${carrierOrderId}`);
+	},
+
+	/**
+	 * Lalamove does not sign its callbacks; the payload carries the `apiKey` the
+	 * order was placed with, and that is the whole identity check available.
+	 *
+	 * ponytail: apiKey equality is thin. The route only ever acts on a
+	 * `carrierOrderId` we already own, which bounds the damage to a forged
+	 * status on a known job. Upgrade path is a secret path segment, which needs
+	 * `verifyWebhook` widened to see the request URL.
+	 */
+	verifyWebhook(rawBody): CarrierWebhookEvent | null {
+		let parsed: z.infer<typeof webhookSchema>;
+		try {
+			parsed = webhookSchema.parse(JSON.parse(rawBody));
+		} catch {
+			return null;
+		}
+
+		if (!secretsMatch(parsed.apiKey, KEY())) return null;
+
+		const status = parsed.data.order.status ?? "";
+		const driver = parsed.data.driver;
+
+		return {
+			carrierOrderId: parsed.data.order.orderId,
+			update: {
+				status: status === "" ? null : mapCarrierStatus("lalamove", status),
+				...(driver
+					? {
+							driverName: driver.name ?? null,
+							driverPhone: driver.phone ?? null,
+							vehiclePlate: driver.plateNumber ?? null,
+						}
+					: {}),
+				message: `Lalamove ${parsed.eventType ?? "webhook"}: ${status || "no status"}`,
+				raw: parsed,
+			},
+		};
+	},
+};
