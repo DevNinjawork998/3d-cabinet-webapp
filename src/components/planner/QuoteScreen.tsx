@@ -11,6 +11,7 @@ import { computePlannerPrice } from "@/lib/planner/pricing";
 import { useCatalogue, useEngine } from "./CatalogueContext";
 import { useCopy, useLocale } from "./CopyContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
+import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
 
 function ScenePlaceholder() {
 	const t = useCopy();
@@ -230,13 +231,13 @@ export function QuoteScreen({
 					<ul className="flex flex-col gap-1 border-neutral-200 border-t pt-3">
 						{price.categories.map((line) => (
 							<li
-								key={line.label}
+								key={line.id}
 								className="flex items-baseline justify-between gap-2 text-[12px]"
 							>
 								<span className="min-w-0 text-neutral-600">
-									{line.label}{" "}
+									{priceLineLabel(t, line)}{" "}
 									<span className="text-[11px] text-neutral-400">
-										{line.detail}
+										{priceLineDetail(t, line)}
 									</span>
 								</span>
 								<span className="shrink-0 tabular-nums">

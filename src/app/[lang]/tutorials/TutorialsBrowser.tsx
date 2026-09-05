@@ -8,7 +8,6 @@ import { fill } from "@/lib/copy/fill";
 import {
 	CATEGORIES,
 	durationLabel,
-	LABEL,
 	LEVELS,
 	type PublicTutorial,
 	posterUrl,
@@ -25,6 +24,19 @@ const MuxPlayer = dynamic(() => import("@mux/mux-player-react"), {
 });
 
 const ALL = "all";
+
+/** `CATEGORIES`/`LEVELS` in `lib/tutorials.ts` carry English admin-form
+ * labels; the public page reads the display copy from the dictionary by id
+ * instead, so it stays trilingual without duplicating the id list. */
+function categoryLabel(t: Dictionary, id: string): string {
+	return (
+		t.tutorials.categories[id as keyof typeof t.tutorials.categories] ?? id
+	);
+}
+
+function levelLabel(t: Dictionary, id: string): string {
+	return t.tutorials.levels[id as keyof typeof t.tutorials.levels] ?? id;
+}
 
 /** The dark plate a card shows before its video exists, or while Mux is still
  * processing it. The page has to look deliberate with no footage at all. */
@@ -69,6 +81,9 @@ export function TutorialsBrowser({
 	const [category, setCategory] = useState<string>(ALL);
 	const [level, setLevel] = useState<string>(ALL);
 	const [activeId, setActiveId] = useState<string | null>(null);
+	// `filtered.map((t) => …)` below shadows the dictionary `t` with the
+	// tutorial item, so the card-badge lookups need their own binding to it.
+	const copyT = t;
 
 	// Esc closes the player — the backdrop click is mouse-only.
 	useEffect(() => {
@@ -105,7 +120,7 @@ export function TutorialsBrowser({
 										: "rounded-full border border-neutral-200 bg-white px-[15px] py-2 text-[13px] text-neutral-600"
 								}
 							>
-								{c.label}
+								{c.id === ALL ? c.label : categoryLabel(t, c.id)}
 							</button>
 						),
 					)}
@@ -123,7 +138,7 @@ export function TutorialsBrowser({
 									: "rounded-full px-3.5 py-1.5 text-[13px] text-neutral-600"
 							}
 						>
-							{l.label}
+							{l.id === ALL ? l.label : levelLabel(t, l.id)}
 						</button>
 					))}
 				</div>
@@ -183,10 +198,10 @@ export function TutorialsBrowser({
 									<div className="flex flex-1 flex-col gap-2 px-4.5 py-4">
 										<div className="flex gap-1.5">
 											<span className="rounded-full bg-neutral-100 px-2.5 py-[3px] font-medium text-[11px] text-neutral-600">
-												{LABEL[t.category] ?? t.category}
+												{categoryLabel(copyT, t.category)}
 											</span>
 											<span className="rounded-full bg-[#f0efe9] px-2.5 py-[3px] font-medium text-[#8a8478] text-[11px]">
-												{LABEL[t.level] ?? t.level}
+												{levelLabel(copyT, t.level)}
 											</span>
 										</div>
 										<h3 className="font-semibold text-[15px] leading-5">

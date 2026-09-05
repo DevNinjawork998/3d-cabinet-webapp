@@ -44,6 +44,7 @@ import { peekDesignMesh } from "./DesignedCabinet";
 import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
+import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
 import { FamilyThumb } from "./thumbs";
 
 function ScenePlaceholder() {
@@ -1206,13 +1207,13 @@ export function StudioScreen({
 						<ul className="flex flex-col gap-1">
 							{price.categories.map((line) => (
 								<li
-									key={line.label}
+									key={line.id}
 									className="flex items-baseline justify-between gap-2 text-[12px]"
 								>
 									<span className="min-w-0 text-neutral-600">
-										{line.label}{" "}
+										{priceLineLabel(t, line)}{" "}
 										<span className="text-[11px] text-neutral-400">
-											{line.detail}
+											{priceLineDetail(t, line)}
 										</span>
 									</span>
 									<span className="shrink-0 tabular-nums">

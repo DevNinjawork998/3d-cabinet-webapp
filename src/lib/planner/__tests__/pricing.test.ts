@@ -79,9 +79,9 @@ describe("per-unit pricing", () => {
 	it("charges nothing for a door until one is chosen", () => {
 		const bare = price(run());
 		expect(bare.cabinets.every((line) => line.doorRm === 0)).toBe(true);
-		expect(
-			bare.categories.find((line) => line.label === "Doors")?.amountRm,
-		).toBe(0);
+		const doors = bare.categories.find((line) => line.id === "doors");
+		expect(doors?.amountRm).toBe(0);
+		expect(doors?.detail).toEqual({ key: "noDoors" });
 	});
 
 	it("adds the door's own price once it is put on", () => {
@@ -107,10 +107,10 @@ describe("per-unit pricing", () => {
 		const result = price(setDoor(run(), "b1", "slab"));
 		const lines = result.cabinets.reduce((sum, l) => sum + l.amountRm, 0);
 		const perCabinet = result.categories.filter(
-			(c) => c.label === "Carcasses" || c.label === "Doors",
+			(c) => c.id === "carcasses" || c.id === "doors",
 		);
 		const byLength = result.categories.filter(
-			(c) => c.label !== "Carcasses" && c.label !== "Doors",
+			(c) => c.id !== "carcasses" && c.id !== "doors",
 		);
 		const sum = (of: typeof result.categories) =>
 			of.reduce((total, c) => total + c.amountRm, 0);
@@ -189,12 +189,12 @@ describe("catalogue is a real parameter, not just an import default", () => {
 		const dear = computePlannerPrice(run(), "white", priced);
 
 		const line = (p: typeof base) =>
-			p.categories.find((c) => c.label === "Worktop");
+			p.categories.find((c) => c.id === "worktop");
 		expect(line(dear)?.amountRm).toBeCloseTo(
 			(line(base)?.amountRm ?? 0) * 2,
 			6,
 		);
-		expect(line(dear)?.detail).toContain(String(RATES.worktopRmPerFt * 2));
+		expect(line(dear)?.detail.vars?.rate).toBe(RATES.worktopRmPerFt * 2);
 	});
 
 	it("charges the catalogue's end-panel rates", () => {
@@ -224,14 +224,14 @@ describe("catalogue is a real parameter, not just an import default", () => {
 		const base = computePlannerPrice(flush, "white", PLANNER_CATALOGUE);
 		const dear = computePlannerPrice(flush, "white", priced);
 
-		const amount = (p: typeof base, label: string) =>
-			p.categories.find((c) => c.label === label)?.amountRm ?? 0;
-		expect(amount(dear, "Skirting")).toBeCloseTo(
-			amount(base, "Skirting") * 3,
+		const amount = (p: typeof base, id: "skirting" | "ceilingTrim") =>
+			p.categories.find((c) => c.id === id)?.amountRm ?? 0;
+		expect(amount(dear, "skirting")).toBeCloseTo(
+			amount(base, "skirting") * 3,
 			6,
 		);
-		expect(amount(dear, "Ceiling trim")).toBeCloseTo(
-			amount(base, "Ceiling trim") * 3,
+		expect(amount(dear, "ceilingTrim")).toBeCloseTo(
+			amount(base, "ceilingTrim") * 3,
 			6,
 		);
 	});
@@ -253,9 +253,7 @@ describe("ceiling trim", () => {
 		const result = price(run());
 		expect(ceilingTrimFt(run(), PLANNER_CATALOGUE)).toBe(0);
 		expect(result.ceilingTrimFt).toBe(0);
-		expect(result.categories.some((c) => c.label === "Ceiling trim")).toBe(
-			false,
-		);
+		expect(result.categories.some((c) => c.id === "ceilingTrim")).toBe(false);
 	});
 
 	it("charges the wall run's length once it goes to the ceiling", () => {
@@ -265,9 +263,9 @@ describe("ceiling trim", () => {
 			900 / MM_PER_FT,
 			6,
 		);
-		expect(
-			price(flushed).categories.some((c) => c.label === "Ceiling trim"),
-		).toBe(true);
+		expect(price(flushed).categories.some((c) => c.id === "ceilingTrim")).toBe(
+			true,
+		);
 	});
 
 	it("costs more than the same run hanging, by the strip and nothing else", () => {
@@ -297,7 +295,7 @@ describe("skirting", () => {
 			1900 / MM_PER_FT,
 			6,
 		);
-		expect(result.categories.some((c) => c.label === "Skirting")).toBe(true);
+		expect(result.categories.some((c) => c.id === "skirting")).toBe(true);
 	});
 
 	it("does not charge across a gap the board is not cut for", () => {
@@ -326,7 +324,7 @@ describe("skirting", () => {
 		const skirted = price(run());
 
 		expect(bare.skirtingFt).toBe(0);
-		expect(bare.categories.some((c) => c.label === "Skirting")).toBe(false);
+		expect(bare.categories.some((c) => c.id === "skirting")).toBe(false);
 		expect(skirted.totalRm - bare.totalRm).toBeCloseTo(
 			skirted.skirtingFt * RATES.skirtingRmPerFt,
 			6,
@@ -336,14 +334,14 @@ describe("skirting", () => {
 	it("charges nothing in a room with only wall units", () => {
 		const wallOnly = addModule(empty(), "wall-cabinet", 0, "w", 900);
 		expect(skirtingFt(wallOnly, PLANNER_CATALOGUE)).toBe(0);
-		expect(price(wallOnly).categories.some((c) => c.label === "Skirting")).toBe(
+		expect(price(wallOnly).categories.some((c) => c.id === "skirting")).toBe(
 			false,
 		);
 	});
 
 	it("adds exactly the board's own cost to the total", () => {
 		const result = price(run());
-		const line = result.categories.find((c) => c.label === "Skirting");
+		const line = result.categories.find((c) => c.id === "skirting");
 		expect(line?.amountRm).toBeCloseTo(
 			result.skirtingFt * RATES.skirtingRmPerFt,
 			6,
@@ -354,12 +352,12 @@ describe("skirting", () => {
 describe("end panels", () => {
 	it("clads every exposed side, and says how many", () => {
 		const result = price(run());
-		const line = result.categories.find((c) => c.label === "End panels");
+		const line = result.categories.find((c) => c.id === "endPanels");
 
 		// The run is base 900 + drawers 400 + tall 600 touching from 0, plus one
 		// wall 900 on its own: 2 outer floor sides + 2 wall sides.
 		expect(result.endPanelCount).toBe(4);
-		expect(line?.detail).toContain("4 panels");
+		expect(line?.detail).toEqual({ key: "endPanelsOther", vars: { count: 4 } });
 	});
 
 	it("prices a tall end above a wall end — a bigger board is a bigger panel", () => {
@@ -386,9 +384,7 @@ describe("end panels", () => {
 		const enclosed = price(setWallToWall(run, true));
 
 		expect(enclosed.endPanelCount).toBe(0);
-		expect(enclosed.categories.some((c) => c.label === "End panels")).toBe(
-			false,
-		);
+		expect(enclosed.categories.some((c) => c.id === "endPanels")).toBe(false);
 	});
 
 	it("costs less enclosed than open, by exactly the two buried ends", () => {

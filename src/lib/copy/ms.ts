@@ -249,6 +249,24 @@ export const ms: Dictionary = {
 			placeholderNote:
 				"Kadar sementara — bukan sebut harga sehingga disahkan oleh Infinite Cabinet.",
 			cta: "Dapatkan sebut harga untuk reka bentuk ini",
+			lines: {
+				carcasses: "Badan kabinet",
+				doors: "Pintu",
+				worktop: "Meja atas",
+				ceilingTrim: "Jalur kemasan siling",
+				skirting: "Papan kaki",
+				endPanels: "Panel hujung",
+			},
+			detail: {
+				unitCountOne: "{count} unit kabinet",
+				unitCountOther: "{count} unit kabinet",
+				noDoors: "belum dipilih",
+				doorCountOne: "{count} pintu",
+				doorCountOther: "{count} pintu",
+				lengthRate: "{ft} kaki @ RM {rate}/kaki",
+				endPanelsOne: "{count} panel pada sisi terdedah",
+				endPanelsOther: "{count} panel pada sisi terdedah",
+			},
 		},
 		unit: "unit kabinet",
 		units: "unit kabinet",
@@ -291,5 +309,17 @@ export const ms: Dictionary = {
 		loadingPlayer: "Memuatkan pemain…",
 		copyright: "© Hak cipta {brand}",
 		backToSite: "Kembali ke laman utama",
+		categories: {
+			base: "Kabinet bawah",
+			wall: "Kabinet atas",
+			wardrobe: "Almari pakaian",
+			drawer: "Laci",
+			island: "Pulau dapur",
+		},
+		levels: {
+			beginner: "Pemula",
+			intermediate: "Pertengahan",
+			advanced: "Lanjutan",
+		},
 	},
 };

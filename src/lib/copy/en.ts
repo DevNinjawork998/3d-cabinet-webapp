@@ -247,6 +247,24 @@ export const en = {
 			placeholderNote:
 				"Placeholder rates — not a quote until Infinite Cabinet confirms.",
 			cta: "Get a quote for this design",
+			lines: {
+				carcasses: "Carcasses",
+				doors: "Doors",
+				worktop: "Worktop",
+				ceilingTrim: "Ceiling trim",
+				skirting: "Skirting",
+				endPanels: "End panels",
+			},
+			detail: {
+				unitCountOne: "{count} unit",
+				unitCountOther: "{count} units",
+				noDoors: "none chosen yet",
+				doorCountOne: "{count} door",
+				doorCountOther: "{count} doors",
+				lengthRate: "{ft} ft @ RM {rate}/ft",
+				endPanelsOne: "{count} panel over exposed sides",
+				endPanelsOther: "{count} panels over exposed sides",
+			},
 		},
 		unit: "unit",
 		units: "units",
@@ -288,6 +306,18 @@ export const en = {
 		loadingPlayer: "Loading player…",
 		copyright: "© {brand}",
 		backToSite: "Back to site",
+		categories: {
+			base: "Base cabinets",
+			wall: "Wall cabinets",
+			wardrobe: "Wardrobes",
+			drawer: "Drawers",
+			island: "Islands",
+		},
+		levels: {
+			beginner: "Beginner",
+			intermediate: "Intermediate",
+			advanced: "Advanced",
+		},
 	},
 } as const;
 

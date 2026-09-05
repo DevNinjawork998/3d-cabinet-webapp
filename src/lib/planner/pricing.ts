@@ -36,19 +36,45 @@ export const MM_PER_FT = 304.8;
  * from the catalogue's `rates.worktopRmPerFt` via `ratesOf`. */
 export const WORKTOP_RM_PER_FT = 200;
 
-type PriceLine = {
-	/** The cabinet this line is for, on per-cabinet lines. */
-	id?: string;
+/** One line per cabinet, carcass and door shown separately. `label` and
+ * `detail` here are not customer-facing copy — nothing in the UI renders
+ * them — so they stay plain English rather than growing the structured
+ * shape the category lines need. */
+type CabinetPriceLine = {
+	id: string;
 	label: string;
 	detail: string;
+	carcassRm: number;
+	doorRm: number;
+	doorLabel: string | null;
+	amountRm: number;
+};
+
+/**
+ * A category line in the price breakdown, e.g. "Carcasses" or "Worktop".
+ *
+ * This engine is framework-free and must not import the copy layer (see
+ * CLAUDE.md), so it emits a stable `id` and a structured `detail` — a
+ * dictionary key plus the values to interpolate into it — rather than an
+ * English string. The UI looks up `id` and `detail.key` in the dictionary
+ * and fills in `detail.vars` itself.
+ */
+export type PriceLineId =
+	| "carcasses"
+	| "doors"
+	| "worktop"
+	| "ceilingTrim"
+	| "skirting"
+	| "endPanels";
+
+export type PriceLine = {
+	id: PriceLineId;
+	detail: { key: string; vars?: Record<string, string | number> };
 	amountRm: number;
 };
 
 type KitchenPrice = {
-	/** One line per cabinet, carcass and door shown separately. */
-	cabinets: Array<
-		PriceLine & { carcassRm: number; doorRm: number; doorLabel: string | null }
-	>;
+	cabinets: CabinetPriceLine[];
 	categories: PriceLine[];
 	worktopFt: number;
 	/** Zero unless the run goes to the ceiling; see `ceilingTrimFt`. */
@@ -191,21 +217,30 @@ export function computePlannerPrice(
 
 	const categories: PriceLine[] = [
 		{
-			label: "Carcasses",
-			detail: `${cabinets.length} ${cabinets.length === 1 ? "unit" : "units"}`,
+			id: "carcasses",
+			detail: {
+				key: cabinets.length === 1 ? "unitCountOne" : "unitCountOther",
+				vars: { count: cabinets.length },
+			},
 			amountRm: carcassTotal,
 		},
 		{
-			label: "Doors",
+			id: "doors",
 			detail:
 				doorCount === 0
-					? "none chosen yet"
-					: `${doorCount} ${doorCount === 1 ? "door" : "doors"}`,
+					? { key: "noDoors" }
+					: {
+							key: doorCount === 1 ? "doorCountOne" : "doorCountOther",
+							vars: { count: doorCount },
+						},
 			amountRm: doorTotal,
 		},
 		{
-			label: "Worktop",
-			detail: `${tops.toFixed(2)} ft @ RM ${rates.worktopRmPerFt}/ft`,
+			id: "worktop",
+			detail: {
+				key: "lengthRate",
+				vars: { ft: tops.toFixed(2), rate: rates.worktopRmPerFt },
+			},
 			amountRm: tops * rates.worktopRmPerFt,
 		},
 	];
@@ -214,24 +249,33 @@ export function computePlannerPrice(
 	// cannot see the reason for.
 	if (trim > 0) {
 		categories.push({
-			label: "Ceiling trim",
-			detail: `${trim.toFixed(2)} ft @ RM ${rates.ceilingTrimRmPerFt}/ft`,
+			id: "ceilingTrim",
+			detail: {
+				key: "lengthRate",
+				vars: { ft: trim.toFixed(2), rate: rates.ceilingTrimRmPerFt },
+			},
 			amountRm: trim * rates.ceilingTrimRmPerFt,
 		});
 	}
 
 	if (skirting > 0) {
 		categories.push({
-			label: "Skirting",
-			detail: `${skirting.toFixed(2)} ft @ RM ${rates.skirtingRmPerFt}/ft`,
+			id: "skirting",
+			detail: {
+				key: "lengthRate",
+				vars: { ft: skirting.toFixed(2), rate: rates.skirtingRmPerFt },
+			},
 			amountRm: skirting * rates.skirtingRmPerFt,
 		});
 	}
 
 	if (panels.count > 0) {
 		categories.push({
-			label: "End panels",
-			detail: `${panels.count} ${panels.count === 1 ? "panel" : "panels"} over exposed sides`,
+			id: "endPanels",
+			detail: {
+				key: panels.count === 1 ? "endPanelsOne" : "endPanelsOther",
+				vars: { count: panels.count },
+			},
 			amountRm: panels.amountRm,
 		});
 	}
