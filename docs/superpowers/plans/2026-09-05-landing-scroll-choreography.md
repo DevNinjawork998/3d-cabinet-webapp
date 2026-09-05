@@ -137,7 +137,10 @@ Create `src/lib/scroll/beats.ts`:
  */
 
 /** The unit interval, defended. */
-export const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+// `+ 0` is not decoration: `trackProgress` computes `-rectTop / runway`, which
+// is `-0` when `rectTop` is 0, and `Object.is(-0, 0)` is false — so a bare
+// pass-through fails `expect(...).toBe(0)` at the very top of a track.
+export const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v + 0);
 
 /**
  * How far through a track the page has scrolled, 0..1.
@@ -177,7 +180,7 @@ export function beatsEnabled(env: {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm vitest run src/lib/scroll`
-Expected: PASS — 10 tests.
+Expected: PASS — 9 tests.
 
 - [ ] **Step 5: Commit**
 
