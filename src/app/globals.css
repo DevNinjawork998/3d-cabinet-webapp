@@ -38,6 +38,16 @@ body {
  * A beat is a slice of it: `clamp(0, (var(--p) - start) / (end - start), 1)`.
  */
 
+[data-track] {
+	height: 100svh;
+}
+
+@media (min-width: 900px) and (prefers-reduced-motion: no-preference) {
+	[data-track] {
+		height: calc(var(--track-viewports, 1) * 100svh);
+	}
+}
+
 [data-beats="on"] {
 	/* Each fallback is chosen so that an unknown `--p` renders the READABLE
 	   state — not a fixed number. It defends the instant before the first

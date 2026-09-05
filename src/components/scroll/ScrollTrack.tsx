@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { beatsEnabled, trackProgress } from "@/lib/scroll/beats";
 
@@ -27,11 +28,9 @@ const MIN_WIDTH_PX = 900;
  */
 export default function ScrollTrack({
 	viewports,
-	className,
 	children,
 }: {
 	viewports: number;
-	className?: string;
 	children: ReactNode;
 }) {
 	const trackRef = useRef<HTMLDivElement>(null);
@@ -72,8 +71,11 @@ export default function ScrollTrack({
 			if (!listening) return;
 			listening = false;
 			removeEventListener("scroll", onScroll);
-			// Hold the last published value so the track keeps its end state,
-			// but hand the compositor layers back.
+			// Removing data-beats stops every rule that reads --p from matching,
+			// so the hero snaps back to its default (start) state, not its end
+			// state. That is only safe today because rootMargin: "100% 0px"
+			// means stop() fires a full viewport off-screen, where the snap is
+			// invisible — tightening that margin would make the snap visible.
 			delete track.dataset.beats;
 		};
 
@@ -128,8 +130,8 @@ export default function ScrollTrack({
 	return (
 		<div
 			ref={trackRef}
-			className={className}
-			style={{ height: `${viewports * 100}svh` }}
+			data-track
+			style={{ "--track-viewports": viewports } as React.CSSProperties}
 		>
 			<div className="sticky top-0 h-svh overflow-hidden">{children}</div>
 		</div>

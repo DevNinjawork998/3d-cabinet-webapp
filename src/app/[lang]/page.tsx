@@ -243,7 +243,7 @@ export default async function Home({
 			    a deliberate dark hero rather than a hole. One upload to the
 			    `hero` slot at /admin/site-content swaps it, no code change. */}
 			<ScrollTrack viewports={1.7}>
-				<section className="relative isolate h-full w-full overflow-hidden">
+				<section className="relative isolate flex h-full w-full items-center overflow-hidden">
 					<div
 						className="absolute inset-0 -z-20 bg-neutral-900"
 						data-beat="hero-photo"
