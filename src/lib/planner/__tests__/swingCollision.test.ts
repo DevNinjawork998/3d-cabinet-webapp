@@ -4,7 +4,7 @@ import { CONSTRUCTION, PLANNER_CATALOGUE } from "../catalogue";
 import { exposedSides } from "../exposure";
 import { type HingeSide, plannerEngine } from "../layout";
 import { cabinetPartsMm } from "../parts";
-import { swingOf } from "../swing";
+import { type BoxMm, swingOf } from "../swing";
 
 const engine = plannerEngine(PLANNER_CATALOGUE);
 
@@ -140,5 +140,61 @@ describe("two open doors never sweep through each other", () => {
 		}
 
 		expect([...new Set(out)]).toEqual([]);
+	});
+});
+
+describe("two leaves on a shared stile touch instead of merging", () => {
+	/**
+	 * The overlap the angle cap cannot reach. Two hinges on one stile sit a
+	 * reveal apart on each side while each leaf's own thickness projects toward
+	 * the other, so the bodies merge by that spacing at every angle. `clearMm`
+	 * slides each leaf out by its own thickness less its own reveal.
+	 */
+	const carcass: BoxMm = {
+		min: { x: -450, y: 0, z: -303.5 },
+		max: { x: 450, y: 880, z: 303.5 },
+	};
+	/** The right leaf of a pair: hinges on the cabinet's right stile. */
+	const rightLeaf: BoxMm = {
+		min: { x: 4, y: 100, z: 303.5 },
+		max: { x: 446, y: 870, z: 321.5 },
+	};
+	/** A lone leaf on the neighbour, hinging on the stile they share. */
+	const leftLeaf: BoxMm = {
+		min: { x: -446, y: 100, z: 303.5 },
+		max: { x: -4, y: 870, z: 321.5 },
+	};
+
+	/** Where a leaf's body sits along the wall at full open, world mm. */
+	const bodyAt = (pivotX: number, spec: ReturnType<typeof swingOf>) => {
+		const t = spec.maxRad;
+		const thickness = 18;
+		const dir = spec.side === "left" ? -1 : 1;
+		const shift = (spec.side === "left" ? 1 : -1) * spec.clearMm;
+		const near = pivotX + shift;
+		const far = near + dir * thickness * Math.sin(t);
+		return [Math.min(near, far), Math.max(near, far)] as const;
+	};
+
+	it("no longer overlap once each has slid clear", () => {
+		const right = swingOf(rightLeaf, carcass, "right", true);
+		const left = swingOf(leftLeaf, carcass, "left", true);
+
+		// Shared stile at x = 2200: one cabinet ends there, the next begins.
+		const a = bodyAt(2200 - 4, right);
+		const b = bodyAt(2200 + 4, left);
+		const overlap = Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
+
+		expect(right.clearMm).toBeCloseTo(14);
+		expect(left.clearMm).toBeCloseTo(14);
+		expect(overlap).toBeLessThanOrEqual(0);
+	});
+
+	it("would overlap by the hinge spacing without the shift", () => {
+		const right = { ...swingOf(rightLeaf, carcass, "right", true), clearMm: 0 };
+		const left = { ...swingOf(leftLeaf, carcass, "left", true), clearMm: 0 };
+		const a = bodyAt(2200 - 4, right);
+		const b = bodyAt(2200 + 4, left);
+		expect(Math.min(a[1], b[1]) - Math.max(a[0], b[0])).toBeCloseTo(8);
 	});
 });

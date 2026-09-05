@@ -67,6 +67,17 @@ export function Hinge({
 	const x = spec.pivotXMm / 1000;
 	const z = spec.pivotZMm / 1000;
 
+	// Sideways, away from the stile it hangs on, as it opens.
+	//
+	// Two leaves hinged on a shared stile sit a reveal apart while each one's
+	// own thickness projects toward the other, so their bodies merge by the
+	// same amount at every angle — the overlap is set by the hinge spacing, not
+	// the swing. `swingOf` measures how far to move off the two boxes; the sign
+	// is the only part that belongs here, because it depends on which way the
+	// leaf turns. Scaled by the sine so it is exactly zero when shut and the
+	// closed run is untouched.
+	const clear = ((spec.side === "left" ? 1 : -1) * spec.clearMm) / 1000;
+
 	// Hinged left, the leaf extends toward +x, and a *negative* rotation about y
 	// is what brings its free edge forward to the customer. Hinged right it
 	// extends toward -x and the sign flips with it.
@@ -85,10 +96,14 @@ export function Hinge({
 		const current = group.rotation.y;
 		if (Math.abs(current - target) < SETTLED_RAD) {
 			// Land exactly on the target once rather than easing at it forever.
-			if (current !== target) group.rotation.y = target;
+			if (current !== target) {
+				group.rotation.y = target;
+				group.position.x = x + clear * Math.abs(Math.sin(target));
+			}
 			return;
 		}
 		group.rotation.y = MathUtils.damp(current, target, 8, delta);
+		group.position.x = x + clear * Math.abs(Math.sin(group.rotation.y));
 	});
 
 	return (

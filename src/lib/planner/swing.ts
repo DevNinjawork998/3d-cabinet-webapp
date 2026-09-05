@@ -59,6 +59,29 @@ export type SwingSpec = {
 	 * the renderer draws it shut and the admin review table shows it instead.
 	 */
 	suspectFlap: boolean;
+	/**
+	 * How far to slide the leaf sideways, away from its hinge side, at full
+	 * open. Zero unless something sits against that stile.
+	 *
+	 * Two hinges on a shared stile sit one reveal apart on each side while each
+	 * leaf's own thickness projects toward the other, so the two bodies merge by
+	 * the same amount at *every* angle — the overlap is set by the hinge
+	 * spacing, not by the swing, and no angle cap can reach it. In a real
+	 * kitchen these two doors simply foul each other, which is why a fitter
+	 * would not hinge them on the same stile.
+	 *
+	 * Measured off the two boxes rather than assembled from `parts.ts`
+	 * constants, for the reason at the top of this file: a drafted cabinet
+	 * carries its own board thickness and its own reveal, and an uploaded
+	 * design with a 16mm front and a 2mm reveal needs a different number than
+	 * the procedural fallback's 18 and 4. Both are read from the geometry, so
+	 * both stay right.
+	 *
+	 * ponytail: still a visual cheat — the one fabricated dimension in the
+	 * scene. Drop it the day the planner warns about the clash and offers to
+	 * flip a hinge, which fixes the real cabinet rather than the picture.
+	 */
+	clearMm: number;
 };
 
 /**
@@ -143,5 +166,18 @@ export function swingOf(
 			boxedIn ? BOXED_IN_OPEN_RAD : Number.POSITIVE_INFINITY,
 		),
 		suspectFlap: heightMm > 0 && widthMm / heightMm >= FLAP_RATIO,
+		// The leaf's own thickness, less the reveal already between its hinge
+		// stile and the carcass edge — that reveal is half the clearance the two
+		// leaves need, and it is there whether or not anyone asked for it.
+		clearMm: boxedIn
+			? Math.max(
+					0,
+					leaf.max.z -
+						leaf.min.z -
+						(side === "left"
+							? leaf.min.x - carcass.min.x
+							: carcass.max.x - leaf.max.x),
+				)
+			: 0,
 	};
 }

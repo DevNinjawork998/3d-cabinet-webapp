@@ -194,3 +194,53 @@ describe("every leaf on one cabinet opens the same amount", () => {
 		expect(sharedMaxRad([])).toBe(OVERLAY_OPEN_RAD);
 	});
 });
+
+describe("a boxed-in leaf slides clear of its neighbour as it opens", () => {
+	it("measures the shift off the design, not off our constants", () => {
+		// The client's own 900mm design: a 16mm front with a 1.8mm reveal, not
+		// the fallback's 18 and 4. An uploaded cabinet has to get its own number
+		// or the cheat is wrong for every design but ours.
+		const thickness = overlayLeaf.max.z - overlayLeaf.min.z;
+		const reveal = overlayLeaf.min.x - carcass.min.x;
+		expect(swingOf(overlayLeaf, carcass, "left", true).clearMm).toBeCloseTo(
+			thickness - reveal,
+		);
+		expect(thickness).toBe(16);
+		expect(reveal).toBeCloseTo(1.8);
+	});
+
+	it("matches the procedural fallback's own thickness and gap", () => {
+		const depth = 607;
+		const front = depth / 2;
+		// Exactly what `parts.ts` builds: an 18mm front inset by DOOR_GAP_MM.
+		const leaf: BoxMm = {
+			min: { x: -300 + 4, y: 100, z: front },
+			max: { x: 300 - 4, y: 880, z: front + 18 },
+		};
+		const box: BoxMm = {
+			min: { x: -300, y: 0, z: -front },
+			max: { x: 300, y: 880, z: front },
+		};
+		expect(swingOf(leaf, box, "left", true).clearMm).toBeCloseTo(18 - 4);
+		expect(swingOf(leaf, box, "right", true).clearMm).toBeCloseTo(18 - 4);
+	});
+
+	it("asks for nothing when there is no neighbour to clear", () => {
+		expect(swingOf(overlayLeaf, carcass, "left", false).clearMm).toBe(0);
+		expect(swingOf(overlayLeaf, carcass, "right", false).clearMm).toBe(0);
+	});
+
+	it("reads the reveal on whichever stile the leaf hangs on", () => {
+		expect(swingOf(overlayLeaf, carcass, "left", true).clearMm).toBeCloseTo(
+			16 - (overlayLeaf.min.x - carcass.min.x),
+		);
+	});
+
+	it("asks for nothing when the hinge stile is nowhere near the carcass edge", () => {
+		// This is the left leaf of a pair, so its *right* stile is the middle of
+		// the cabinet with 451mm of carcass beyond it. Nothing can be fouled
+		// there, and a negative shift would drag the leaf the wrong way.
+		expect(carcass.max.x - overlayLeaf.max.x).toBeGreaterThan(400);
+		expect(swingOf(overlayLeaf, carcass, "right", true).clearMm).toBe(0);
+	});
+});
