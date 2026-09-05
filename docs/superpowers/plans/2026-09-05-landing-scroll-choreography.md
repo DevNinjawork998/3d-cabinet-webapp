@@ -45,7 +45,9 @@
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `clamp01(v: number): number`, `trackProgress(rectTop: number, trackHeight: number, viewportHeight: number): number`, `beat(progress: number, start: number, end: number): number`, `beatsEnabled(env: { reducedMotion: boolean; wideEnough: boolean }): boolean`.
+- Produces: `clamp01(v: number): number`, `trackProgress(rectTop: number, trackHeight: number, viewportHeight: number): number`, `beatsEnabled(env: { reducedMotion: boolean; wideEnough: boolean }): boolean`.
+
+Range-slicing a track's progress into individual beats is **not** a function here. The stylesheet does it inline with `clamp(0, calc((var(--p) - start) / (end - start)), 1)`, at the point of use. A TypeScript twin of that arithmetic would have no caller and would drift from the CSS that actually runs.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -53,7 +55,7 @@ Create `src/lib/scroll/__tests__/beats.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { beat, beatsEnabled, clamp01, trackProgress } from "../beats";
+import { beatsEnabled, clamp01, trackProgress } from "../beats";
 
 describe("clamp01", () => {
 	it("passes through the unit interval and clamps outside it", () => {
@@ -89,24 +91,6 @@ describe("trackProgress", () => {
 	it("degenerates safely when the track is not taller than the viewport", () => {
 		expect(trackProgress(10, 800, 800)).toBe(0);
 		expect(trackProgress(-10, 800, 800)).toBe(1);
-	});
-});
-
-describe("beat", () => {
-	it("maps a sub-range of the track onto its own 0..1", () => {
-		expect(beat(0.2, 0.2, 0.6)).toBe(0);
-		expect(beat(0.4, 0.2, 0.6)).toBeCloseTo(0.5);
-		expect(beat(0.6, 0.2, 0.6)).toBe(1);
-	});
-
-	it("clamps outside its range so a beat holds its end state", () => {
-		expect(beat(0.05, 0.2, 0.6)).toBe(0);
-		expect(beat(0.95, 0.2, 0.6)).toBe(1);
-	});
-
-	it("treats an empty range as a switch rather than dividing by zero", () => {
-		expect(beat(0.3, 0.5, 0.5)).toBe(0);
-		expect(beat(0.7, 0.5, 0.5)).toBe(1);
 	});
 });
 
@@ -175,16 +159,6 @@ export function trackProgress(
 }
 
 /**
- * A sub-range of a track's progress, rescaled to its own 0..1 and held at the
- * ends. This is Apple's `{"start": …, "end": …}` keyframe, in fractions of the
- * track rather than in `vh` — one beat of the sequence.
- */
-export function beat(progress: number, start: number, end: number): number {
-	if (end <= start) return progress >= end ? 1 : 0;
-	return clamp01((progress - start) / (end - start));
-}
-
-/**
  * Whether scroll choreography may run at all.
  *
  * Two gates, both refusals rather than degradations. Reduced motion means the
@@ -203,7 +177,7 @@ export function beatsEnabled(env: {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm vitest run src/lib/scroll`
-Expected: PASS — 13 tests.
+Expected: PASS — 10 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -456,6 +430,9 @@ import { useEffect } from "react";
  * Reduced motion is handled in CSS rather than here: the elements still reveal,
  * they just do it without travel. Skipping the observer entirely would leave
  * them armed and hidden.
+ *
+ * Elements already inside the viewport when this mounts are revealed before the
+ * page is armed at all, so nothing the visitor can already see ever animates.
  */
 export default function RevealOnEnter() {
 	useEffect(() => {
@@ -464,7 +441,24 @@ export default function RevealOnEnter() {
 		);
 		if (targets.length === 0) return;
 
+		// Anything already on screen is revealed before the page is armed.
+		// Arming first would hide it for the frame or two before
+		// IntersectionObserver's first asynchronous callback lands — a flash on
+		// exactly the content the visitor was already looking at. Nothing
+		// already visible should animate in.
+		const pending: HTMLElement[] = [];
+		for (const target of targets) {
+			const { top, bottom } = target.getBoundingClientRect();
+			if (top < innerHeight && bottom > 0) target.dataset.revealed = "";
+			else pending.push(target);
+		}
+
 		document.body.dataset.revealArmed = "";
+		if (pending.length === 0) {
+			return () => {
+				delete document.body.dataset.revealArmed;
+			};
+		}
 
 		const observer = new IntersectionObserver(
 			(entries) => {
@@ -478,7 +472,7 @@ export default function RevealOnEnter() {
 			{ rootMargin: "0px 0px -12% 0px" },
 		);
 
-		for (const target of targets) observer.observe(target);
+		for (const target of pending) observer.observe(target);
 
 		return () => {
 			observer.disconnect();
