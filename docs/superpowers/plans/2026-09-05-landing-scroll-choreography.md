@@ -14,7 +14,7 @@
 
 - **No new runtime dependency.** `package.json` has no motion library. This is a public marketing surface whose whole brief is "fast on mid-range Android in Malaysia" (`CLAUDE.md`); framer-motion is ~35 KB gzipped on the LCP path for what `calc()` already does.
 - **The page must be complete without JavaScript.** Every element's default CSS is its final state. Motion is applied only under `[data-beats="on"]`, which only a mounted client island sets. This is the rule the baseline runs all broke.
-- **`prefers-reduced-motion: reduce` → no listener is ever attached.** Not "faster motion", not "shorter distance". The static page is the reduced-motion experience.
+- **`prefers-reduced-motion: reduce` → no listener is ever attached.** Not "faster motion", not "shorter distance". The static page is the reduced-motion experience. This is a **live** guarantee, not a point-in-time one: both media queries are re-evaluated on `change`, so a visitor who turns reduced motion on mid-session gets the static page without reloading.
 - **Narrow viewports get the static page too.** Gate at `min-width: 900px`, matching the reference site's own 992px gate. Phones in Klang Valley are the target device, and they get the composition, not the choreography.
 - **Only `transform`, `opacity` and `filter` are animated.** No layout properties in a scroll path.
 - **`will-change` is set when a track activates and removed when it deactivates.** Never left in a stylesheet permanently.
