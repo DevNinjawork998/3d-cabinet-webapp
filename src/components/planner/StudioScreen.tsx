@@ -3,6 +3,9 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRef, useState } from "react";
+import type { Dictionary } from "@/lib/copy/en";
+import { fill } from "@/lib/copy/fill";
+import { htmlLang } from "@/lib/copy/locales";
 import { splitDoorLeaves } from "@/lib/mesh/renderMesh";
 import {
 	CEILING_LIMITS,
@@ -36,59 +39,65 @@ import {
 import { fitOutOf } from "@/lib/planner/parts";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { useCatalogue, useEngine } from "./CatalogueContext";
+import { useCopy, useLocale } from "./CopyContext";
 import { peekDesignMesh } from "./DesignedCabinet";
 import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { FamilyThumb } from "./thumbs";
 
+function ScenePlaceholder() {
+	const t = useCopy();
+	return (
+		<div className="flex h-full items-center justify-center text-neutral-500 text-sm">
+			{t.planner.canvas.loading}
+		</div>
+	);
+}
+
 const PlannerScene = dynamic(() => import("./PlannerScene"), {
 	ssr: false,
-	loading: () => (
-		<div className="flex h-full items-center justify-center text-neutral-500 text-sm">
-			Loading 3D view…
-		</div>
-	),
+	loading: () => <ScenePlaceholder />,
 });
 
 /** Labels for the view toggle, in the order a fitter reads them. */
-const VIEWS: { id: PlannerView; label: string }[] = [
-	{ id: "3d", label: "3D" },
-	{ id: "elevation", label: "Elevation" },
-	{ id: "plan", label: "Plan" },
+const views = (t: Dictionary): { id: PlannerView; label: string }[] => [
+	{ id: "3d", label: t.planner.view.threeD },
+	{ id: "elevation", label: t.planner.view.elevation },
+	{ id: "plan", label: t.planner.view.plan },
 ];
 
 /** Hung at a set height, or run up to the ceiling. The stored hang height
  *  survives the switch, so this is a mode and not a destructive edit. */
-const WALL_MODES: { toCeiling: boolean; label: string }[] = [
-	{ toCeiling: false, label: "Hanging" },
-	{ toCeiling: true, label: "To ceiling" },
+const wallModes = (t: Dictionary): { toCeiling: boolean; label: string }[] => [
+	{ toCeiling: false, label: t.planner.room.hanging },
+	{ toCeiling: true, label: t.planner.room.toCeiling },
 ];
 
 /** Kick board over the legs, or the levellers left on show. Most people want
  *  the board; a few like the furniture look of the feet. */
-const BASE_MODES: { skirted: boolean; label: string }[] = [
-	{ skirted: true, label: "Skirted" },
-	{ skirted: false, label: "Legs shown" },
+const baseModes = (t: Dictionary): { skirted: boolean; label: string }[] => [
+	{ skirted: true, label: t.planner.room.skirted },
+	{ skirted: false, label: t.planner.room.legsShown },
 ];
 
 /** Built into the alcove, or standing clear of the side walls. */
-const RUN_MODES: { toWall: boolean; label: string }[] = [
-	{ toWall: false, label: "Open ends" },
-	{ toWall: true, label: "To walls" },
+const runModes = (t: Dictionary): { toWall: boolean; label: string }[] => [
+	{ toWall: false, label: t.planner.room.openEnds },
+	{ toWall: true, label: t.planner.room.toWalls },
 ];
 
 /** Doors shut, or swung open so the customer can see the inside they are
  *  buying. View state, never on the layout — see `openIds`. */
-const DOOR_MODES: { open: boolean; label: string }[] = [
-	{ open: false, label: "Doors closed" },
-	{ open: true, label: "Doors open" },
+const doorModes = (t: Dictionary): { open: boolean; label: string }[] => [
+	{ open: false, label: t.planner.room.doorsClosed },
+	{ open: true, label: t.planner.room.doorsOpen },
 ];
 
 /** Which stile a lone door hangs on, named the way a fitter says it. */
-const HINGE_SIDES: { side: HingeSide; label: string }[] = [
-	{ side: "left", label: "Hinge left" },
-	{ side: "right", label: "Hinge right" },
+const hingeSides = (t: Dictionary): { side: HingeSide; label: string }[] => [
+	{ side: "left", label: t.planner.selection.hingeLeft },
+	{ side: "right", label: t.planner.selection.hingeRight },
 ];
 
 /**
@@ -115,12 +124,6 @@ const leavesOn = (position: Positioned, construction: Construction) => {
 		? splitDoorLeaves(door).length
 		: fitOutOf(position.family, position.widthMm, construction).doorLeaves;
 };
-
-const rm = (amount: number) =>
-	amount.toLocaleString("en-MY", {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	});
 
 /** A single W/H/D value, colour-matched to its dashed leg in the 3D overlay
  * (`AXIS_COLOR`) — the pairing a floating in-scene label used to try to make
@@ -179,6 +182,21 @@ export function StudioScreen({
 	onGoToQuoteAction: () => void;
 	onBackToStartAction: () => void;
 }) {
+	const t = useCopy();
+	const locale = useLocale();
+	const rm = (amount: number, opts?: Intl.NumberFormatOptions) =>
+		new Intl.NumberFormat(htmlLang(locale), {
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2,
+			...opts,
+		}).format(amount);
+	const formatRm = (amount: number, opts?: Intl.NumberFormatOptions) =>
+		new Intl.NumberFormat(htmlLang(locale), {
+			style: "currency",
+			currency: "MYR",
+			currencyDisplay: "narrowSymbol",
+			...opts,
+		}).format(amount);
 	const catalogue = useCatalogue();
 	const {
 		addModule,
@@ -264,10 +282,9 @@ export function StudioScreen({
 	// for them rather than chosen, so the total moving without explanation is
 	// the thing to avoid.
 	const coverPieces = [
-		price.ceilingTrimFt > 0 && "a trim strip capping the run at the ceiling",
-		price.skirtingFt > 0 && "a skirting board over the legs",
-		price.endPanelCount > 0 &&
-			"a finished panel over each cabinet side left in the open",
+		price.ceilingTrimFt > 0 && t.planner.price.trimStrip,
+		price.skirtingFt > 0 && t.planner.price.skirtingBoard,
+		price.endPanelCount > 0 && t.planner.price.endPanels,
 	].filter((piece): piece is string => typeof piece === "string");
 
 	const gapCount = (["floor", "wall"] as const).reduce(
@@ -302,16 +319,16 @@ export function StudioScreen({
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<PlannerHeader
 				trail={[
-					{ label: "Infinite Cabinet", href: "/" },
-					{ label: "Room planner", onClick: onBackToStartAction },
-					{ label: "Studio" },
+					{ label: t.common.brand, href: "/" },
+					{ label: t.planner.crumbs.roomPlanner, onClick: onBackToStartAction },
+					{ label: t.planner.crumbs.studio },
 				]}
 				center={
 					<fieldset
-						aria-label="View"
+						aria-label={t.planner.view.ariaLabel}
 						className="hidden min-w-0 items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5 lg:flex"
 					>
-						{VIEWS.map((option) => (
+						{views(t).map((option) => (
 							<button
 								key={option.id}
 								type="button"
@@ -340,21 +357,23 @@ export function StudioScreen({
 						setOpenIds(new Set());
 					}}
 					aria-pressed={measureMode}
-					title="Click two points on a cabinet — a corner, an edge midpoint, or the surface — to measure between them"
+					title={t.planner.measure.tooltip}
 					className={`rounded-full px-3 py-1 text-[12px] transition ${
 						measureMode
 							? "bg-neutral-900 text-white"
 							: "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
 					}`}
 				>
-					{measureMode ? "Measuring…" : "Measure"}
+					{measureMode
+						? t.planner.measure.measuring
+						: t.planner.measure.measure}
 				</button>
 				<button
 					type="button"
 					onClick={onBackToStartAction}
 					className="text-[13px] text-neutral-500 hover:text-neutral-900"
 				>
-					Change room
+					{t.planner.changeRoom}
 				</button>
 				<Link
 					href="/tutorials"
@@ -371,7 +390,7 @@ export function StudioScreen({
 					>
 						<path d="M6 4l14 8-14 8V4z" />
 					</svg>
-					DIY tutorials
+					{t.planner.diyTutorials}
 				</Link>
 				<AdminLink />
 			</PlannerHeader>
@@ -380,10 +399,10 @@ export function StudioScreen({
 				<aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[268px] lg:border-r lg:border-b-0">
 					<div className="rounded-lg border border-neutral-200 bg-[#f7f6f4] p-3">
 						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							The room
+							{t.planner.room.heading}
 						</p>
 						<p className="mt-0.5 mb-3 text-[12px] text-neutral-500 leading-4">
-							Sets the space every cabinet has to fit in.
+							{t.planner.room.subtitle}
 						</p>
 						<div className="mb-3 flex flex-wrap gap-1">
 							{catalogue.roomTypes.map((option) => (
@@ -405,7 +424,7 @@ export function StudioScreen({
 
 						<div className="flex flex-col gap-2.5">
 							<DimensionField
-								label="Wall length"
+								label={t.planner.room.wallLength}
 								valueMm={layout.wallWidthMm}
 								minMm={minWallMm}
 								maxMm={WALL_LIMITS.maxMm}
@@ -418,13 +437,12 @@ export function StudioScreen({
 							{minWallMm > WALL_LIMITS.minMm &&
 								layout.wallWidthMm === minWallMm && (
 									<p className="-mt-1 text-[11px] text-neutral-500 leading-4">
-										Your {minWallMm}mm run sets the shortest wall it fits on.
-										Remove or resize a cabinet to go narrower.
+										{fill(t.planner.room.narrowWallNote, { min: minWallMm })}
 									</p>
 								)}
 
 							<DimensionField
-								label="Ceiling"
+								label={t.planner.room.ceiling}
 								valueMm={layout.ceilingHeightMm}
 								minMm={CEILING_LIMITS.minMm}
 								maxMm={CEILING_LIMITS.maxMm}
@@ -435,7 +453,7 @@ export function StudioScreen({
 							/>
 
 							<DimensionField
-								label="Room depth"
+								label={t.planner.room.roomDepth}
 								valueMm={layout.roomDepthMm}
 								minMm={ROOM_DEPTH_LIMITS.minMm}
 								maxMm={ROOM_DEPTH_LIMITS.maxMm}
@@ -450,10 +468,10 @@ export function StudioScreen({
 							) && (
 								<div>
 									<fieldset
-										aria-label="Wall units"
+										aria-label={t.planner.room.wallUnitsAria}
 										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
 									>
-										{WALL_MODES.map((option) => (
+										{wallModes(t).map((option) => (
 											<button
 												key={String(option.toCeiling)}
 												type="button"
@@ -476,14 +494,15 @@ export function StudioScreen({
 
 									{layout.wallToCeiling ? (
 										<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-											Undersides at {hangingHeightMmOf(layout)}mm — the tops run
-											to the ceiling, capped by a trim strip.
+											{fill(t.planner.room.undersidesNote, {
+												height: hangingHeightMmOf(layout),
+											})}
 										</p>
 									) : (
 										<>
 											<div className="mt-2.5">
 												<DimensionField
-													label="Wall units hang at"
+													label={t.planner.room.wallUnitsHangAt}
 													valueMm={layout.hangingHeightMm}
 													minMm={WALL_HANG_LIMITS.minMm}
 													maxMm={WALL_HANG_LIMITS.maxMm}
@@ -504,11 +523,11 @@ export function StudioScreen({
 												title={
 													placed.some((p) => p.family.kind === "tall")
 														? undefined
-														: "Add a tall cabinet or fridge housing first"
+														: t.planner.room.addTallFirst
 												}
 												className="mt-2 rounded-full border border-neutral-300 px-3 py-1 text-[11px] transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
 											>
-												Flush wall-unit tops to tall units
+												{t.planner.room.flushWallUnitTops}
 											</button>
 										</>
 									)}
@@ -518,10 +537,10 @@ export function StudioScreen({
 							{placed.some((p) => p.family.kind !== "wall") && (
 								<div>
 									<fieldset
-										aria-label="Base units"
+										aria-label={t.planner.room.baseUnitsAria}
 										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
 									>
-										{BASE_MODES.map((option) => (
+										{baseModes(t).map((option) => (
 											<button
 												key={String(option.skirted)}
 												type="button"
@@ -544,8 +563,8 @@ export function StudioScreen({
 
 									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
 										{layout.baseSkirting
-											? "A kick board runs along the floor, hiding the levellers."
-											: "The adjustable levellers stay on show under the run."}
+											? t.planner.room.kickBoardNote
+											: t.planner.room.levellersNote}
 									</p>
 								</div>
 							)}
@@ -553,10 +572,10 @@ export function StudioScreen({
 							{placed.length > 0 && (
 								<div>
 									<fieldset
-										aria-label="Run"
+										aria-label={t.planner.room.runAria}
 										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
 									>
-										{RUN_MODES.map((option) => (
+										{runModes(t).map((option) => (
 											<button
 												key={String(option.toWall)}
 												type="button"
@@ -579,8 +598,8 @@ export function StudioScreen({
 
 									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
 										{layout.wallToWall
-											? "An end that butts into a side wall needs no finished panel."
-											: "Each open end is finished with a panel over the carcass side."}
+											? t.planner.room.noPanelNeededNote
+											: t.planner.room.panelNeededNote}
 									</p>
 								</div>
 							)}
@@ -588,10 +607,10 @@ export function StudioScreen({
 							{withDoors.length > 0 && (
 								<div>
 									<fieldset
-										aria-label="Doors"
+										aria-label={t.planner.room.doorsAria}
 										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
 									>
-										{DOOR_MODES.map((option) => (
+										{doorModes(t).map((option) => (
 											<button
 												key={String(option.open)}
 												type="button"
@@ -616,8 +635,8 @@ export function StudioScreen({
 
 									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
 										{anyOpen
-											? "Shelves and interiors are on show. Measuring closes them again."
-											: "Open the doors to see the inside of the run."}
+											? t.planner.room.interiorsShownNote
+											: t.planner.room.openDoorsNote}
 									</p>
 								</div>
 							)}
@@ -625,18 +644,17 @@ export function StudioScreen({
 
 						{overhang > 0 && (
 							<p className="mt-2 text-[11px] text-amber-700 leading-4">
-								The run overhangs this wall by {overhang}mm — close the gaps
-								below, or remove a cabinet.
+								{fill(t.planner.room.overhangWarning, { overhang })}
 							</p>
 						)}
 					</div>
 
 					<div>
 						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							Add cabinets
+							{t.planner.addCabinets.heading}
 						</p>
 						<p className="mt-0.5 mb-2.5 text-[12px] text-neutral-500 leading-4">
-							Drag onto the wall. Size and front come after.
+							{t.planner.addCabinets.subtitle}
 						</p>
 						<div className="grid grid-cols-2 gap-2">
 							{room.familyIds.map((familyId) => {
@@ -672,9 +690,13 @@ export function StudioScreen({
 											{option.label}
 										</p>
 										<p className="text-[11px] text-neutral-500">
-											{option.sizes[0].widthMm}–
-											{option.sizes[option.sizes.length - 1].widthMm}mm · from
-											RM {option.sizes[0].priceRm}
+											{fill(t.planner.addCabinets.sizeRange, {
+												min: option.sizes[0].widthMm,
+												max: option.sizes[option.sizes.length - 1].widthMm,
+												price: formatRm(option.sizes[0].priceRm, {
+													maximumFractionDigits: 0,
+												}),
+											})}
 										</p>
 									</button>
 								);
@@ -722,19 +744,24 @@ export function StudioScreen({
 
 					<div className="absolute top-3.5 left-3.5 flex items-center gap-2 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
 						<span className="text-[12px] text-neutral-600">
-							{(floorEnd / 1000).toFixed(2)} m run of{" "}
-							{(layout.wallWidthMm / 1000).toFixed(2)} m wall
+							{fill(t.planner.canvas.runOfWall, {
+								run: (floorEnd / 1000).toFixed(2),
+								wall: (layout.wallWidthMm / 1000).toFixed(2),
+							})}
 						</span>
 						<span className="h-3.5 w-px bg-neutral-200" />
 						<span className="text-[12px] text-neutral-600">
-							{placed.length} {placed.length === 1 ? "unit" : "units"}
+							{placed.length}{" "}
+							{placed.length === 1 ? t.planner.unit : t.planner.units}
 						</span>
 					</div>
 
 					{measureMode && (
 						<div className="absolute top-3.5 right-3.5 flex flex-col items-end gap-1.5 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
 							<fieldset className="flex items-center gap-0.5">
-								<legend className="sr-only">Constrain the measurement</legend>
+								<legend className="sr-only">
+									{t.planner.measure.constrainLabel}
+								</legend>
 								{MEASURE_AXES.map((axis) => (
 									<button
 										key={axis}
@@ -775,8 +802,8 @@ export function StudioScreen({
 								) : (
 									<span className="text-[12px] text-neutral-500">
 										{measurePoints.length === 0
-											? "Click a point to start measuring"
-											: "Click a second point"}
+											? t.planner.measure.clickToStart
+											: t.planner.measure.clickSecondPoint}
 									</span>
 								)}
 								{measurePoints.length > 0 && (
@@ -785,7 +812,7 @@ export function StudioScreen({
 										onClick={() => setMeasurePoints([])}
 										className="text-[12px] text-[#2b6cb0] hover:underline"
 									>
-										Clear
+										{t.planner.clear}
 									</button>
 								)}
 							</div>
@@ -805,8 +832,8 @@ export function StudioScreen({
 
 					<p className="absolute right-3.5 bottom-3.5 hidden max-w-[260px] text-right text-[12px] text-[#8a8580] leading-4 lg:block">
 						{measureMode
-							? "Click two points on a cabinet — a corner, an edge midpoint or the surface. Auto locks the second point to the axis you are measuring along; Free reads all three at once."
-							: "Click a cabinet to change its size or front. Drag it along the wall to move it."}
+							? t.planner.measure.hintMeasuring
+							: t.planner.measure.hintDefault}
 					</p>
 				</div>
 
@@ -815,24 +842,27 @@ export function StudioScreen({
 						{selection.length === 0 ? (
 							<>
 								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									Selected cabinet
+									{t.planner.selection.heading}
 								</p>
 								<p className="mt-1 text-[13px] text-neutral-500">
-									Click a cabinet in the room to size it or change its front.
+									{t.planner.selection.emptyHint}
 								</p>
 							</>
 						) : selected ? (
 							<>
 								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									Selected cabinet
+									{t.planner.selection.heading}
 								</p>
 								<p className="mt-0.5 font-semibold text-[15px]">
-									{selected.family.label} · {selected.widthMm} mm
+									{fill(t.planner.selection.nameWidth, {
+										name: selected.family.label,
+										width: selected.widthMm,
+									})}
 								</p>
 								<div className="mt-3 flex flex-col gap-2.5">
 									<div>
 										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											Width
+											{t.planner.selection.width}
 										</p>
 										<div className="flex flex-wrap gap-1.5">
 											{widthOptionsFor(layout, selected.placed.id).map(
@@ -859,7 +889,7 @@ export function StudioScreen({
 														}`}
 													>
 														{option.widthMm}
-														{!option.fits && " · no room"}
+														{!option.fits && ` · ${t.planner.selection.noRoom}`}
 													</button>
 												),
 											)}
@@ -868,7 +898,7 @@ export function StudioScreen({
 
 									<div>
 										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											Front
+											{t.planner.selection.front}
 										</p>
 										<div className="flex flex-wrap gap-1.5">
 											{catalogue.doorStyles.map((style) => (
@@ -899,7 +929,7 @@ export function StudioScreen({
 													}
 													className="rounded-md px-2.5 py-1 text-[12px] text-neutral-500 underline hover:text-neutral-900"
 												>
-													No door
+													{t.planner.selection.noDoor}
 												</button>
 											)}
 										</div>
@@ -908,7 +938,7 @@ export function StudioScreen({
 									{selected.placed.doorStyleId && (
 										<div>
 											<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-												Swing
+												{t.planner.selection.swing}
 											</p>
 											<div className="flex flex-wrap gap-1.5">
 												<button
@@ -930,15 +960,15 @@ export function StudioScreen({
 													}`}
 												>
 													{openIds.has(selected.placed.id)
-														? "Close door"
-														: "Open door"}
+														? t.planner.selection.closeDoor
+														: t.planner.selection.openDoor}
 												</button>
 
 												{/* Only a lone leaf gets a choice: a pair always hinges
 											    outward from the middle, which is the only way a pair
 											    is hung. */}
 												{leavesOn(selected, construction) === 1 &&
-													HINGE_SIDES.map((option) => (
+													hingeSides(t).map((option) => (
 														<button
 															key={option.side}
 															type="button"
@@ -968,10 +998,10 @@ export function StudioScreen({
 									)}
 									<div className="flex items-center justify-between">
 										<span className="tabular-nums text-[13px]">
-											RM{" "}
-											{rm(
+											{formatRm(
 												price.cabinets.find((l) => l.id === selected.placed.id)
 													?.amountRm ?? 0,
+												{ minimumFractionDigits: 2, maximumFractionDigits: 2 },
 											)}
 										</span>
 										<span className="flex gap-3">
@@ -984,14 +1014,14 @@ export function StudioScreen({
 												}
 												className="text-[12px] text-neutral-500 underline hover:text-neutral-900"
 											>
-												Duplicate
+												{t.planner.selection.duplicate}
 											</button>
 											<button
 												type="button"
 												onClick={removeSelected}
 												className="text-[12px] text-[#b45309] underline hover:text-[#92400e]"
 											>
-												Remove
+												{t.planner.selection.remove}
 											</button>
 										</span>
 									</div>
@@ -1000,12 +1030,12 @@ export function StudioScreen({
 						) : (
 							<>
 								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									{selection.length} cabinets selected
+									{fill(t.planner.selection.nSelected, { n: selection.length })}
 								</p>
 								<div className="mt-3 flex flex-col gap-2.5">
 									<div>
 										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											Front
+											{t.planner.selection.front}
 										</p>
 										<div className="flex flex-wrap gap-1.5">
 											{catalogue.doorStyles.map((style) => (
@@ -1031,7 +1061,7 @@ export function StudioScreen({
 												}
 												className="rounded-md px-2.5 py-1 text-[12px] text-neutral-500 underline hover:text-neutral-900"
 											>
-												No door
+												{t.planner.selection.noDoor}
 											</button>
 										</div>
 									</div>
@@ -1042,14 +1072,16 @@ export function StudioScreen({
 											onClick={removeSelected}
 											className="rounded-full bg-neutral-900 px-3 py-1 text-[12px] text-white"
 										>
-											Remove all {selection.length}
+											{fill(t.planner.selection.removeAll, {
+												n: selection.length,
+											})}
 										</button>
 										<button
 											type="button"
 											onClick={() => setSelectedIdsAction([])}
 											className="text-[12px] text-neutral-500 hover:text-neutral-900"
 										>
-											Clear
+											{t.planner.clear}
 										</button>
 									</div>
 								</div>
@@ -1059,7 +1091,7 @@ export function StudioScreen({
 
 					<div className="border-neutral-200 border-b p-3.5">
 						<p className="mb-2 font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							Front finish · whole run
+							{t.planner.finish.heading}
 						</p>
 						<div className="flex gap-1.5">
 							{catalogue.finishes.map((option) => (
@@ -1083,16 +1115,20 @@ export function StudioScreen({
 							))}
 						</div>
 						<p className="mt-2 text-[12px] text-neutral-500">
-							{catalogue.finishes.find((f) => f.id === finish)?.label} · one
-							colour for the whole room
+							{fill(t.planner.finish.currentLabel, {
+								label:
+									catalogue.finishes.find((f) => f.id === finish)?.label ?? "",
+							})}
 						</p>
 					</div>
 
 					<div className="flex-1 overflow-y-auto p-3.5">
 						<div className="mb-2 flex items-baseline justify-between gap-2">
 							<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-								Your run · {placed.length}{" "}
-								{placed.length === 1 ? "unit" : "units"}
+								{fill(t.planner.run.heading, {
+									count: placed.length,
+									unit: placed.length === 1 ? t.planner.unit : t.planner.units,
+								})}
 							</p>
 							<button
 								type="button"
@@ -1100,7 +1136,9 @@ export function StudioScreen({
 								disabled={gapCount === 0}
 								className="text-[11px] text-neutral-500 hover:text-neutral-900 disabled:opacity-40"
 							>
-								Close gaps{gapCount > 0 && ` (${gapCount})`}
+								{gapCount > 0
+									? fill(t.planner.run.closeGapsCount, { n: gapCount })
+									: t.planner.run.closeGaps}
 							</button>
 						</div>
 						<div className="flex flex-col">
@@ -1119,7 +1157,9 @@ export function StudioScreen({
 										<input
 											type="checkbox"
 											checked={isSelected}
-											aria-label={`Select ${position.family.label}`}
+											aria-label={fill(t.planner.run.selectAria, {
+												name: position.family.label,
+											})}
 											onChange={() => select(position.placed.id, true)}
 										/>
 										<button
@@ -1134,7 +1174,8 @@ export function StudioScreen({
 										>
 											{position.family.label} {position.widthMm}{" "}
 											<span className="text-[11px] text-neutral-400">
-												{position.placed.doorStyleId ?? "no door"}
+												{position.placed.doorStyleId ??
+													t.planner.run.noDoorInline}
 											</span>
 										</button>
 										<span className="tabular-nums text-[13px] text-neutral-600">
@@ -1146,7 +1187,7 @@ export function StudioScreen({
 						</div>
 						{placed.length === 0 && (
 							<p className="text-[12px] text-neutral-500">
-								Nothing placed yet — drag a carcass onto the wall.
+								{t.planner.run.emptyHint}
 							</p>
 						)}
 						<button
@@ -1157,7 +1198,7 @@ export function StudioScreen({
 							}}
 							className="mt-2 text-[11px] text-neutral-500 underline hover:text-neutral-900"
 						>
-							Reset this room
+							{t.planner.run.reset}
 						</button>
 					</div>
 
@@ -1183,27 +1224,26 @@ export function StudioScreen({
 
 						{coverPieces.length > 0 && (
 							<p className="text-[11px] text-neutral-500 leading-4">
-								{coverPieces.join(" and ")}{" "}
-								{coverPieces.length === 1 ? "is" : "are"} included above.
+								{coverPieces.join(` ${t.planner.price.and} `)}{" "}
+								{coverPieces.length === 1
+									? t.planner.price.includedAboveSingular
+									: t.planner.price.includedAbovePlural}
 							</p>
 						)}
 
 						<div className="flex items-baseline justify-between border-neutral-200 border-t pt-2.5">
 							<span className="text-[13px] text-neutral-500">
-								Estimated total
+								{t.planner.price.estimatedTotal}
 							</span>
 							<span className="font-semibold text-xl">
-								RM{" "}
-								{price.totalRm.toLocaleString("en-MY", {
-									maximumFractionDigits: 0,
-								})}
+								{formatRm(price.totalRm, { maximumFractionDigits: 0 })}
 							</span>
 						</div>
 						<p className="flex items-center gap-1.5 text-[#b45309] text-[11px] leading-4">
 							<span className="rounded border border-[#b45309] px-1 py-0.5 font-semibold">
-								ESTIMATE
+								{t.planner.price.estimateBadge}
 							</span>{" "}
-							Placeholder rates — not a quote until Infinite Cabinet confirms.
+							{t.planner.price.placeholderNote}
 						</p>
 						<button
 							type="button"
@@ -1211,7 +1251,7 @@ export function StudioScreen({
 							disabled={placed.length === 0}
 							className="rounded-lg bg-neutral-900 px-3 py-2.5 font-medium text-[14px] text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
 						>
-							Get a quote for this design
+							{t.planner.price.cta}
 						</button>
 					</div>
 				</aside>

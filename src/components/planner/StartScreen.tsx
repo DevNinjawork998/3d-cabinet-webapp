@@ -1,6 +1,9 @@
+import { fill } from "@/lib/copy/fill";
+import { htmlLang } from "@/lib/copy/locales";
 import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { useCatalogue, useEngine } from "./CatalogueContext";
+import { useCopy, useLocale } from "./CopyContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 
 /**
@@ -130,13 +133,6 @@ const ROOM_ICON_PATHS: Record<RoomTypeId, React.ReactNode> = {
 	),
 };
 
-const ROOM_SUBTITLE: Record<RoomTypeId, string> = {
-	kitchen: "Real Infinite Cabinet sizes",
-	living: "TV ledge & display units",
-	bedroom: "Wardrobes",
-	foyer: "Shoe cabinets & bench",
-};
-
 export function StartScreen({
 	roomId,
 	onPickRoom,
@@ -150,23 +146,38 @@ export function StartScreen({
 	onPickPreset: (preset: StartPreset) => void;
 	onStart: () => void;
 }) {
+	const t = useCopy();
+	const locale = useLocale();
 	const catalogue = useCatalogue();
 	const { starterFor } = useEngine();
 	const room =
 		catalogue.roomTypes.find((r) => r.id === roomId) ?? catalogue.roomTypes[0];
 	const starter = starterFor(roomId);
 	const starterPrice = computePlannerPrice(starter, "strata-noir", catalogue);
+	const formatRm = (amount: number, opts?: Intl.NumberFormatOptions) =>
+		new Intl.NumberFormat(htmlLang(locale), {
+			style: "currency",
+			currency: "MYR",
+			currencyDisplay: "narrowSymbol",
+			...opts,
+		}).format(amount);
+	const ROOM_SUBTITLE: Record<RoomTypeId, string> = {
+		kitchen: t.planner.start.roomSubtitle.kitchen,
+		living: t.planner.start.roomSubtitle.living,
+		bedroom: t.planner.start.roomSubtitle.bedroom,
+		foyer: t.planner.start.roomSubtitle.foyer,
+	};
 
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<PlannerHeader
 				trail={[
-					{ label: "Infinite Cabinet", href: "/" },
-					{ label: "Room planner" },
+					{ label: t.common.brand, href: "/" },
+					{ label: t.planner.crumbs.roomPlanner },
 				]}
 			>
 				<span className="text-[13px] text-neutral-500">
-					Free to try · no account needed
+					{t.landing.hero.eyebrow}
 				</span>
 				<AdminLink />
 			</PlannerHeader>
@@ -174,11 +185,10 @@ export function StartScreen({
 			<div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-y-auto px-6 py-10">
 				<div className="max-w-lg text-center">
 					<h1 className="mb-2 font-semibold text-2xl">
-						What room are you planning?
+						{t.planner.start.heading}
 					</h1>
 					<p className="text-neutral-500 text-sm leading-5">
-						Pick one to start from real Infinite Cabinet sizes and a layout
-						already on your wall.
+						{t.planner.start.subtitle}
 					</p>
 				</div>
 
@@ -201,9 +211,15 @@ export function StartScreen({
 										viewBox="0 0 100 50"
 										className={`h-14 w-full ${active ? "text-neutral-600" : "text-neutral-400"}`}
 										role="img"
-										aria-label={`${option.label} icon`}
+										aria-label={fill(t.planner.start.roomIconAlt, {
+											room: option.label,
+										})}
 									>
-										<title>{`${option.label} icon`}</title>
+										<title>
+											{fill(t.planner.start.roomIconAlt, {
+												room: option.label,
+											})}
+										</title>
 										{ROOM_ICON_PATHS[option.id]}
 									</svg>
 								</div>
@@ -218,8 +234,9 @@ export function StartScreen({
 
 				<div className="w-full max-w-3xl">
 					<p className="mb-2.5 font-medium text-neutral-600 text-sm">
-						Then, a starting layout for a{" "}
-						{(room.defaultWallWidthMm / 1000).toFixed(1)} m wall
+						{fill(t.planner.start.thenLayout, {
+							width: (room.defaultWallWidthMm / 1000).toFixed(1),
+						})}
 					</p>
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 						<button
@@ -244,11 +261,13 @@ export function StartScreen({
 								))}
 							</div>
 							<div className="px-3 py-2.5">
-								<p className="font-medium text-sm">Full run</p>
+								<p className="font-medium text-sm">{t.planner.start.fullRun}</p>
 								<p className="mt-0.5 text-neutral-500 text-xs">
-									{starter.floor.length + starter.wall.length} units · from RM{" "}
-									{starterPrice.totalRm.toLocaleString("en-MY", {
-										maximumFractionDigits: 0,
+									{fill(t.planner.start.unitsFromPrice, {
+										count: starter.floor.length + starter.wall.length,
+										price: formatRm(starterPrice.totalRm, {
+											maximumFractionDigits: 0,
+										}),
 									})}
 								</p>
 							</div>
@@ -263,12 +282,16 @@ export function StartScreen({
 							}`}
 						>
 							<div className="flex h-[100px] items-center justify-center bg-[#f4f2ee]">
-								<span className="text-neutral-400 text-xs">Start blank</span>
+								<span className="text-neutral-400 text-xs">
+									{t.planner.start.startBlank}
+								</span>
 							</div>
 							<div className="px-3 py-2.5">
-								<p className="font-medium text-sm">Blank wall</p>
+								<p className="font-medium text-sm">
+									{t.planner.start.blankWall}
+								</p>
 								<p className="mt-0.5 text-neutral-500 text-xs">
-									Build it yourself
+									{t.planner.start.buildItYourself}
 								</p>
 							</div>
 						</button>
@@ -280,7 +303,7 @@ export function StartScreen({
 					onClick={onStart}
 					className="rounded-lg bg-neutral-900 px-7 py-3 font-medium text-sm text-white transition hover:bg-neutral-800"
 				>
-					Start planning
+					{t.planner.start.cta}
 				</button>
 			</div>
 		</main>

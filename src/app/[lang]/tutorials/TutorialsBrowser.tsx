@@ -2,7 +2,9 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import type { Dictionary } from "@/lib/copy/en";
+import { fill } from "@/lib/copy/fill";
 import {
 	CATEGORIES,
 	durationLabel,
@@ -20,11 +22,6 @@ import {
  */
 const MuxPlayer = dynamic(() => import("@mux/mux-player-react"), {
 	ssr: false,
-	loading: () => (
-		<div className="flex h-full items-center justify-center bg-neutral-900 text-[13px] text-white/60">
-			Loading player…
-		</div>
-	),
 });
 
 const ALL = "all";
@@ -62,8 +59,12 @@ function VideoPlaceholder({
 
 export function TutorialsBrowser({
 	tutorials,
+	copy: t,
 }: {
 	tutorials: PublicTutorial[];
+	/** Resolved server-side and passed as a prop: this route mounts no
+	 * `CopyProvider`, unlike the planner tree. */
+	copy: Dictionary;
 }) {
 	const [category, setCategory] = useState<string>(ALL);
 	const [level, setLevel] = useState<string>(ALL);
@@ -91,24 +92,26 @@ export function TutorialsBrowser({
 			{/* Filters */}
 			<div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center justify-between gap-6 px-8 pb-5">
 				<div className="flex flex-wrap gap-2">
-					{[{ id: ALL, label: "All types" }, ...CATEGORIES].map((c) => (
-						<button
-							key={c.id}
-							type="button"
-							onClick={() => setCategory(c.id)}
-							aria-pressed={category === c.id}
-							className={
-								category === c.id
-									? "rounded-full bg-neutral-900 px-[15px] py-2 font-medium text-[13px] text-white"
-									: "rounded-full border border-neutral-200 bg-white px-[15px] py-2 text-[13px] text-neutral-600"
-							}
-						>
-							{c.label}
-						</button>
-					))}
+					{[{ id: ALL, label: t.tutorials.allTypes }, ...CATEGORIES].map(
+						(c) => (
+							<button
+								key={c.id}
+								type="button"
+								onClick={() => setCategory(c.id)}
+								aria-pressed={category === c.id}
+								className={
+									category === c.id
+										? "rounded-full bg-neutral-900 px-[15px] py-2 font-medium text-[13px] text-white"
+										: "rounded-full border border-neutral-200 bg-white px-[15px] py-2 text-[13px] text-neutral-600"
+								}
+							>
+								{c.label}
+							</button>
+						),
+					)}
 				</div>
 				<div className="flex shrink-0 items-center gap-1 rounded-full bg-neutral-100 p-[3px]">
-					{[{ id: ALL, label: "All levels" }, ...LEVELS].map((l) => (
+					{[{ id: ALL, label: t.tutorials.allLevels }, ...LEVELS].map((l) => (
 						<button
 							key={l.id}
 							type="button"
@@ -130,7 +133,7 @@ export function TutorialsBrowser({
 			<div className="mx-auto w-full max-w-[1180px] flex-1 px-8 pt-5 pb-18">
 				{tutorials.length === 0 ? (
 					<div className="rounded-xl border border-neutral-200 bg-white px-6 py-14 text-center text-[14px] text-neutral-500">
-						Tutorials are being filmed. Check back soon.
+						{t.tutorials.emptyNoTutorials}
 					</div>
 				) : filtered.length > 0 ? (
 					<div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -199,7 +202,7 @@ export function TutorialsBrowser({
 					</div>
 				) : (
 					<div className="rounded-xl border border-neutral-200 bg-white px-6 py-14 text-center text-[14px] text-neutral-500">
-						No tutorials match those filters yet.
+						{t.tutorials.emptyNoMatches}
 					</div>
 				)}
 			</div>
@@ -207,9 +210,9 @@ export function TutorialsBrowser({
 			{/* Footer */}
 			<div className="mt-auto bg-neutral-900 text-neutral-200">
 				<div className="mx-auto flex max-w-[1180px] items-center justify-between px-8 py-7 text-[12px] text-neutral-400">
-					<span>© Infinite Cabinet</span>
+					<span>{fill(t.tutorials.copyright, { brand: t.common.brand })}</span>
 					<Link href="/" className="text-neutral-400">
-						Back to site
+						{t.tutorials.backToSite}
 					</Link>
 				</div>
 			</div>
@@ -230,14 +233,22 @@ export function TutorialsBrowser({
 					<div className="relative w-full max-w-[720px] overflow-hidden rounded-[14px] bg-white">
 						{active.playbackId ? (
 							<div className="h-[380px] w-full bg-neutral-900">
-								<MuxPlayer
-									playbackId={active.playbackId}
-									streamType="on-demand"
-									autoPlay
-									accentColor="#2c5f47"
-									metadata={{ video_title: active.title }}
-									style={{ height: "100%", width: "100%" }}
-								/>
+								<Suspense
+									fallback={
+										<div className="flex h-full items-center justify-center bg-neutral-900 text-[13px] text-white/60">
+											{t.tutorials.loadingPlayer}
+										</div>
+									}
+								>
+									<MuxPlayer
+										playbackId={active.playbackId}
+										streamType="on-demand"
+										autoPlay
+										accentColor="#2c5f47"
+										metadata={{ video_title: active.title }}
+										style={{ height: "100%", width: "100%" }}
+									/>
+								</Suspense>
 							</div>
 						) : (
 							<VideoPlaceholder className="h-[380px] w-full" big />
@@ -245,7 +256,7 @@ export function TutorialsBrowser({
 						<button
 							type="button"
 							onClick={() => setActiveId(null)}
-							aria-label="Close"
+							aria-label={t.common.close}
 							className="absolute top-3.5 right-3.5 z-10 h-8 w-8 rounded-full bg-black/50 text-[16px] text-white"
 						>
 							✕

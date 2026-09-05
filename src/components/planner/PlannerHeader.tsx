@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useCopy } from "./CopyContext";
 
 /**
  * The bar across the top of all three planner screens.
@@ -30,12 +31,13 @@ export function PlannerHeader({
 	/** The right-hand actions, which differ per screen. */
 	children?: React.ReactNode;
 }) {
+	const t = useCopy();
 	return (
 		<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
 			{/* Padding on the crumbs rather than gap: the tap target is the padded
 			    box, not just the glyphs. */}
 			<nav
-				aria-label="Breadcrumb"
+				aria-label={t.planner.breadcrumbAriaLabel}
 				className="flex min-w-0 items-center gap-0.5 text-[13px] text-neutral-400"
 			>
 				{trail.map((crumb, i) => {
@@ -86,12 +88,13 @@ export function PlannerHeader({
 
 /** The `Admin` link every planner screen carries, so it reads the same on each. */
 export function AdminLink() {
+	const t = useCopy();
 	return (
 		<Link
 			href="/admin/login"
 			className="border-neutral-200 border-l pl-3.5 text-[12px] text-neutral-400 hover:text-neutral-600"
 		>
-			Admin
+			{t.planner.admin}
 		</Link>
 	);
 }

@@ -2,20 +2,28 @@
 
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
+import { fill } from "@/lib/copy/fill";
+import { htmlLang } from "@/lib/copy/locales";
 import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
 import { doorStyleIn, roomTypeIn } from "@/lib/planner/catalogue";
 import type { PlannerLayout } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { useCatalogue, useEngine } from "./CatalogueContext";
+import { useCopy, useLocale } from "./CopyContext";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
+
+function ScenePlaceholder() {
+	const t = useCopy();
+	return (
+		<div className="flex h-full items-center justify-center text-neutral-500 text-sm">
+			{t.quote.loading}
+		</div>
+	);
+}
 
 const PlannerScene = dynamic(() => import("./PlannerScene"), {
 	ssr: false,
-	loading: () => (
-		<div className="flex h-full items-center justify-center text-neutral-500 text-sm">
-			Loading…
-		</div>
-	),
+	loading: () => <ScenePlaceholder />,
 });
 
 /**
@@ -41,12 +49,21 @@ export function QuoteScreen({
 	onBackToStudioAction: () => void;
 	onBackToStartAction: () => void;
 }) {
+	const t = useCopy();
+	const locale = useLocale();
 	const catalogue = useCatalogue();
 	const { allPositions } = useEngine();
 	const room = roomTypeIn(catalogue, roomId);
 	const price = computePlannerPrice(layout, finish, catalogue);
 	const placed = allPositions(layout);
 	const finishLabel = catalogue.finishes.find((f) => f.id === finish)?.label;
+	const formatRm = (amount: number, opts?: Intl.NumberFormatOptions) =>
+		new Intl.NumberFormat(htmlLang(locale), {
+			style: "currency",
+			currency: "MYR",
+			currencyDisplay: "narrowSymbol",
+			...opts,
+		}).format(amount);
 
 	const doorStyleIds = new Set(
 		placed
@@ -55,10 +72,12 @@ export function QuoteScreen({
 	);
 	const frontLabel =
 		doorStyleIds.size === 0
-			? "no fronts chosen yet"
+			? t.quote.noFrontsYet
 			: doorStyleIds.size === 1
-				? `${doorStyleIn(catalogue, [...doorStyleIds][0])?.label} fronts`
-				: "mixed fronts";
+				? fill(t.quote.frontsLabel, {
+						label: doorStyleIn(catalogue, [...doorStyleIds][0])?.label ?? "",
+					})
+				: t.quote.mixedFronts;
 
 	const pickerRef = useRef<((x: number, y: number) => number) | null>(null);
 	const hitTestRef = useRef<((x: number, y: number) => string | null) | null>(
@@ -70,9 +89,9 @@ export function QuoteScreen({
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<PlannerHeader
 				trail={[
-					{ label: "Infinite Cabinet", href: "/" },
-					{ label: "Room planner", onClick: onBackToStartAction },
-					{ label: "Quote" },
+					{ label: t.common.brand, href: "/" },
+					{ label: t.planner.crumbs.roomPlanner, onClick: onBackToStartAction },
+					{ label: t.planner.crumbs.quote },
 				]}
 			>
 				<button
@@ -80,7 +99,7 @@ export function QuoteScreen({
 					onClick={onBackToStudioAction}
 					className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] hover:border-neutral-400"
 				>
-					Back to editing
+					{t.quote.backToEditing}
 				</button>
 				<AdminLink />
 			</PlannerHeader>
@@ -90,22 +109,19 @@ export function QuoteScreen({
 					{submitted ? (
 						<div className="max-w-[420px] rounded-lg border border-emerald-200 bg-emerald-50 p-4">
 							<p className="font-semibold text-emerald-900 text-sm">
-								Saved — for this demo only
+								{t.quote.savedHeading}
 							</p>
 							<p className="mt-1 text-[13px] text-emerald-800 leading-5">
-								Lead capture isn't wired to Infinite Cabinet yet (that's a later
-								phase of this build). Nothing was sent anywhere.
+								{t.quote.savedBody}
 							</p>
 						</div>
 					) : (
 						<div>
 							<h2 className="mb-1 font-semibold text-[22px]">
-								Get a real quote on this {room.label.toLowerCase()}
+								{fill(t.quote.heading, { room: room.label.toLowerCase() })}
 							</h2>
 							<p className="max-w-[480px] text-[14px] text-neutral-500 leading-5">
-								A designer at Infinite Cabinet checks your layout and
-								measurements, then calls you with a firm price — usually within
-								one business day.
+								{t.quote.description}
 							</p>
 						</div>
 					)}
@@ -119,7 +135,7 @@ export function QuoteScreen({
 					>
 						<label className="flex flex-col gap-1.5">
 							<span className="font-medium text-[12px] text-neutral-700">
-								Full name
+								{t.quote.fullName}
 							</span>
 							<input
 								type="text"
@@ -131,7 +147,7 @@ export function QuoteScreen({
 						</label>
 						<label className="flex flex-col gap-1.5">
 							<span className="font-medium text-[12px] text-neutral-700">
-								Phone (WhatsApp)
+								{t.quote.phone}
 							</span>
 							<input
 								type="text"
@@ -143,7 +159,7 @@ export function QuoteScreen({
 						</label>
 						<label className="flex flex-col gap-1.5">
 							<span className="font-medium text-[12px] text-neutral-700">
-								Email
+								{t.quote.email}
 							</span>
 							<input
 								type="email"
@@ -154,7 +170,7 @@ export function QuoteScreen({
 						</label>
 						<label className="flex flex-col gap-1.5">
 							<span className="font-medium text-[12px] text-neutral-700">
-								Area
+								{t.quote.area}
 							</span>
 							<input
 								type="text"
@@ -171,8 +187,7 @@ export function QuoteScreen({
 								className="mt-0.5"
 							/>
 							<span className="text-[12px] text-neutral-500 leading-4">
-								A designer may re-measure on site — final price can change from
-								this estimate.
+								{t.quote.remeasureNote}
 							</span>
 						</label>
 						<button
@@ -180,7 +195,7 @@ export function QuoteScreen({
 							disabled={submitted}
 							className="mt-1 rounded-lg bg-neutral-900 px-3 py-3 font-medium text-[14px] text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
 						>
-							{submitted ? "Saved" : "Send my design for a quote"}
+							{submitted ? t.quote.saved : t.quote.submitCta}
 						</button>
 					</form>
 				</div>
@@ -201,8 +216,12 @@ export function QuoteScreen({
 					</div>
 					<div>
 						<p className="font-semibold text-[13px]">
-							{room.label} · {(layout.wallWidthMm / 1000).toFixed(2)} m wall ·{" "}
-							{placed.length} {placed.length === 1 ? "unit" : "units"}
+							{fill(t.quote.summary, {
+								room: room.label,
+								wall: (layout.wallWidthMm / 1000).toFixed(2),
+								count: placed.length,
+								unit: placed.length === 1 ? t.planner.unit : t.planner.units,
+							})}
 						</p>
 						<p className="mt-0.5 text-[12px] text-neutral-500">
 							{finishLabel} · {frontLabel}
@@ -221,10 +240,10 @@ export function QuoteScreen({
 									</span>
 								</span>
 								<span className="shrink-0 tabular-nums">
-									{line.amountRm.toLocaleString("en-MY", {
+									{new Intl.NumberFormat(htmlLang(locale), {
 										minimumFractionDigits: 2,
 										maximumFractionDigits: 2,
-									})}
+									}).format(line.amountRm)}
 								</span>
 							</li>
 						))}
@@ -232,20 +251,17 @@ export function QuoteScreen({
 
 					<div className="flex items-baseline justify-between border-neutral-200 border-t pt-3">
 						<span className="text-[13px] text-neutral-500">
-							Estimated total
+							{t.quote.estimatedTotal}
 						</span>
 						<span className="font-semibold text-xl">
-							RM{" "}
-							{price.totalRm.toLocaleString("en-MY", {
-								maximumFractionDigits: 0,
-							})}
+							{formatRm(price.totalRm, { maximumFractionDigits: 0 })}
 						</span>
 					</div>
 					<p className="flex items-center gap-1.5 text-[#b45309] text-[11px] leading-4">
 						<span className="rounded border border-[#b45309] px-1 py-0.5 font-semibold">
-							ESTIMATE
+							{t.quote.estimateBadge}
 						</span>{" "}
-						Not a quote until confirmed on site.
+						{t.quote.notAQuoteNote}
 					</p>
 				</aside>
 			</div>

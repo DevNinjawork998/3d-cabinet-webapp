@@ -105,4 +105,191 @@ export const ms: Dictionary = {
 			copyright: "© 2026 {brand}. Hak cipta terpelihara.",
 		},
 	},
+	planner: {
+		crumbs: {
+			roomPlanner: "Perancang bilik",
+			studio: "Ruang reka",
+			quote: "Sebut harga",
+		},
+		breadcrumbAriaLabel: "Navigasi remah roti",
+		admin: "Pentadbir",
+		changeRoom: "Tukar bilik",
+		diyTutorials: "Tutorial DIY",
+		clear: "Kosongkan",
+		dimensionAriaSuffix: "{label} dalam milimeter",
+		start: {
+			heading: "Bilik apa yang anda ingin rancang?",
+			subtitle:
+				"Pilih satu untuk bermula dengan saiz Infinite Cabinet sebenar dan susun atur yang sudah sedia di dinding anda.",
+			roomIconAlt: "Ikon {room}",
+			roomSubtitle: {
+				kitchen: "Saiz Infinite Cabinet sebenar",
+				living: "Rak TV & unit paparan",
+				bedroom: "Almari pakaian",
+				foyer: "Kabinet kasut & bangku",
+			},
+			thenLayout:
+				"Kemudian, susun atur permulaan untuk dinding sepanjang {width} m",
+			fullRun: "Susunan penuh",
+			unitsFromPrice: "{count} unit · dari {price}",
+			startBlank: "Mula kosong",
+			blankWall: "Dinding kosong",
+			buildItYourself: "Bina sendiri",
+			cta: "Mula merancang",
+		},
+		room: {
+			heading: "Bilik",
+			subtitle: "Menetapkan ruang yang perlu dimuatkan oleh setiap kabinet.",
+			wallLength: "Panjang dinding",
+			ceiling: "Siling",
+			roomDepth: "Kedalaman bilik",
+			wallUnitsHangAt: "Unit dinding tergantung pada",
+			narrowWallNote:
+				"Susunan {min}mm anda menetapkan dinding paling sempit yang boleh memuatkannya. Buang atau ubah saiz kabinet untuk lebih sempit lagi.",
+			wallUnitsAria: "Unit dinding",
+			hanging: "Tergantung",
+			toCeiling: "Sampai ke siling",
+			undersidesNote:
+				"Bahagian bawah pada {height}mm — bahagian atas naik sampai ke siling, ditutup dengan jalur kemasan.",
+			flushWallUnitTops:
+				"Selaraskan bahagian atas unit dinding dengan unit tinggi",
+			addTallFirst: "Tambah kabinet tinggi atau ruang peti sejuk dahulu",
+			baseUnitsAria: "Unit asas",
+			skirted: "Berpapan kaki",
+			legsShown: "Kaki ditunjukkan",
+			kickBoardNote:
+				"Papan kaki dipasang sepanjang lantai, menyembunyikan kaki pelaras.",
+			levellersNote:
+				"Kaki pelaras yang boleh diselaraskan kelihatan di bawah susunan.",
+			runAria: "Susunan",
+			openEnds: "Hujung terbuka",
+			toWalls: "Sampai ke dinding",
+			noPanelNeededNote:
+				"Hujung yang bercantum dengan dinding sisi tidak memerlukan panel siap.",
+			panelNeededNote:
+				"Setiap hujung terbuka dikemaskan dengan panel di atas sisi badan kabinet.",
+			doorsAria: "Pintu",
+			doorsClosed: "Pintu tertutup",
+			doorsOpen: "Pintu terbuka",
+			interiorsShownNote:
+				"Rak dan bahagian dalam kelihatan. Mengukur akan menutupnya semula.",
+			openDoorsNote: "Buka pintu untuk melihat bahagian dalam susunan.",
+			overhangWarning:
+				"Susunan ini melebihi dinding sebanyak {overhang}mm — rapatkan jurang di bawah, atau buang satu kabinet.",
+		},
+		view: {
+			ariaLabel: "Paparan",
+			threeD: "Paparan 3D",
+			elevation: "Pandangan sisi",
+			plan: "Pelan",
+		},
+		addCabinets: {
+			heading: "Tambah kabinet",
+			subtitle: "Seret ke dinding. Saiz dan pintu boleh dipilih kemudian.",
+			sizeRange: "{min}–{max}mm · dari {price}",
+		},
+		canvas: {
+			runOfWall: "Susunan {run} m pada dinding {wall} m",
+			loading: "Memuatkan paparan 3D…",
+		},
+		measure: {
+			tooltip:
+				"Klik dua titik pada kabinet — bucu, titik tengah tepi, atau permukaan — untuk mengukur jaraknya",
+			measuring: "Sedang mengukur…",
+			measure: "Ukur",
+			constrainLabel: "Hadkan arah pengukuran",
+			clickToStart: "Klik satu titik untuk mula mengukur",
+			clickSecondPoint: "Klik titik kedua",
+			hintMeasuring:
+				"Klik dua titik pada kabinet — bucu, titik tengah tepi atau permukaan. Auto mengunci titik kedua pada paksi yang anda ukur; Bebas membaca ketiga-tiga paksi sekali gus.",
+			hintDefault:
+				"Klik kabinet untuk menukar saiz atau pintunya. Seret di sepanjang dinding untuk menggerakkannya.",
+		},
+		selection: {
+			heading: "Kabinet dipilih",
+			emptyHint:
+				"Klik kabinet dalam bilik untuk menetapkan saiz atau menukar pintunya.",
+			nameWidth: "{name} ({width} mm)",
+			width: "Lebar",
+			noRoom: "tiada ruang",
+			front: "Pintu",
+			noDoor: "Tiada pintu",
+			swing: "Bukaan",
+			closeDoor: "Tutup pintu",
+			openDoor: "Buka pintu",
+			hingeLeft: "Engsel kiri",
+			hingeRight: "Engsel kanan",
+			duplicate: "Duplikat",
+			remove: "Buang",
+			nSelected: "{n} kabinet dipilih",
+			removeAll: "Buang semua {n}",
+		},
+		finish: {
+			heading: "Kemasan pintu · seluruh susunan",
+			currentLabel: "{label} · satu warna untuk seluruh bilik",
+		},
+		run: {
+			heading: "Susunan anda · {count} {unit}",
+			closeGaps: "Rapatkan jurang",
+			closeGapsCount: "Rapatkan jurang ({n})",
+			selectAria: "Pilih {name}",
+			noDoorInline: "tiada pintu",
+			emptyHint: "Belum ada yang diletakkan — seret badan kabinet ke dinding.",
+			reset: "Set semula bilik ini",
+		},
+		price: {
+			trimStrip: "jalur kemasan yang menutup susunan di siling",
+			skirtingBoard: "papan kaki di atas kaki pelaras",
+			endPanels: "panel siap pada setiap sisi kabinet yang terdedah",
+			and: "dan",
+			includedAboveSingular: "telah disertakan di atas.",
+			includedAbovePlural: "telah disertakan di atas.",
+			estimatedTotal: "Jumlah anggaran",
+			estimateBadge: "ANGGARAN",
+			placeholderNote:
+				"Kadar sementara — bukan sebut harga sehingga disahkan oleh Infinite Cabinet.",
+			cta: "Dapatkan sebut harga untuk reka bentuk ini",
+		},
+		unit: "unit kabinet",
+		units: "unit kabinet",
+	},
+	quote: {
+		loading: "Memuatkan…",
+		backToEditing: "Kembali menyunting",
+		savedHeading: "Disimpan — untuk demo sahaja",
+		savedBody:
+			"Ciri penangkapan bakal pelanggan belum disambungkan kepada Infinite Cabinet lagi (itu fasa kemudian projek ini). Tiada apa-apa dihantar.",
+		heading: "Dapatkan sebut harga sebenar untuk {room} ini",
+		description:
+			"Pereka bentuk di Infinite Cabinet akan menyemak susun atur dan ukuran anda, kemudian menghubungi anda dengan harga muktamad — biasanya dalam masa satu hari bekerja.",
+		fullName: "Nama penuh",
+		phone: "Telefon (WhatsApp)",
+		email: "E-mel",
+		area: "Kawasan",
+		remeasureNote:
+			"Pereka bentuk mungkin akan mengukur semula di tapak — harga akhir boleh berbeza daripada anggaran ini.",
+		saved: "Disimpan",
+		submitCta: "Hantar reka bentuk saya untuk sebut harga",
+		summary: "{room} · dinding {wall} m · {count} {unit}",
+		noFrontsYet: "belum pilih sebarang pintu",
+		frontsLabel: "pintu {label}",
+		mixedFronts: "pintu bercampur",
+		estimatedTotal: "Jumlah anggaran",
+		estimateBadge: "ANGGARAN",
+		notAQuoteNote: "Bukan sebut harga sehingga disahkan di tapak.",
+	},
+	tutorials: {
+		eyebrow: "Belajar",
+		heading: "Tutorial DIY",
+		subtitle:
+			"Video langkah demi langkah untuk membina dan memasang unit Infinite Cabinet sendiri, daripada badan kabinet flat-pack pertama sehingga memasang susunan penuh.",
+		allTypes: "Semua jenis",
+		allLevels: "Semua tahap",
+		emptyNoTutorials:
+			"Tutorial sedang dirakam. Sila semak semula tidak lama lagi.",
+		emptyNoMatches: "Tiada tutorial sepadan dengan penapis tersebut.",
+		loadingPlayer: "Memuatkan pemain…",
+		copyright: "© Hak cipta {brand}",
+		backToSite: "Kembali ke laman utama",
+	},
 };

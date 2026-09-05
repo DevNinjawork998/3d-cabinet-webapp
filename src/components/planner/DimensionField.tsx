@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fill } from "@/lib/copy/fill";
+import { useCopy } from "./CopyContext";
 
 /**
  * One room dimension: a slider for feel, a number box for a figure someone
@@ -30,6 +32,7 @@ export function DimensionField({
 	stepMm: number;
 	onChangeAction: (mm: number) => void;
 }) {
+	const t = useCopy();
 	const [draft, setDraft] = useState(String(valueMm));
 
 	// Follow the layout when it moves for any other reason — the slider, a room
@@ -61,7 +64,7 @@ export function DimensionField({
 						min={minMm}
 						max={maxMm}
 						step={stepMm}
-						aria-label={`${label} in millimetres`}
+						aria-label={fill(t.planner.dimensionAriaSuffix, { label })}
 						onChange={(e) => {
 							const next = e.target.value;
 							setDraft(next);
