@@ -1,20 +1,27 @@
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/catalogue/db";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
+import { getDictionary } from "@/lib/copy/dictionary";
+import { isLocale } from "@/lib/copy/locales";
 import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { PlannerApp } from "./PlannerApp";
 
 export default async function PlannerPage({
+	params,
 	searchParams,
 }: {
+	params: Promise<{ lang: string }>;
 	searchParams: Promise<{ room?: string }>;
 }) {
-	const { room } = await searchParams;
+	const [{ lang }, { room }] = await Promise.all([params, searchParams]);
+	if (!isLocale(lang)) notFound();
 
-	const [{ data: catalogue }, siteImages] = await Promise.all([
+	const [{ data: catalogue }, siteImages, copy] = await Promise.all([
 		getPublishedPlannerCatalogue(),
 		prisma.siteImage.findMany(),
+		getDictionary(lang),
 	]);
 
 	// Validated against the catalogue that is actually about to be rendered,
@@ -50,6 +57,8 @@ export default async function PlannerPage({
 			initialRoomId={initialRoomId}
 			catalogue={catalogue}
 			finishTextures={finishTextures}
+			copy={copy}
+			locale={lang}
 		/>
 	);
 }

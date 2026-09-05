@@ -5,12 +5,15 @@ import {
 	CatalogueProvider,
 	useEngine,
 } from "@/components/planner/CatalogueContext";
+import { CopyProvider } from "@/components/planner/CopyContext";
 import { QuoteScreen } from "@/components/planner/QuoteScreen";
 import {
 	type StartPreset,
 	StartScreen,
 } from "@/components/planner/StartScreen";
 import { StudioScreen } from "@/components/planner/StudioScreen";
+import type { Dictionary } from "@/lib/copy/en";
+import type { Locale } from "@/lib/copy/locales";
 import type { FinishId, RoomTypeId } from "@/lib/planner/catalogue";
 import { roomTypeIn } from "@/lib/planner/catalogue";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
@@ -36,6 +39,8 @@ export function PlannerApp({
 	initialRoomId,
 	catalogue,
 	finishTextures,
+	copy,
+	locale,
 }: {
 	initialRoomId: RoomTypeId;
 	/** The live published catalogue. */
@@ -44,15 +49,21 @@ export function PlannerApp({
 	 * same upload that gives the landing page its swatch, so the strip and the
 	 * cabinet show the same board. */
 	finishTextures: Record<string, string>;
+	/** The active locale's strings, resolved server-side — `next/root-params`
+	 * does not reach this client tree. */
+	copy: Dictionary;
+	locale: Locale;
 }) {
 	return (
-		<CatalogueProvider catalogue={catalogue}>
-			<PlannerScreens
-				initialRoomId={initialRoomId}
-				catalogue={catalogue}
-				finishTextures={finishTextures}
-			/>
-		</CatalogueProvider>
+		<CopyProvider copy={copy} locale={locale}>
+			<CatalogueProvider catalogue={catalogue}>
+				<PlannerScreens
+					initialRoomId={initialRoomId}
+					catalogue={catalogue}
+					finishTextures={finishTextures}
+				/>
+			</CatalogueProvider>
+		</CopyProvider>
 	);
 }
 
