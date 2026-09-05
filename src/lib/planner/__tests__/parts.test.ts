@@ -379,3 +379,37 @@ describe("drawerTravelMm", () => {
 		expect(drawerTravelMm(0)).toBe(0);
 	});
 });
+
+describe("a drawer bank", () => {
+	const drawerUnit = familyById("base-drawers");
+	const partsOf = (hasDoor: boolean) =>
+		cabinetPartsMm(
+			drawerUnit,
+			drawerUnit.sizes[0].widthMm,
+			hasDoor,
+			CONSTRUCTION,
+		);
+
+	it("has no shelf running through its drawers", () => {
+		// A shelf at mid-height cut straight through the middle drawer. Invisible
+		// while the fronts were flush; the moment a drawer runs out, it is a
+		// board through the box.
+		expect(partsOf(true).filter((p) => p.role === "shelf")).toHaveLength(0);
+	});
+
+	it("has no shelf before a front has been chosen either", () => {
+		// Still a drawer bank, whether or not the customer has picked a front.
+		expect(partsOf(false).filter((p) => p.role === "shelf")).toHaveLength(0);
+	});
+
+	it("still gives a cabinet without drawers its shelf", () => {
+		const base = familyById("base-cabinet");
+		const parts = cabinetPartsMm(
+			base,
+			base.sizes[0].widthMm,
+			true,
+			CONSTRUCTION,
+		);
+		expect(parts.filter((p) => p.role === "shelf").length).toBeGreaterThan(0);
+	});
+});

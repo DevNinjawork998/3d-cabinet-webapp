@@ -165,11 +165,20 @@ export function fitOutOf(
 	widthMm: number,
 	construction: Construction,
 ) {
+	const drawers = family.geometry?.drawers ?? family.drawers;
+
 	return {
-		shelves: family.geometry
-			? family.geometry.shelves + family.geometry.fixedShelves
-			: 1,
-		drawers: family.geometry?.drawers ?? family.drawers,
+		// A drawer bank's volume *is* its drawers, so it carries no shelf. The
+		// default of 1 used to apply to every family, which put a board through
+		// the middle drawer of every drawer unit. Invisible while the fronts sat
+		// flush; a shelf through an open drawer box the moment one runs out.
+		shelves:
+			drawers > 0
+				? 0
+				: family.geometry
+					? family.geometry.shelves + family.geometry.fixedShelves
+					: 1,
+		drawers,
 		// Leaf count is a property of the width, not of the family: `geometry`
 		// is learned from one design at one width, so a family that learned "2"
 		// from its 900 must not draw a pair on its 400. The design only tells
