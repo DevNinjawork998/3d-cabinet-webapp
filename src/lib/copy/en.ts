@@ -170,9 +170,13 @@ export const en = {
 			doorsAria: "Doors",
 			doorsClosed: "Doors closed",
 			doorsOpen: "Doors open",
+			doorsHidden: "Doors hidden",
+			frontsOffNote:
+				"Fronts are off, so the whole run is on show at once. Two doors that hinge on the same stile cannot both swing open, which is why this view takes them away instead.",
 			interiorsShownNote:
 				"Shelves and interiors are on show. Measuring closes them again.",
-			openDoorsNote: "Open the doors to see the inside of the run.",
+			openDoorsNote:
+				"Open the doors, or take the fronts off, to see inside the run.",
 			overhangWarning:
 				"The run overhangs this wall by {overhang}mm — close the gaps below, or remove a cabinet.",
 		},

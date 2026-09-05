@@ -21,7 +21,7 @@ import {
 	type PartBoxMm,
 	standOf,
 } from "@/lib/planner/parts";
-import { type BoxMm, swingOf } from "@/lib/planner/swing";
+import { type BoxMm, sharedMaxRad, swingOf } from "@/lib/planner/swing";
 import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
@@ -82,6 +82,7 @@ export function Cabinet({
 	door,
 	hinge,
 	doorsOpen = false,
+	doorsHidden = false,
 	xMm,
 	runWidthMm,
 	floorHeightMm,
@@ -113,6 +114,8 @@ export function Cabinet({
 	/** Swing the doors open so the customer can see inside. View state, not
 	 * something on the layout — see `StudioScreen`. */
 	doorsOpen?: boolean;
+	/** Draw no fronts at all, so the interior is unobstructed. */
+	doorsHidden?: boolean;
 	/** Left edge along the run. */
 	xMm: number;
 	runWidthMm: number;
@@ -163,6 +166,9 @@ export function Cabinet({
 		(part) =>
 			part.role !== "doorLeaf" &&
 			part.role !== "drawerFront" &&
+			// A drawer box rides in its front's `Slide`, so it must not also be
+			// drawn here — it would leave a second, stationary copy behind.
+			part.role !== "drawerBox" &&
 			part.role !== "leg",
 	);
 
@@ -212,6 +218,7 @@ export function Cabinet({
 	const legParts = parts.filter((part) => part.role === "leg");
 	const leaves = parts.filter((part) => part.role === "doorLeaf");
 	const drawerFronts = parts.filter((part) => part.role === "drawerFront");
+	const drawerBoxes = parts.filter((part) => part.role === "drawerBox");
 
 	// Overhanging wins over both: a cabinet past the end of the wall is a
 	// problem to fix, and that outranks showing it as hovered or picked. Amber
@@ -253,7 +260,9 @@ export function Cabinet({
 					groups={designGroups}
 					door={door}
 					hinge={hinge}
+					exposed={exposed}
 					open={doorsOpen}
+					doorsHidden={doorsHidden}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
 					sheetOffset={sheetOffset}
@@ -309,9 +318,11 @@ export function Cabinet({
 					/>
 
 					{door &&
+						!doorsHidden &&
 						(drawerFronts.length > 0 ? (
 							<Drawers
 								parts={drawerFronts}
+								boxes={drawerBoxes}
 								open={doorsOpen}
 								travel={m(drawerTravelMm(carcassMm.max.z - carcassMm.min.z))}
 								finishPhoto={finishPhoto}
@@ -324,6 +335,7 @@ export function Cabinet({
 							<Doors
 								parts={leaves}
 								carcassMm={carcassMm}
+								exposed={exposed}
 								finishPhoto={finishPhoto}
 								door={door}
 								hinge={hinge}
@@ -564,6 +576,7 @@ const boxOf = (part: PartBoxMm): BoxMm => ({
 function Doors({
 	parts,
 	carcassMm,
+	exposed,
 	door,
 	hinge,
 	open,
@@ -576,6 +589,9 @@ function Doors({
 	/** The box the leaves hang on, so `swingOf` can tell an overlay door from
 	 * an inset one and pivot on the right edge. */
 	carcassMm: BoxMm;
+	/** Which outer sides nothing sits against — decides how far a leaf may
+	 * open before it would cross into the neighbour. */
+	exposed: ExposedSides;
 	door: DoorStyle;
 	hinge: HingeSide;
 	open: boolean;
@@ -584,9 +600,27 @@ function Doors({
 	emissive: string;
 	emphasis: number;
 }) {
+	// Worked out for every leaf first, because the answer is a property of the
+	// cabinet and not of one leaf. A pair whose left side is a run end and whose
+	// right side touches a neighbour would otherwise open 110° and 90° — two
+	// halves of one door front at visibly different angles, which is worse than
+	// either angle on its own. The tightest limit wins for all of them.
+	const specs = parts.map((leaf) =>
+		swingOf(
+			boxOf(leaf),
+			carcassMm,
+			hingeOf(leaf.index, parts.length, hinge),
+			// A leaf hangs on the cabinet's outer stile, so whether it is boxed in
+			// is exactly whether that side is exposed — the same question
+			// `exposure.ts` already answers for the end panels.
+			!exposed[hingeOf(leaf.index, parts.length, hinge)],
+		),
+	);
+	const maxRad = sharedMaxRad(specs);
+
 	return (
 		<>
-			{parts.map((leaf) => {
+			{parts.map((leaf, i) => {
 				const side = hingeOf(leaf.index, parts.length, hinge);
 				// The handle goes on the free edge, opposite the hinge, and travels
 				// with the leaf because it is inside the same pivot.
@@ -595,7 +629,7 @@ function Doors({
 				const y = m(leaf.centreMm.y);
 				const z = m(leaf.centreMm.z);
 				const leafW = m(leaf.sizeMm.x);
-				const spec = swingOf(boxOf(leaf), carcassMm, side);
+				const spec = { ...specs[i], maxRad };
 
 				return (
 					<Hinge key={leaf.index} spec={spec} open={open}>
@@ -627,6 +661,7 @@ function Doors({
 
 function Drawers({
 	parts,
+	boxes,
 	open,
 	travel,
 	door,
@@ -636,6 +671,8 @@ function Drawers({
 	emphasis,
 }: {
 	parts: PartBoxMm[];
+	/** The box panels behind the fronts, `index` matching their drawer. */
+	boxes: PartBoxMm[];
 	/** Runs the drawers out, the same toggle that swings the doors. */
 	open: boolean;
 	/** How far out, in metres. */
@@ -655,6 +692,34 @@ function Drawers({
 
 				return (
 					<Slide key={front.index} travel={travel} open={open}>
+						{boxes
+							.filter((panel) => panel.index === front.index)
+							.map((panel) => (
+								<mesh
+									// Two sides differ in x, the bottom in y, the back in
+									// z — the centre is unique within one drawer.
+									key={`${panel.centreMm.x}-${panel.centreMm.y}-${panel.centreMm.z}`}
+									position={[
+										m(panel.centreMm.x),
+										m(panel.centreMm.y),
+										m(panel.centreMm.z),
+									]}
+								>
+									<boxGeometry
+										args={[
+											m(panel.sizeMm.x),
+											m(panel.sizeMm.y),
+											m(panel.sizeMm.z),
+										]}
+									/>
+									<meshStandardMaterial
+										color={CARCASS_INTERIOR_COLOR}
+										roughness={0.85}
+										emissive={emissive}
+										emissiveIntensity={emphasis}
+									/>
+								</mesh>
+							))}
 						<Front
 							door={door}
 							width={m(front.sizeMm.x)}

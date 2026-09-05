@@ -12,6 +12,7 @@ import {
 	type DoorStyle,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
+import type { ExposedSides } from "@/lib/planner/exposure";
 import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
 import { drawerTravelMm } from "@/lib/planner/parts";
@@ -237,6 +238,8 @@ export function DesignedCabinet({
 	groups,
 	door,
 	hinge,
+	exposed,
+	doorsHidden = false,
 	open,
 	finishHex,
 	finishPhoto,
@@ -249,6 +252,12 @@ export function DesignedCabinet({
 	door: DoorStyle | null;
 	/** Which stile a lone leaf hangs on. */
 	hinge: HingeSide;
+	/** Which outer sides nothing sits against. A leaf hangs on the cabinet's
+	 * outer stile, so this is what decides whether it may take the full swing
+	 * or has to stop square to the wall. */
+	exposed: ExposedSides;
+	/** Draw no fronts at all, so the interior is unobstructed. */
+	doorsHidden?: boolean;
 	/** Swing the doors open. */
 	open: boolean;
 	finishHex: string;
@@ -303,7 +312,7 @@ export function DesignedCabinet({
 			{drawn.map((group, i) => {
 				// A doorless carcass is a real state — the customer has placed a
 				// unit but not chosen a front — and it has to read as an open box.
-				if (isFront(group.role) && !door) return null;
+				if (isFront(group.role) && (!door || doorsHidden)) return null;
 
 				// Role plus left edge, because `door` now repeats: two leaves of one
 				// pair are the same role and only their position tells them apart.
@@ -351,6 +360,7 @@ export function DesignedCabinet({
 					leafMm,
 					carcassMm ?? { ...leafMm, max: { ...leafMm.max, z: leafMm.min.z } },
 					side,
+					!exposed[side],
 				);
 				return (
 					<Hinge key={key} spec={spec} open={open}>

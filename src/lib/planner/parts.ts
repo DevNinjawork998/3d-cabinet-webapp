@@ -36,6 +36,9 @@ export type PartRole =
 	| "shelf"
 	| "doorLeaf"
 	| "drawerFront"
+	/** A side, bottom or back of the box behind a drawer front. `index` is the
+	 * drawer it belongs to, so all four travel with their own front. */
+	| "drawerBox"
 	| "leg";
 
 export type PartBoxMm = {
@@ -81,6 +84,16 @@ export const PLINTH_RECESS_MM = 30;
 /** A door or drawer front is thicker board than the carcass. */
 export const FRONT_THICKNESS_MM = 18;
 
+/** Runner gap each side, between the carcass inner face and the box side. */
+const DRAWER_RUNNER_MM = 13;
+
+/** How far the box stops short of the back panel, for the runner's fixings. */
+const DRAWER_BACK_CLEARANCE_MM = 30;
+
+/** How much lower the box sides are than the front, top and bottom. A drawer
+ * front overlaps its box; sides level with it would read as a solid block. */
+const DRAWER_SIDE_DROP_MM = 20;
+
 /**
  * How far a drawer runs out of its carcass when the cabinet is opened.
  *
@@ -99,7 +112,7 @@ export function drawerTravelMm(depthMm: number): number {
  * into. Derived from the role rather than stored, so there is one fewer field
  * to keep true. */
 export const isInteriorPart = (role: PartRole) =>
-	role === "back" || role === "shelf";
+	role === "back" || role === "shelf" || role === "drawerBox";
 
 /**
  * How far off the floor the carcass sits, on what, and how far that is tucked
@@ -165,11 +178,20 @@ export function fitOutOf(
 	widthMm: number,
 	construction: Construction,
 ) {
+	const drawers = family.geometry?.drawers ?? family.drawers;
+
 	return {
-		shelves: family.geometry
-			? family.geometry.shelves + family.geometry.fixedShelves
-			: 1,
-		drawers: family.geometry?.drawers ?? family.drawers,
+		// A drawer bank's volume *is* its drawers, so it carries no shelf. The
+		// default of 1 used to apply to every family, which put a board through
+		// the middle drawer of every drawer unit. Invisible while the fronts sat
+		// flush; a shelf through an open drawer box the moment one runs out.
+		shelves:
+			drawers > 0
+				? 0
+				: family.geometry
+					? family.geometry.shelves + family.geometry.fixedShelves
+					: 1,
+		drawers,
 		// Leaf count is a property of the width, not of the family: `geometry`
 		// is learned from one design at one width, so a family that learned "2"
 		// from its 900 must not draw a pair on its 400. The design only tells
@@ -297,16 +319,48 @@ export function cabinetPartsMm(
 
 	if (drawers > 0) {
 		const drawerH = (carcassH - gap * (drawers + 1)) / drawers;
+		// The box behind the front. Its outer width clears the carcass sides by
+		// the runner gap, it stops short of the back panel, and it is lower than
+		// its own front — which is how a real drawer is built and what makes an
+		// open one read as something you could put a pan in.
+		const boxW = w - t * 2 - DRAWER_RUNNER_MM * 2;
+		const boxD = d - t - DRAWER_BACK_CLEARANCE_MM;
+		const boxH = Math.max(t * 2, drawerH - DRAWER_SIDE_DROP_MM * 2);
+
 		for (let i = 0; i < drawers; i++) {
+			const frontY = plinth + gap + drawerH / 2 + i * (drawerH + gap);
 			parts.push({
 				role: "drawerFront",
 				index: i,
-				centreMm: {
-					x: 0,
-					y: plinth + gap + drawerH / 2 + i * (drawerH + gap),
-					z,
-				},
+				centreMm: { x: 0, y: frontY, z },
 				sizeMm: { x: w - gap * 2, y: drawerH, z: FRONT_THICKNESS_MM },
+			});
+
+			// Measured from the front's own back face, so the box hangs off the
+			// front rather than off the carcass — the two travel together.
+			const backOfFront = z - FRONT_THICKNESS_MM / 2;
+			const boxZ = backOfFront - boxD / 2;
+			const boxY = frontY - drawerH / 2 + DRAWER_SIDE_DROP_MM + boxH / 2;
+
+			for (const sign of [-1, 1]) {
+				parts.push({
+					role: "drawerBox",
+					index: i,
+					centreMm: { x: sign * (boxW / 2 - t / 2), y: boxY, z: boxZ },
+					sizeMm: { x: t, y: boxH, z: boxD },
+				});
+			}
+			parts.push({
+				role: "drawerBox",
+				index: i,
+				centreMm: { x: 0, y: boxY - boxH / 2 + t / 2, z: boxZ },
+				sizeMm: { x: boxW - t * 2, y: t, z: boxD },
+			});
+			parts.push({
+				role: "drawerBox",
+				index: i,
+				centreMm: { x: 0, y: boxY, z: boxZ - boxD / 2 + t / 2 },
+				sizeMm: { x: boxW - t * 2, y: boxH, z: t },
 			});
 		}
 		return parts;

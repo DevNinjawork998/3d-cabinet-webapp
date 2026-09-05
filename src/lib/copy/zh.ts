@@ -162,8 +162,11 @@ export const zh: Dictionary = {
 			doorsAria: "柜门",
 			doorsClosed: "关闭柜门",
 			doorsOpen: "打开柜门",
+			doorsHidden: "隐藏柜门",
+			frontsOffNote:
+				"移除门板后，整排布局可一次看清。同一竖梃上的两扇门无法同时打开，因此此视图选择将门板移除。",
 			interiorsShownNote: "此时可看到搁板与内部结构。测量时会重新关闭柜门。",
-			openDoorsNote: "打开柜门即可看到整排布局的内部。",
+			openDoorsNote: "打开柜门或移除门板，即可看到整排布局的内部。",
 			overhangWarning:
 				"此布局超出墙面 {overhang} 毫米——请先缩小下方的间隙，或移除一个橱柜。",
 		},

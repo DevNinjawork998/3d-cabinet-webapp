@@ -271,6 +271,7 @@ function Run({
 	finishPhoto,
 	selectedIds,
 	openIds,
+	doorsHidden,
 	doorTargetId,
 	measureMode,
 	measureAxis,
@@ -294,6 +295,8 @@ function Run({
 	selectedIds: ReadonlySet<string>;
 	/** The cabinets whose doors are swung open. */
 	openIds: ReadonlySet<string>;
+	/** Take the fronts off entirely — the whole-run interior view. */
+	doorsHidden: boolean;
 	/** The carcass a door is currently being dragged over, if any. */
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
@@ -557,6 +560,7 @@ function Run({
 					}
 					hinge={position.placed.hinge}
 					doorsOpen={openIds.has(position.placed.id)}
+					doorsHidden={doorsHidden}
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
 					floorHeightMm={floorHeightMmOf(position, layout)}
@@ -929,6 +933,7 @@ export default function PlannerScene({
 	finishTextures = {},
 	selectedIds,
 	openIds = EMPTY_IDS,
+	doorsHidden = false,
 	doorTargetId,
 	measureMode = false,
 	measurePoints = [],
@@ -956,6 +961,7 @@ export default function PlannerScene({
 	 * the quote screen's preview draws the same scene with no controls on it,
 	 * and a shut door is what a customer expects to be quoted. */
 	openIds?: ReadonlySet<string>;
+	doorsHidden?: boolean;
 	doorTargetId: string | null;
 	/** While true, clicking a cabinet picks a measurement point instead of
 	 * selecting or dragging it. */
@@ -1027,6 +1033,7 @@ export default function PlannerScene({
 				finishPhoto={finishPhoto}
 				selectedIds={selectedIds}
 				openIds={openIds}
+				doorsHidden={doorsHidden}
 				doorTargetId={doorTargetId}
 				measureMode={measureMode}
 				measureAxis={measureAxis}

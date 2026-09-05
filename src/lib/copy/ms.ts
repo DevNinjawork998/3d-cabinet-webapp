@@ -171,9 +171,13 @@ export const ms: Dictionary = {
 			doorsAria: "Pintu",
 			doorsClosed: "Pintu tertutup",
 			doorsOpen: "Pintu terbuka",
+			doorsHidden: "Pintu disembunyikan",
+			frontsOffNote:
+				"Pintu ditanggalkan, jadi keseluruhan susunan kelihatan sekali gus. Dua pintu yang berengsel pada tiang yang sama tidak boleh dibuka serentak, sebab itu paparan ini menanggalkannya.",
 			interiorsShownNote:
 				"Rak dan bahagian dalam kelihatan. Mengukur akan menutupnya semula.",
-			openDoorsNote: "Buka pintu untuk melihat bahagian dalam susunan.",
+			openDoorsNote:
+				"Buka pintu, atau tanggalkan pintu, untuk melihat bahagian dalam susunan.",
 			overhangWarning:
 				"Susunan ini melebihi dinding sebanyak {overhang}mm — rapatkan jurang di bawah, atau buang satu kabinet.",
 		},
