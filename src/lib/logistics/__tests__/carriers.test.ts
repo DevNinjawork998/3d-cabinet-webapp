@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { pickupPin, WORKSHOP_ADDRESS, WORKSHOP_PIN } from "../carriers";
+import {
+	pickupPin,
+	pickupPlace,
+	WORKSHOP_ADDRESS,
+	WORKSHOP_CITY,
+	WORKSHOP_PIN,
+	WORKSHOP_POSTCODE,
+	WORKSHOP_STATE,
+} from "../carriers";
 
 describe("pickupPin", () => {
 	it("uses the workshop's own pin when the job leaves from the workshop", () => {
@@ -29,5 +37,36 @@ describe("pickupPin", () => {
 		expect(WORKSHOP_PIN.lat).toBeLessThan(4);
 		expect(WORKSHOP_PIN.lng).toBeGreaterThan(100);
 		expect(WORKSHOP_PIN.lng).toBeLessThan(103);
+	});
+});
+
+describe("pickupPlace", () => {
+	it("keeps a stored place over the workshop default", () => {
+		const stored = { postcode: "40170", city: "Shah Alam", state: "MY-10" };
+		expect(pickupPlace(WORKSHOP_ADDRESS, stored)).toEqual(stored);
+	});
+
+	it("uses the workshop's own place when the job leaves from the workshop and none is stored", () => {
+		expect(
+			pickupPlace(WORKSHOP_ADDRESS, {
+				postcode: null,
+				city: null,
+				state: null,
+			}),
+		).toEqual({
+			postcode: WORKSHOP_POSTCODE,
+			city: WORKSHOP_CITY,
+			state: WORKSHOP_STATE,
+		});
+	});
+
+	it("sends no place for a pickup somewhere else with nothing stored", () => {
+		expect(
+			pickupPlace("12 Jalan Setia, Shah Alam", {
+				postcode: null,
+				city: null,
+				state: null,
+			}),
+		).toBeNull();
 	});
 });

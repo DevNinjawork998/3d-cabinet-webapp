@@ -81,6 +81,16 @@ export type DeliveryJob = {
 	siteLng: number | null;
 	pickupLat: number | null;
 	pickupLng: number | null;
+	/**
+	 * Null when the geocode did not return them — see `lib/logistics/geocode.ts`.
+	 * A parcel partner refuses the job rather than guessing.
+	 */
+	sitePostcode: string | null;
+	siteCity: string | null;
+	siteState: string | null;
+	pickupPostcode: string | null;
+	pickupCity: string | null;
+	pickupState: string | null;
 	items: DeliveryItem[];
 	totalWeightKg: number | null;
 	totalVolumeM3: number | null;

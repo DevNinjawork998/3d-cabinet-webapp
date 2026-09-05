@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { carrierFetch } from "./http";
+import { subdivisionCode } from "./malaysia";
 
 /**
  * An address string turned into a pin.
@@ -20,6 +21,9 @@ export type GeocodeResult = {
 	lat: number;
 	lng: number;
 	formattedAddress: string;
+	postcode: string | null;
+	city: string | null;
+	state: string | null;
 };
 
 /**
@@ -38,10 +42,48 @@ const responseSchema = z.object({
 					location: z.object({ lat: z.number(), lng: z.number() }),
 					location_type: z.string(),
 				}),
+				address_components: z
+					.array(
+						z.object({
+							long_name: z.string(),
+							short_name: z.string(),
+							types: z.array(z.string()),
+						}),
+					)
+					.default([]),
 			}),
 		)
 		.default([]),
 });
+
+type Component = { long_name: string; short_name: string; types: string[] };
+
+/**
+ * Google returns the address broken into components; we keep the three
+ * EasyParcel prices against.
+ *
+ * `locality` is the city in Klang Valley, but Google drops it for some
+ * addresses and puts the town in `administrative_area_level_2` instead — so
+ * both are read, most specific first. Everything is nullable: a component
+ * Google did not return is a field EasyParcel will refuse the job for, and the
+ * adapter says so on the comparison row. Filling it with a plausible guess
+ * would produce a quote for the wrong zone instead.
+ */
+function readPlace(components: Component[]) {
+	const first = (type: string) =>
+		components.find((c) => c.types.includes(type)) ?? null;
+
+	const state = first("administrative_area_level_1");
+	const city = first("locality") ?? first("administrative_area_level_2");
+
+	return {
+		postcode: first("postal_code")?.long_name ?? null,
+		city: city?.long_name ?? null,
+		// Stored as the ISO code, not the display name: the name is what varies
+		// between Google's answers and EasyParcel is the only consumer.
+		state: state ? subdivisionCode(state.long_name) : null,
+	};
+}
 
 /**
  * `APPROXIMATE` means Google matched the town and nothing finer. That is a
@@ -89,6 +131,7 @@ export async function geocodeAddress(
 			lat: best.geometry.location.lat,
 			lng: best.geometry.location.lng,
 			formattedAddress: best.formatted_address,
+			...readPlace(best.address_components),
 		};
 	} catch {
 		// An unreachable geocoder must not take the save down with it.
@@ -101,6 +144,9 @@ export type StoredPin = {
 	lng: number | null;
 	/** The address string this pin was resolved for; null when there is none. */
 	geocodedFor: string | null;
+	postcode: string | null;
+	city: string | null;
+	state: string | null;
 };
 
 /**
@@ -108,9 +154,12 @@ export type StoredPin = {
  *
  * Three rules, in order:
  *
- * 1. An admin-typed override wins outright. It is the escape hatch for the
- *    geocode that landed on the wrong Taman, and second-guessing it would make
- *    the hatch useless.
+ * 1. An admin-typed override wins outright on *coordinates*. It is the escape
+ *    hatch for the geocode that landed on the wrong Taman, and second-guessing
+ *    the pin would make the hatch useless. It says nothing about the postcode
+ *    though — that still comes from the geocode, re-read when the address
+ *    changed, because a permanently unquotable EasyParcel job with no remedy
+ *    the admin could apply is worse than one extra geocoding call.
  * 2. An unchanged address keeps its pin. A PATCH that only fixed a phone number
  *    must not spend a geocoding call, and must not risk a different answer.
  * 3. Otherwise geocode, and store null when that fails — a stale pin belonging
@@ -123,13 +172,46 @@ export async function resolveCoordinates(
 	override: { lat: number; lng: number } | null,
 ): Promise<StoredPin> {
 	if (override) {
-		return { lat: override.lat, lng: override.lng, geocodedFor: address };
+		// An admin-typed pin overrides the *coordinates*, not the postcode — they
+		// are correcting where the map dropped the marker, not telling us the job
+		// moved to another state. The stored place is kept when the address is
+		// unchanged and re-read from the geocode when it is not.
+		const place =
+			current.geocodedFor === address
+				? current
+				: ((await geocodeAddress(address)) ?? {
+						postcode: null,
+						city: null,
+						state: null,
+					});
+		return {
+			lat: override.lat,
+			lng: override.lng,
+			geocodedFor: address,
+			postcode: place.postcode,
+			city: place.city,
+			state: place.state,
+		};
 	}
 	if (current.geocodedFor === address && current.lat !== null) {
 		return current;
 	}
 	const found = await geocodeAddress(address);
 	return found
-		? { lat: found.lat, lng: found.lng, geocodedFor: address }
-		: { lat: null, lng: null, geocodedFor: null };
+		? {
+				lat: found.lat,
+				lng: found.lng,
+				geocodedFor: address,
+				postcode: found.postcode,
+				city: found.city,
+				state: found.state,
+			}
+		: {
+				lat: null,
+				lng: null,
+				geocodedFor: null,
+				postcode: null,
+				city: null,
+				state: null,
+			};
 }

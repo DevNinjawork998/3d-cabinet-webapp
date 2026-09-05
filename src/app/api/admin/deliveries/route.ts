@@ -53,7 +53,14 @@ export async function POST(request: Request) {
 	// Geocode here rather than at quote time: an address Google cannot place is
 	// the admin's typo, and they are far more likely to fix it now than when a
 	// partner comparison silently comes back one row short.
-	const blank = { lat: null, lng: null, geocodedFor: null };
+	const blank = {
+		lat: null,
+		lng: null,
+		geocodedFor: null,
+		postcode: null,
+		city: null,
+		state: null,
+	};
 	trace("save", {
 		what: "create",
 		siteAddress: rest.siteAddress,
@@ -89,9 +96,15 @@ export async function POST(request: Request) {
 			siteLat: site.lat,
 			siteLng: site.lng,
 			siteGeocodedFor: site.geocodedFor,
+			sitePostcode: site.postcode,
+			siteCity: site.city,
+			siteState: site.state,
 			pickupLat: pickup.lat,
 			pickupLng: pickup.lng,
 			pickupGeocodedFor: pickup.geocodedFor,
+			pickupPostcode: pickup.postcode,
+			pickupCity: pickup.city,
+			pickupState: pickup.state,
 			scheduledAt: scheduledAt === null ? null : new Date(scheduledAt),
 			// Derived on write so the carrier payload builders and the list can
 			// read them without recomputing, and so a later change to the maths

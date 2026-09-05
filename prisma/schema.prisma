@@ -236,6 +236,21 @@ model Delivery {
   pickupLat         Float?
   pickupLng         Float?
   pickupGeocodedFor String?
+  /// What EasyParcel prices against. Lalamove takes coordinates and reads the
+  /// address line as a label; a parcel network does the opposite — it wants a
+  /// postcode and an ISO 3166-2 subdivision and has no use for a pin. Both are
+  /// read out of the same Google reply at save time, so a job carries whichever
+  /// half the partner it ends up on needs.
+  sitePostcode      String?
+  siteCity          String?
+  siteState         String?
+  pickupPostcode    String?
+  pickupCity        String?
+  pickupState       String?
+  /// The consignment note to print and tape to the box. Distinct from
+  /// `trackingUrl`, which is the page the customer watches: a parcel that
+  /// leaves the workshop without its AWB affixed does not get collected.
+  labelUrl          String?
   /// Line items: `[{ label, qty, widthMm, heightMm, depthMm, weightKg }]`.
   /// Json rather than a table because nothing queries inside it — it is written
   /// whole by the form and read whole by the carrier payload builder.

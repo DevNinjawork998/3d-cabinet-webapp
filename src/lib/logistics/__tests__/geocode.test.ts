@@ -15,6 +15,24 @@ const okResponse = (locationType: string) => ({
 				location: { lat: 3.1509, lng: 101.5931 },
 				location_type: locationType,
 			},
+			address_components: [
+				{ long_name: "47810", short_name: "47810", types: ["postal_code"] },
+				{
+					long_name: "Petaling Jaya",
+					short_name: "PJ",
+					types: ["locality"],
+				},
+				{
+					long_name: "Selangor",
+					short_name: "Selangor",
+					types: ["administrative_area_level_1", "political"],
+				},
+				{
+					long_name: "Malaysia",
+					short_name: "MY",
+					types: ["country", "political"],
+				},
+			],
 		},
 	],
 });
@@ -57,6 +75,9 @@ describe("geocodeAddress", () => {
 			lat: 3.1509,
 			lng: 101.5931,
 			formattedAddress: "Jalan PJU 5/20, Kota Damansara, 47810 Petaling Jaya",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
 		});
 	});
 
@@ -104,17 +125,63 @@ describe("geocodeAddress", () => {
 });
 
 describe("resolveCoordinates", () => {
-	it("takes an admin override without calling Google", async () => {
+	it("takes an admin override on coordinates, but still geocodes the place", async () => {
+		// An override corrects where the map dropped the pin — it says nothing
+		// about the postcode, and without a geocode here the job would be
+		// permanently unquotable by a parcel partner with no remedy the admin
+		// could apply.
 		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
 		const fetchMock = stubFetch(okResponse("ROOFTOP"));
 
 		expect(
 			await resolveCoordinates(
 				"Jalan PJU 5/20",
-				{ lat: null, lng: null, geocodedFor: null },
+				{
+					lat: null,
+					lng: null,
+					geocodedFor: null,
+					postcode: null,
+					city: null,
+					state: null,
+				},
 				{ lat: 3.2, lng: 101.6 },
 			),
-		).toEqual({ lat: 3.2, lng: 101.6, geocodedFor: "Jalan PJU 5/20" });
+		).toEqual({
+			lat: 3.2,
+			lng: 101.6,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps the stored place on an override when the address has not changed", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(okResponse("ROOFTOP"));
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Jalan PJU 5/20",
+					postcode: "47810",
+					city: "Petaling Jaya",
+					state: "MY-10",
+				},
+				{ lat: 3.2, lng: 101.6 },
+			),
+		).toEqual({
+			lat: 3.2,
+			lng: 101.6,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
@@ -125,10 +192,24 @@ describe("resolveCoordinates", () => {
 		expect(
 			await resolveCoordinates(
 				"Jalan PJU 5/20",
-				{ lat: 3.1, lng: 101.5, geocodedFor: "Jalan PJU 5/20" },
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Jalan PJU 5/20",
+					postcode: "47810",
+					city: "Petaling Jaya",
+					state: "MY-10",
+				},
 				null,
 			),
-		).toEqual({ lat: 3.1, lng: 101.5, geocodedFor: "Jalan PJU 5/20" });
+		).toEqual({
+			lat: 3.1,
+			lng: 101.5,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
@@ -139,10 +220,24 @@ describe("resolveCoordinates", () => {
 		expect(
 			await resolveCoordinates(
 				"Jalan PJU 5/20",
-				{ lat: 3.1, lng: 101.5, geocodedFor: "Somewhere else" },
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Somewhere else",
+					postcode: null,
+					city: null,
+					state: null,
+				},
 				null,
 			),
-		).toEqual({ lat: 3.1509, lng: 101.5931, geocodedFor: "Jalan PJU 5/20" });
+		).toEqual({
+			lat: 3.1509,
+			lng: 101.5931,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
 	});
 
 	it("clears the pin when the new address will not geocode", async () => {
@@ -152,9 +247,63 @@ describe("resolveCoordinates", () => {
 		expect(
 			await resolveCoordinates(
 				"nowhere at all",
-				{ lat: 3.1, lng: 101.5, geocodedFor: "Somewhere else" },
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Somewhere else",
+					postcode: null,
+					city: null,
+					state: null,
+				},
 				null,
 			),
-		).toEqual({ lat: null, lng: null, geocodedFor: null });
+		).toEqual({
+			lat: null,
+			lng: null,
+			geocodedFor: null,
+			postcode: null,
+			city: null,
+			state: null,
+		});
+	});
+});
+
+describe("geocodeAddress address components", () => {
+	it("keeps the postcode, city and ISO state", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch(okResponse("ROOFTOP"));
+
+		const found = await geocodeAddress("Jalan PJU 5/20, Kota Damansara");
+		expect(found?.postcode).toBe("47810");
+		expect(found?.city).toBe("Petaling Jaya");
+		expect(found?.state).toBe("MY-10");
+	});
+
+	it("returns nulls for the components Google omits, not a throw", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch({
+			status: "OK",
+			results: [
+				{
+					formatted_address: "Somewhere vague but precise",
+					geometry: {
+						location: { lat: 3.1, lng: 101.5 },
+						location_type: "ROOFTOP",
+					},
+					address_components: [
+						{
+							long_name: "Malaysia",
+							short_name: "MY",
+							types: ["country", "political"],
+						},
+					],
+				},
+			],
+		});
+
+		const found = await geocodeAddress("Somewhere vague but precise");
+		expect(found?.postcode).toBeNull();
+		expect(found?.city).toBeNull();
+		expect(found?.state).toBeNull();
 	});
 });

@@ -100,6 +100,46 @@ export function pickupPin(
 }
 
 /**
+ * The workshop's postcode, town and state.
+ *
+ * EasyParcel prices by postcode and subdivision rather than by coordinate, so
+ * these are to a parcel quote what `WORKSHOP_PIN` is to a Lalamove one: without
+ * them the sender half of the request cannot be built at all.
+ *
+ * ponytail: derived from `WORKSHOP_PIN`, which sits in the Dengkil/Sepang area
+ * of Selangor, and placeholders until the client confirms the street address —
+ * the same open question `WORKSHOP_ADDRESS` and `WORKSHOP_PHONE` carry. A wrong
+ * postcode here is a quote for the wrong origin zone on every parcel job.
+ */
+export const WORKSHOP_POSTCODE = "43800";
+export const WORKSHOP_CITY = "Dengkil";
+export const WORKSHOP_STATE = "MY-10";
+
+export type Place = {
+	postcode: string | null;
+	city: string | null;
+	state: string | null;
+};
+
+/**
+ * The place to quote a pickup from: what the geocode stored, then the
+ * workshop's own, then nothing.
+ *
+ * Same shape and same reasoning as `pickupPin` — the address check is what
+ * keeps an edited pickup from silently inheriting the workshop's postcode.
+ */
+export function pickupPlace(address: string, stored: Place): Place | null {
+	if (stored.postcode !== null && stored.state !== null) return stored;
+	return address.trim() === WORKSHOP_ADDRESS
+		? {
+				postcode: WORKSHOP_POSTCODE,
+				city: WORKSHOP_CITY,
+				state: WORKSHOP_STATE,
+			}
+		: null;
+}
+
+/**
  * The number a driver rings from the loading bay. Beside the address for the
  * same reason it is: one workshop, one string, no settings table.
  *
