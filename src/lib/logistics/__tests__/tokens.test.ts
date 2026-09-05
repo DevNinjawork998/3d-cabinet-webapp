@@ -13,20 +13,54 @@ import { tokenReply } from "./fixtures/easyparcel";
  * `tx` lives inside the factory (not closed over from module scope) because
  * `vi.mock` factories are hoisted above the rest of the file — a `const tx`
  * declared below would work only by accident of import-time evaluation order.
+ *
+ * `calls.order` records what the mocked `tx` saw and in what sequence — the
+ * one thing worth asserting about the advisory lock. Deleting the lock line
+ * in `tokens.ts` entirely, or reading through `prisma` instead of `tx`, would
+ * previously leave every test green: `$executeRaw` was an unasserted stub and
+ * the outer `prisma` mock exposed the same `findUnique`. Recording the order
+ * `tx`'s own methods are called in, and asserting on it, is what makes that
+ * regression fail here.
  */
 const row = {
 	current: null as null | Record<string, unknown>,
 };
+const calls = {
+	order: [] as string[],
+};
 
 vi.mock("@/lib/catalogue/db", () => {
+	const upsert = async ({
+		create,
+		update,
+	}: {
+		create: Record<string, unknown>;
+		update: Record<string, unknown>;
+	}) => {
+		calls.order.push("write");
+		row.current = { ...(row.current ?? {}), ...(update ?? create) };
+		return row.current;
+	};
+
 	const tx = {
-		$executeRaw: async () => 1,
+		$executeRaw: async (
+			strings: TemplateStringsArray,
+			..._values: unknown[]
+		) => {
+			calls.order.push(`lock:${strings.join("")}`);
+			return 1;
+		},
 		carrierToken: {
-			findUnique: async () => row.current,
+			findUnique: async () => {
+				calls.order.push("read");
+				return row.current;
+			},
 			update: async ({ data }: { data: Record<string, unknown> }) => {
+				calls.order.push("write");
 				row.current = { ...(row.current ?? {}), ...data };
 				return row.current;
 			},
+			upsert,
 		},
 	};
 
@@ -35,16 +69,7 @@ vi.mock("@/lib/catalogue/db", () => {
 			$transaction: async (fn: (tx: unknown) => unknown) => fn(tx),
 			carrierToken: {
 				findUnique: async () => row.current,
-				upsert: async ({
-					create,
-					update,
-				}: {
-					create: Record<string, unknown>;
-					update: Record<string, unknown>;
-				}) => {
-					row.current = { ...(row.current ?? {}), ...(update ?? create) };
-					return row.current;
-				},
+				upsert,
 			},
 		},
 	};
@@ -73,6 +98,7 @@ beforeEach(() => {
 	vi.stubEnv("EASYPARCEL_CLIENT_ID", "cid");
 	vi.stubEnv("EASYPARCEL_CLIENT_SECRET", "csecret");
 	row.current = null;
+	calls.order = [];
 });
 
 afterEach(() => {
@@ -93,6 +119,22 @@ describe("accessTokenFor", () => {
 
 		expect(await accessTokenFor("easyparcel")).toBe("still_good");
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("takes the advisory lock before reading the row", async () => {
+		row.current = {
+			carrierId: "easyparcel",
+			accessToken: "still_good",
+			refreshToken: "rt",
+			accessTokenExpiresAt: hours(5),
+			refreshTokenExpiresAt: hours(8000),
+		};
+
+		await accessTokenFor("easyparcel");
+
+		expect(calls.order[0]).toMatch(/^lock:.*pg_advisory_xact_lock/);
+		expect(calls.order).toContain("read");
+		expect(calls.order.indexOf("read")).toBeGreaterThan(0);
 	});
 
 	it("refreshes an expiring token and writes the rotated pair back", async () => {

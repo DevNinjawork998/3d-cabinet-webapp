@@ -104,11 +104,23 @@ export async function requestToken(
 		// Safe to send twice: an authorization code that has already been spent
 		// comes back as a 4xx, which is not retried.
 		idempotent: true,
+		// The request body is the credential being spent and the reply is the
+		// credential being minted — unlike `lalamove.ts`'s quote replies, which
+		// carry no secret and are printed in full, this one must never reach a
+		// log line even with LOGISTICS_DEBUG on.
+		sensitive: true,
 	});
 	const parsed = tokenResponseSchema.safeParse(reply);
 	if (!parsed.success) {
+		// Not the payload: on the documented shape it *is* a live access and
+		// refresh token, and a schema failure from one renamed field would put
+		// them in an Error message that travels wherever the caller reports
+		// failures. The field paths are what a debugger needs and are not secret.
+		const fields = parsed.error.issues
+			.map((issue) => issue.path.join("."))
+			.join(", ");
 		throw new Error(
-			`EasyParcel's token reply was not the shape we expect: ${JSON.stringify(reply)?.slice(0, 200)}`,
+			`EasyParcel's token reply was not the shape we expect: ${fields}`,
 		);
 	}
 	return parsed.data;

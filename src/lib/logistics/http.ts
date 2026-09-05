@@ -55,6 +55,16 @@ type Options = {
 	 * false so a new adapter has to opt in rather than forget to opt out.
 	 */
 	idempotent?: boolean;
+	/**
+	 * The request body and the response body both carry a live credential, not
+	 * just a field named like one — `trace`'s redaction works by key name, and
+	 * `body`/`text` are not credential-shaped keys, so an OAuth token exchange
+	 * would otherwise write a working access and refresh token into the log the
+	 * moment an admin turns on `LOGISTICS_DEBUG` to see why a carrier call is
+	 * failing. Set on the EasyParcel token call only: every other carrier body
+	 * is the main debugging tool for a refused quote and must stay visible.
+	 */
+	sensitive?: boolean;
 };
 
 /** JSON in, JSON out. Non-2xx throws with the body attached for the event log. */
@@ -62,7 +72,14 @@ export async function carrierFetch<T>(
 	url: string,
 	options: Options,
 ): Promise<T> {
-	const { carrierId, method = "GET", headers = {}, body, idempotent } = options;
+	const {
+		carrierId,
+		method = "GET",
+		headers = {},
+		body,
+		idempotent,
+		sensitive,
+	} = options;
 
 	// One retry, only for calls that can safely be sent twice, and only for the
 	// failures a retry can fix: a dropped connection or the carrier's own 5xx.
@@ -78,7 +95,14 @@ export async function carrierFetch<T>(
 					? body
 					: JSON.stringify(body);
 		const startedAt = Date.now();
-		trace("request", { carrierId, method, url, headers, body: sent, attempt });
+		trace("request", {
+			carrierId,
+			method,
+			url,
+			headers,
+			body: sensitive ? "[redacted]" : sent,
+			attempt,
+		});
 
 		try {
 			const response = await fetch(url, {
@@ -101,7 +125,7 @@ export async function carrierFetch<T>(
 				url,
 				status: response.status,
 				ms: Date.now() - startedAt,
-				body: text,
+				body: sensitive ? "[redacted]" : text,
 			});
 
 			if (!response.ok) {

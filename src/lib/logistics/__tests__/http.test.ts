@@ -13,7 +13,13 @@ function stubFetch(status = 200, body: unknown = { ok: true }) {
 	return fetchMock;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+const spyLog = () => vi.spyOn(console, "log").mockImplementation(() => {});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+	process.env.LOGISTICS_DEBUG = undefined;
+});
 
 describe("carrierFetch", () => {
 	it("sends a string body untouched, so a signature matches", async () => {
@@ -83,5 +89,23 @@ describe("carrierFetch", () => {
 			}),
 		).rejects.toBeInstanceOf(CarrierHttpError);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("redacts the request and response bodies when marked sensitive", async () => {
+		process.env.LOGISTICS_DEBUG = "1";
+		const log = spyLog();
+		stubFetch(200, { access_token: "at_live", refresh_token: "rt_live" });
+
+		await carrierFetch("https://example.test/x", {
+			carrierId: "test",
+			method: "POST",
+			body: "refresh_token=rt_live",
+			sensitive: true,
+		});
+
+		const printed = log.mock.calls.map((call) => String(call[1])).join("\n");
+		expect(printed).not.toContain("rt_live");
+		expect(printed).not.toContain("at_live");
+		expect(printed).toContain("[redacted]");
 	});
 });
