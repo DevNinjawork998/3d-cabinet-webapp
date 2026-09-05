@@ -40,14 +40,9 @@ export default function ScrollTrack({
 		const track = trackRef.current;
 		if (!track) return;
 
-		const enabled = beatsEnabled({
-			reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
-			wideEnough: matchMedia(`(min-width: ${MIN_WIDTH_PX}px)`).matches,
-		});
-		if (!enabled) return;
-
 		let ticking = false;
 		let listening = false;
+		let observer: IntersectionObserver | null = null;
 
 		const write = () => {
 			ticking = false;
@@ -83,18 +78,50 @@ export default function ScrollTrack({
 		};
 
 		// Only listen while the track is anywhere near the viewport.
-		const observer = new IntersectionObserver(
-			([entry]) => {
-				if (entry.isIntersecting) start();
-				else stop();
-			},
-			{ rootMargin: "100% 0px" },
-		);
-		observer.observe(track);
+		const arm = () => {
+			if (observer) return;
+			observer = new IntersectionObserver(
+				([entry]) => {
+					if (entry.isIntersecting) start();
+					else stop();
+				},
+				{ rootMargin: "100% 0px" },
+			);
+			observer.observe(track);
+		};
+
+		const disarm = () => {
+			if (!observer) return;
+			observer.disconnect();
+			observer = null;
+			stop();
+		};
+
+		// The reduced-motion and viewport-width gates are live, not read once:
+		// an OS setting flipped mid-session or a tablet rotating across the
+		// width threshold must arm or disarm the track immediately, not only
+		// at mount. Both queries route through the same evaluate/arm/disarm
+		// path so there is exactly one place that decides "on" vs "off".
+		const mqReducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+		const mqWideEnough = matchMedia(`(min-width: ${MIN_WIDTH_PX}px)`);
+
+		const evaluate = () => {
+			const enabled = beatsEnabled({
+				reducedMotion: mqReducedMotion.matches,
+				wideEnough: mqWideEnough.matches,
+			});
+			if (enabled) arm();
+			else disarm();
+		};
+
+		evaluate();
+		mqReducedMotion.addEventListener("change", evaluate);
+		mqWideEnough.addEventListener("change", evaluate);
 
 		return () => {
-			observer.disconnect();
-			stop();
+			mqReducedMotion.removeEventListener("change", evaluate);
+			mqWideEnough.removeEventListener("change", evaluate);
+			disarm();
 		};
 	}, []);
 

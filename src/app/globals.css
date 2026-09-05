@@ -39,10 +39,11 @@ body {
  */
 
 [data-beats="on"] {
-	/* The `1` fallback matters: `data-beats` is set in the same frame as the
-	   first write, but if a paint ever landed between them, an undefined `--p`
-	   would make the whole clamp invalid. Falling back to 1 renders the
-	   finished state, which is the only wrong answer this page tolerates. */
+	/* The `1` fallback matters: it defends the instant before the first
+	   `write()` sets `--p`, and any future path that ever sets `data-beats`
+	   without a paired write. An undefined `--p` would make the whole clamp
+	   invalid; falling back to 1 renders the finished state, which is the
+	   only wrong answer this page tolerates. */
 	--beat-copy: clamp(0, calc((var(--p, 1) - 0.02) / 0.28), 1);
 	--beat-photo: clamp(0, calc(var(--p, 1) / 0.75), 1);
 }
