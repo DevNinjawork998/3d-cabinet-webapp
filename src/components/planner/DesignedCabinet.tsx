@@ -239,6 +239,7 @@ export function DesignedCabinet({
 	door,
 	hinge,
 	exposed,
+	doorsHidden = false,
 	open,
 	finishHex,
 	finishPhoto,
@@ -255,6 +256,8 @@ export function DesignedCabinet({
 	 * outer stile, so this is what decides whether it may take the full swing
 	 * or has to stop square to the wall. */
 	exposed: ExposedSides;
+	/** Draw no fronts at all, so the interior is unobstructed. */
+	doorsHidden?: boolean;
 	/** Swing the doors open. */
 	open: boolean;
 	finishHex: string;
@@ -309,7 +312,7 @@ export function DesignedCabinet({
 			{drawn.map((group, i) => {
 				// A doorless carcass is a real state — the customer has placed a
 				// unit but not chosen a front — and it has to read as an open box.
-				if (isFront(group.role) && !door) return null;
+				if (isFront(group.role) && (!door || doorsHidden)) return null;
 
 				// Role plus left edge, because `door` now repeats: two leaves of one
 				// pair are the same role and only their position tells them apart.

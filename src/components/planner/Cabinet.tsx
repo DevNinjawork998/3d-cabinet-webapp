@@ -82,6 +82,7 @@ export function Cabinet({
 	door,
 	hinge,
 	doorsOpen = false,
+	doorsHidden = false,
 	xMm,
 	runWidthMm,
 	floorHeightMm,
@@ -113,6 +114,8 @@ export function Cabinet({
 	/** Swing the doors open so the customer can see inside. View state, not
 	 * something on the layout — see `StudioScreen`. */
 	doorsOpen?: boolean;
+	/** Draw no fronts at all, so the interior is unobstructed. */
+	doorsHidden?: boolean;
 	/** Left edge along the run. */
 	xMm: number;
 	runWidthMm: number;
@@ -259,6 +262,7 @@ export function Cabinet({
 					hinge={hinge}
 					exposed={exposed}
 					open={doorsOpen}
+					doorsHidden={doorsHidden}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
 					sheetOffset={sheetOffset}
@@ -314,6 +318,7 @@ export function Cabinet({
 					/>
 
 					{door &&
+						!doorsHidden &&
 						(drawerFronts.length > 0 ? (
 							<Drawers
 								parts={drawerFronts}

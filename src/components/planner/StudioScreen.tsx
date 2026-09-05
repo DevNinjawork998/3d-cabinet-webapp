@@ -80,9 +80,22 @@ const RUN_MODES: { toWall: boolean; label: string }[] = [
 
 /** Doors shut, or swung open so the customer can see the inside they are
  *  buying. View state, never on the layout — see `openIds`. */
-const DOOR_MODES: { open: boolean; label: string }[] = [
-	{ open: false, label: "Doors closed" },
-	{ open: true, label: "Doors open" },
+/**
+ * How the run shows its fronts.
+ *
+ * `hidden` exists because `open` cannot answer "show me every interior". Two
+ * cabinets whose doors hinge on the same shared stile cannot both be open —
+ * not here and not in a real kitchen — so swinging them all at once stacks
+ * two leaves into the same space whatever angle they stop at. Taking the
+ * fronts away is the honest way to show the whole run at once, and it is what
+ * this toggle was specified as from the start.
+ */
+type DoorView = "closed" | "open" | "hidden";
+
+const DOOR_MODES: { id: DoorView; label: string }[] = [
+	{ id: "closed", label: "Doors closed" },
+	{ id: "open", label: "Doors open" },
+	{ id: "hidden", label: "Doors hidden" },
 ];
 
 /** Which stile a lone door hangs on, named the way a fitter says it. */
@@ -219,6 +232,9 @@ export function StudioScreen({
 	// or a quote. One set drives both the global toggle and the per-cabinet
 	// button, so the two can never disagree about what is open.
 	const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
+	// A view mode, not a property of the design — same reasoning as `openIds`,
+	// and it must not ride along in a share link or a quote either.
+	const [doorsHidden, setDoorsHidden] = useState(false);
 	const [measureMode, setMeasureMode] = useState(false);
 	const [measurePoints, setMeasurePoints] = useState<SnapPoint[]>([]);
 	// Which axis the second pick is pulled onto. `auto` infers it from the
@@ -247,6 +263,11 @@ export function StudioScreen({
 		(position) => position.placed.doorStyleId !== null,
 	);
 	const anyOpen = openIds.size > 0;
+	const doorView: DoorView = doorsHidden
+		? "hidden"
+		: anyOpen
+			? "open"
+			: "closed";
 	const selection = placed.filter((position) =>
 		selectedSet.has(position.placed.id),
 	);
@@ -593,18 +614,19 @@ export function StudioScreen({
 									>
 										{DOOR_MODES.map((option) => (
 											<button
-												key={String(option.open)}
+												key={option.id}
 												type="button"
-												onClick={() =>
+												onClick={() => {
+													setDoorsHidden(option.id === "hidden");
 													setOpenIds(
-														option.open
+														option.id === "open"
 															? new Set(withDoors.map((p) => p.placed.id))
 															: new Set(),
-													)
-												}
-												aria-pressed={anyOpen === option.open}
+													);
+												}}
+												aria-pressed={doorView === option.id}
 												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
-													anyOpen === option.open
+													doorView === option.id
 														? "bg-white font-medium shadow-sm"
 														: "text-neutral-600 hover:text-neutral-900"
 												}`}
@@ -615,9 +637,11 @@ export function StudioScreen({
 									</fieldset>
 
 									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-										{anyOpen
-											? "Shelves and interiors are on show. Measuring closes them again."
-											: "Open the doors to see the inside of the run."}
+										{doorView === "hidden"
+											? "Fronts are off, so the whole run is on show at once. Two doors that hinge on the same stile cannot both swing open, which is why this view takes them away instead."
+											: doorView === "open"
+												? "Shelves and interiors are on show. Measuring closes them again."
+												: "Open the doors, or take the fronts off, to see inside the run."}
 									</p>
 								</div>
 							)}
@@ -708,6 +732,7 @@ export function StudioScreen({
 						finishTextures={finishTextures}
 						selectedIds={selectedSet}
 						openIds={openIds}
+						doorsHidden={doorsHidden}
 						doorTargetId={null}
 						measureMode={measureMode}
 						measurePoints={measurePoints}
