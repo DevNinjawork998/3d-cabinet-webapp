@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import RevealOnEnter from "@/components/scroll/RevealOnEnter";
+import ScrollTrack from "@/components/scroll/ScrollTrack";
 import { prisma } from "@/lib/catalogue/db";
 import {
 	finishSlot,
@@ -240,75 +242,84 @@ export default async function Home({
 			    renders on its doors, banded into a deep gradient, which reads as
 			    a deliberate dark hero rather than a hole. One upload to the
 			    `hero` slot at /admin/site-content swaps it, no code change. */}
-			<section className="relative isolate w-full overflow-hidden">
-				<div className="absolute inset-0 -z-20 bg-neutral-900">
-					<Photo
-						url={photo.get(HERO_SLOT) ?? null}
-						alt={t.landing.hero.alt}
-						fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
-						className="h-full w-full"
-					/>
-				</div>
-
-				{/* Two overlays, not one. A flat scrim dims the photo evenly and
-				    leaves the text no more legible than before; this darkens the
-				    left, where the words are, and lets the right side of the
-				    photograph stay bright. The bottom fade is what stops the
-				    headline fighting whatever the camera found down there. */}
-				<div
-					className="-z-10 absolute inset-0"
-					style={{
-						background:
-							"linear-gradient(100deg, rgba(14,15,14,.86) 0%, rgba(14,15,14,.72) 38%, rgba(14,15,14,.22) 78%, rgba(14,15,14,.12) 100%)",
-					}}
-					aria-hidden
-				/>
-				<div
-					className="-z-10 absolute inset-x-0 bottom-0 h-1/3"
-					style={{
-						background:
-							"linear-gradient(to top, rgba(14,15,14,.55), transparent)",
-					}}
-					aria-hidden
-				/>
-
-				<div className="mx-auto flex min-h-[clamp(460px,68vh,640px)] w-full max-w-[1180px] flex-col justify-center px-6 py-20 sm:px-8 sm:py-24">
-					<p className="mb-5 font-semibold text-[11px] text-white/70 uppercase tracking-[0.16em]">
-						{t.landing.hero.eyebrow}
-					</p>
-					{/* The accent word is the product, not decoration — the template
-					    this follows colours a noun, and the noun worth colouring
-					    here is the thing nobody else in the market offers. */}
-					<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-white leading-[1.02] tracking-[-0.02em]">
-						{t.landing.hero.titleBeforeAccent}{" "}
-						<span style={{ color: "#8fc4a8" }}>
-							{t.landing.hero.titleAccent}
-						</span>
-					</h1>
-					<p className="mt-6 max-w-[46ch] text-[17px] text-white/75 leading-7">
-						{t.landing.hero.subtitle}
-					</p>
-					<div className="mt-9 flex flex-wrap items-center gap-3">
-						<Link
-							href={`/${lang}/planner`}
-							className="rounded-xl bg-white px-8 py-4 font-semibold text-[15px] text-neutral-900 transition-transform active:translate-y-px"
-						>
-							{t.landing.hero.cta}
-						</Link>
-						{/* Ghost, not a second solid button: two equal buttons make the
-						    customer choose, and the choice we want is the planner. */}
-						<a
-							href="#how"
-							className="rounded-xl border border-white/30 px-8 py-4 font-medium text-[15px] text-white/90 transition-colors hover:border-white/60 active:translate-y-px"
-						>
-							{t.landing.hero.howItWorks}
-						</a>
+			<ScrollTrack viewports={1.7}>
+				<section className="relative isolate h-full w-full overflow-hidden">
+					<div
+						className="absolute inset-0 -z-20 bg-neutral-900"
+						data-beat="hero-photo"
+					>
+						<Photo
+							url={photo.get(HERO_SLOT) ?? null}
+							alt={t.landing.hero.alt}
+							fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
+							className="h-full w-full"
+						/>
 					</div>
-				</div>
-			</section>
+
+					{/* Two overlays, not one. A flat scrim dims the photo evenly and
+					    leaves the text no more legible than before; this darkens the
+					    left, where the words are, and lets the right side of the
+					    photograph stay bright. The bottom fade is what stops the
+					    headline fighting whatever the camera found down there. */}
+					<div
+						className="-z-10 absolute inset-0"
+						style={{
+							background:
+								"linear-gradient(100deg, rgba(14,15,14,.86) 0%, rgba(14,15,14,.72) 38%, rgba(14,15,14,.22) 78%, rgba(14,15,14,.12) 100%)",
+						}}
+						aria-hidden
+					/>
+					<div
+						className="-z-10 absolute inset-x-0 bottom-0 h-1/3"
+						style={{
+							background:
+								"linear-gradient(to top, rgba(14,15,14,.55), transparent)",
+						}}
+						aria-hidden
+					/>
+
+					<div
+						data-beat="hero-copy"
+						className="mx-auto flex min-h-[clamp(460px,68vh,640px)] w-full max-w-[1180px] flex-col justify-center px-6 py-20 sm:px-8 sm:py-24"
+					>
+						<p className="mb-5 font-semibold text-[11px] text-white/70 uppercase tracking-[0.16em]">
+							{t.landing.hero.eyebrow}
+						</p>
+						{/* The accent word is the product, not decoration — the template
+						    this follows colours a noun, and the noun worth colouring
+						    here is the thing nobody else in the market offers. */}
+						<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-white leading-[1.02] tracking-[-0.02em]">
+							{t.landing.hero.titleBeforeAccent}{" "}
+							<span style={{ color: "#8fc4a8" }}>
+								{t.landing.hero.titleAccent}
+							</span>
+						</h1>
+						<p className="mt-6 max-w-[46ch] text-[17px] text-white/75 leading-7">
+							{t.landing.hero.subtitle}
+						</p>
+						<div className="mt-9 flex flex-wrap items-center gap-3">
+							<Link
+								href={`/${lang}/planner`}
+								className="rounded-xl bg-white px-8 py-4 font-semibold text-[15px] text-neutral-900 transition-transform active:translate-y-px"
+							>
+								{t.landing.hero.cta}
+							</Link>
+							{/* Ghost, not a second solid button: two equal buttons make the
+							    customer choose, and the choice we want is the planner. */}
+							<a
+								href="#how"
+								className="rounded-xl border border-white/30 px-8 py-4 font-medium text-[15px] text-white/90 transition-colors hover:border-white/60 active:translate-y-px"
+							>
+								{t.landing.hero.howItWorks}
+							</a>
+						</div>
+					</div>
+				</section>
+			</ScrollTrack>
 
 			{/* Facts — trust strip, under the hero rather than inside it. */}
 			<section
+				data-reveal
 				className="border-y"
 				style={{ backgroundColor: RAISED, borderColor: RULE }}
 			>
@@ -333,6 +344,7 @@ export default async function Home({
 			    which is what the hairline is for. */}
 			<section
 				id="how"
+				data-reveal
 				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
 			>
 				<h2 className="mb-12 max-w-[520px] font-semibold text-[30px] leading-tight tracking-tight">
@@ -359,6 +371,7 @@ export default async function Home({
 			{/* Gallery — bento. Four rooms, four cells, kitchen carries the weight. */}
 			<section
 				id="gallery"
+				data-reveal
 				className="border-y"
 				style={{ backgroundColor: RAISED, borderColor: RULE }}
 			>
@@ -407,6 +420,7 @@ export default async function Home({
 			{/* Finishes */}
 			<section
 				id="finishes"
+				data-reveal
 				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
 			>
 				<h2 className="mb-2 font-semibold text-[30px] leading-tight tracking-tight">
@@ -456,6 +470,7 @@ export default async function Home({
 			    carries the interaction and the left stays a fixed anchor. */}
 			<section
 				id="faq"
+				data-reveal
 				className="border-y"
 				style={{ backgroundColor: RAISED, borderColor: RULE }}
 			>
@@ -577,6 +592,7 @@ export default async function Home({
 					</p>
 				</div>
 			</footer>
+			<RevealOnEnter />
 		</div>
 	);
 }
