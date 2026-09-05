@@ -51,3 +51,6 @@ graphify-out
 .agents/skills/*/
 .claude/skills/
 skills-lock.json
+
+# Worktrees for isolated agent work — scratch, never committed.
+.claude/worktrees/
