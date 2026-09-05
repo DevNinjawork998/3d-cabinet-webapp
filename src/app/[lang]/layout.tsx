@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { getDictionary } from "@/lib/copy/dictionary";
 import { htmlLang, isLocale, LOCALES } from "@/lib/copy/locales";
 import "../globals.css";
@@ -51,13 +53,22 @@ export default async function RootLayout({
 }: LayoutProps<"/[lang]">) {
 	const { lang } = await params;
 	if (!isLocale(lang)) notFound();
+	const dict = await getDictionary(lang);
 
 	return (
 		<html
 			lang={htmlLang(lang)}
 			className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
 		>
-			<body className="flex min-h-full flex-col font-sans">{children}</body>
+			<body className="flex min-h-full flex-col font-sans">
+				{/* useSearchParams needs a Suspense boundary or the whole tree
+				    de-opts to client rendering; a bare fallback is fine since the
+				    switcher paints almost immediately either way. */}
+				<Suspense fallback={null}>
+					<LanguageSwitcher current={lang} label={dict.common.language} />
+				</Suspense>
+				{children}
+			</body>
 		</html>
 	);
 }
