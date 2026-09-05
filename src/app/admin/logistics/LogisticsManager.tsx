@@ -9,7 +9,21 @@ import {
 	totalVolumeM3,
 	totalWeightKg,
 } from "@/lib/logistics/measure";
-import type { DeliveryItem, DeliveryStatusName } from "@/lib/logistics/types";
+import type { DeliveryStatusName } from "@/lib/logistics/types";
+import {
+	blankForm,
+	type DeliveryEventRow,
+	type DeliveryRow,
+	EDITABLE,
+	emptyItem,
+	type FormItem,
+	type FormState,
+	formFrom,
+	type QuoteRow,
+	toPayload,
+} from "./form";
+
+export type { DeliveryEventRow, DeliveryRow, QuoteRow } from "./form";
 
 /**
  * The whole delivery screen: the list, the job form, and the detail panel where
@@ -19,55 +33,6 @@ import type { DeliveryItem, DeliveryStatusName } from "@/lib/logistics/types";
  * through `/api/admin/deliveries`, then reload. Nothing here is public, so none
  * of it needs to be server-rendered.
  */
-
-/** A delivery as JSON hands it back: dates are strings on this side. */
-export type DeliveryRow = {
-	id: string;
-	number: number;
-	customerName: string;
-	customerPhone: string;
-	siteAddress: string;
-	addressNotes: string | null;
-	pickupAddress: string;
-	siteLat: number | null;
-	siteLng: number | null;
-	pickupLat: number | null;
-	pickupLng: number | null;
-	items: DeliveryItem[];
-	totalWeightKg: number | null;
-	totalVolumeM3: number | null;
-	scheduledAt: string | null;
-	carrierId: string | null;
-	status: DeliveryStatusName;
-	quotedPriceRm: number | null;
-	carrierOrderId: string | null;
-	trackingUrl: string | null;
-	driverName: string | null;
-	driverPhone: string | null;
-	vehiclePlate: string | null;
-	lastLatitude: number | null;
-	lastLongitude: number | null;
-	lastLocationAt: string | null;
-	bookedBy: string | null;
-	createdAt: string;
-};
-
-type DeliveryEventRow = {
-	id: string;
-	at: string;
-	source: string;
-	status: DeliveryStatusName | null;
-	message: string;
-	actor: string | null;
-};
-
-type QuoteRow = {
-	carrierId: string;
-	priceRm: number | null;
-	etaMinutes: number | null;
-	notes?: string;
-	error?: string;
-};
 
 const STATUS_LABEL: Record<DeliveryStatusName, string> = {
 	DRAFT: "Draft",
@@ -119,54 +84,6 @@ const ACTIVE: DeliveryStatusName[] = [
  */
 const POLL_MS = 4000;
 
-/**
- * A form row carries a `uid` the item itself does not: React needs a stable key
- * while rows are added and removed mid-edit, and an index would re-use the key
- * of a deleted row and hand its input state to its replacement. Stripped before
- * the job is saved — nothing outside this form knows about it.
- */
-type FormItem = DeliveryItem & { uid: string };
-
-const emptyItem = (): FormItem => ({
-	uid: crypto.randomUUID(),
-	label: "",
-	qty: 1,
-	widthMm: 600,
-	heightMm: 720,
-	depthMm: 560,
-	weightKg: null,
-});
-
-/**
- * `"3.1509, 101.5931"` as the admin pasted it, or null.
- *
- * Deliberately only a bare pair — a Google Maps share link is a shortened URL
- * that has to be followed server-side to learn anything, and long-pressing the
- * map already puts exactly this on the clipboard.
- */
-function parseCoords(raw: string): { lat: number; lng: number } | null {
-	const match = raw.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
-	if (!match) return null;
-	const lat = Number(match[1]);
-	const lng = Number(match[2]);
-	if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-	return { lat, lng };
-}
-
-const blankForm = (workshopAddress: string) => ({
-	customerName: "",
-	customerPhone: "",
-	siteAddress: "",
-	addressNotes: "",
-	pickupAddress: workshopAddress,
-	siteCoords: "",
-	pickupCoords: "",
-	scheduledAt: "",
-	items: [emptyItem()],
-});
-
-type FormState = ReturnType<typeof blankForm>;
-
 export function LogisticsManager({
 	initial,
 	workshopAddress,
@@ -196,30 +113,23 @@ export function LogisticsManager({
 
 	async function save(state: FormState) {
 		setError(null);
-		const res = await fetch("/api/admin/deliveries", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				customerName: state.customerName,
-				customerPhone: state.customerPhone,
-				siteAddress: state.siteAddress,
-				addressNotes: state.addressNotes || null,
-				pickupAddress: state.pickupAddress,
-				siteLat: parseCoords(state.siteCoords)?.lat ?? null,
-				siteLng: parseCoords(state.siteCoords)?.lng ?? null,
-				pickupLat: parseCoords(state.pickupCoords)?.lat ?? null,
-				pickupLng: parseCoords(state.pickupCoords)?.lng ?? null,
-				scheduledAt: state.scheduledAt
-					? new Date(state.scheduledAt).toISOString()
-					: null,
-				items: state.items
-					.filter((i) => i.label.trim() !== "")
-					.map(({ uid: _uid, ...item }) => item),
-			}),
-		});
+		const res = await fetch(
+			state.id === null
+				? "/api/admin/deliveries"
+				: `/api/admin/deliveries/${state.id}`,
+			{
+				method: state.id === null ? "POST" : "PATCH",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(toPayload(state)),
+			},
+		);
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			setError(body?.error ?? "Could not save this delivery");
+			setError(
+				body?.error === "already_booked"
+					? "This job is booked with a carrier — change it there instead."
+					: (body?.error ?? "Could not save this delivery"),
+			);
 			return;
 		}
 		setForm(null);
@@ -312,6 +222,18 @@ export function LogisticsManager({
 								>
 									{openId === row.id ? "Close" : "Open"}
 								</button>
+								{EDITABLE.has(row.status) && (
+									<button
+										type="button"
+										className="text-[12px] text-neutral-400 underline"
+										onClick={() => {
+											setForm(formFrom(row));
+											window.scrollTo({ top: 0, behavior: "smooth" });
+										}}
+									>
+										Edit
+									</button>
+								)}
 								{!row.carrierOrderId && (
 									<button
 										type="button"
@@ -369,6 +291,13 @@ function DeliveryForm({
 				onSubmit();
 			}}
 		>
+			{state.id !== null && (
+				<p className="text-[13px] text-neutral-500">
+					Editing <span className="text-neutral-900">{state.customerName}</span>
+					. Saving re-checks the address, so a corrected line gets a fresh map
+					pin.
+				</p>
+			)}
 			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Customer
@@ -529,7 +458,7 @@ function DeliveryForm({
 				type="submit"
 				className="self-start rounded-full bg-neutral-900 px-4 py-2 text-[13px] text-white"
 			>
-				Save delivery
+				{state.id === null ? "Save delivery" : "Save changes"}
 			</button>
 		</form>
 	);
