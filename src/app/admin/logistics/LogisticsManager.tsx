@@ -589,11 +589,17 @@ function DeliveryDetail({
 
 	// Re-read our own row while the job is moving, so a webhook or a cron sweep
 	// shows up without the admin reloading the page.
+	//
+	// Keyed on the status, not on `delivery`: every poll replaces that object,
+	// so depending on it tore the interval down and built a new one on each
+	// tick — a timer restarting itself four times a minute for no reason.
+	const movingStatus =
+		delivery && ACTIVE.includes(delivery.status) ? delivery.status : null;
 	useEffect(() => {
-		if (!delivery || !ACTIVE.includes(delivery.status)) return;
+		if (movingStatus === null) return;
 		const timer = setInterval(read, POLL_MS);
 		return () => clearInterval(timer);
-	}, [delivery, read]);
+	}, [movingStatus, read]);
 
 	async function compare() {
 		setBusy("compare");
