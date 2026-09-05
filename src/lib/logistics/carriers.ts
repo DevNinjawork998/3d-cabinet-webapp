@@ -59,6 +59,42 @@ export const WORKSHOP_ADDRESS =
 	"Infinite Cabinet Sdn Bhd, Klang Valley, Selangor";
 
 /**
+ * The workshop's pin, as a constant rather than something we look up.
+ *
+ * Lalamove prices stop to stop by coordinate and reads the address line only
+ * as a label for the driver, so this is the field that actually decides where
+ * the lorry starts. It never changes, which makes geocoding it on every save
+ * a call that can only ever return the same answer — and today returns none at
+ * all, because `WORKSHOP_ADDRESS` is a placeholder too vague to place. Every
+ * job has therefore been created with an unlocated pickup, and Lalamove
+ * refuses a stop without coordinates, so it could not quote a single one.
+ *
+ * From the client's own Maps link for INFINITE CABINET SDN BHD. Taken off the
+ * `!3d`/`!4d` pin in the expanded url, not the `@` viewport centre — those
+ * disagree by about 5 km here, and the viewport is only where the map was
+ * scrolled to.
+ */
+export const WORKSHOP_PIN = { lat: 2.9848868, lng: 101.861807 };
+
+/**
+ * The pin to send as the pickup override, in precedence order: what the admin
+ * typed, then the workshop's own pin when the job leaves from the workshop,
+ * then nothing.
+ *
+ * The address check is what keeps this honest — an admin who edits the pickup
+ * to a different address gets a geocode, not the workshop's coordinates
+ * silently attached to somewhere else.
+ */
+export function pickupPin(
+	address: string,
+	lat: number | null,
+	lng: number | null,
+): { lat: number; lng: number } | null {
+	if (lat !== null && lng !== null) return { lat, lng };
+	return address.trim() === WORKSHOP_ADDRESS ? WORKSHOP_PIN : null;
+}
+
+/**
  * The number a driver rings from the loading bay. Beside the address for the
  * same reason it is: one workshop, one string, no settings table.
  *

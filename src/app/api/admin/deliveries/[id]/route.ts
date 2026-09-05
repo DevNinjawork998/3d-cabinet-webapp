@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
+import { pickupPin } from "@/lib/logistics/carriers";
 import { resolveCoordinates } from "@/lib/logistics/geocode";
 import { totalVolumeM3, totalWeightKg } from "@/lib/logistics/measure";
 import { deliveryInputSchema } from "@/lib/logistics/types";
@@ -82,9 +83,7 @@ export async function PATCH(
 				lng: existing.pickupLng,
 				geocodedFor: existing.pickupGeocodedFor,
 			},
-			pickupLat !== null && pickupLng !== null
-				? { lat: pickupLat, lng: pickupLng }
-				: null,
+			pickupPin(rest.pickupAddress, pickupLat, pickupLng),
 		),
 	]);
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
-import { WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
+import { pickupPin, WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
 import {
 	isGeocodingConfigured,
 	resolveCoordinates,
@@ -63,9 +63,7 @@ export async function POST(request: Request) {
 		resolveCoordinates(
 			rest.pickupAddress,
 			blank,
-			pickupLat !== null && pickupLng !== null
-				? { lat: pickupLat, lng: pickupLng }
-				: null,
+			pickupPin(rest.pickupAddress, pickupLat, pickupLng),
 		),
 	]);
 

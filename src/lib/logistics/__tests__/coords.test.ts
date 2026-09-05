@@ -62,6 +62,18 @@ describe("parseCoords", () => {
 			reason: "unreadable",
 		});
 	});
+
+	// The workshop's own link, expanded. Its `@` viewport (101.8106849) and its
+	// `!4d` pin (101.861807) disagree by about 5 km, so this is the real-world
+	// proof that reading `!3d`/`!4d` before `@` is load-bearing rather than
+	// tidiness — taking the viewport would start the lorry in the wrong town.
+	it("prefers the place pin over the viewport centre when they disagree", () => {
+		expect(
+			parseCoords(
+				"https://www.google.com/maps/place/INFINITE+CABINET+SDN+BHD/@2.9856556,101.8106849,13.9z/data=!4m7!3m6!1s0x31cdcdba584ad201:0xe69cfd04c886e5d5!8m2!3d2.9848868!4d101.861807",
+			),
+		).toEqual({ ok: true, lat: 2.9848868, lng: 101.861807 });
+	});
 });
 
 describe("pinState", () => {
