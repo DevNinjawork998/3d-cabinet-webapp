@@ -338,17 +338,24 @@ Append to `src/app/globals.css`:
  */
 
 [data-beats="on"] {
-	/* The `1` fallback matters: `data-beats` is set in the same frame as the
-	   first write, but if a paint ever landed between them, an undefined `--p`
-	   would make the whole clamp invalid. Falling back to 1 renders the
-	   finished state, which is the only wrong answer this page tolerates. */
-	--beat-copy: clamp(0, calc((var(--p, 1) - 0.02) / 0.28), 1);
+	/* Each fallback is chosen so that an unknown `--p` renders the READABLE
+	   state — not a fixed number. It defends the instant before the first
+	   `write()`, and any future path that sets `data-beats` without a paired
+	   write. The two differ because the beats point in opposite directions:
+	   the photo's is an arrival (1 = settled), the copy's is a departure
+	   (0 = still here, fully legible). */
 	--beat-photo: clamp(0, calc(var(--p, 1) / 0.75), 1);
+	--beat-exit: clamp(0, calc((var(--p, 0) - 0.55) / 0.45), 1);
 }
 
+/* The hero copy does NOT arrive on scroll — it is the LCP element and must be
+   legible the instant the page paints. It leaves instead, drifting up and out
+   over the back half of the track, which is what the reference product pages
+   actually do. Fading it in would reproduce, one frame later, exactly the
+   blank-headline failure the no-JavaScript contract exists to prevent. */
 [data-beats="on"] [data-beat="hero-copy"] {
-	opacity: var(--beat-copy);
-	transform: translate3d(0, calc((1 - var(--beat-copy)) * 26px), 0);
+	opacity: calc(1 - var(--beat-exit));
+	transform: translate3d(0, calc(var(--beat-exit) * -32px), 0);
 	will-change: transform, opacity;
 }
 
@@ -357,10 +364,6 @@ Append to `src/app/globals.css`:
 	   image box never changes size, so nothing re-lays-out. */
 	transform: scale(calc(1.08 - var(--beat-photo) * 0.08));
 	will-change: transform;
-}
-
-[data-beats="on"] [data-beat="hero-cue"] {
-	opacity: calc(1 - clamp(0, calc(var(--p, 1) / 0.15), 1));
 }
 
 /* Arrive-on-entry, for the sections below the pinned hero. Same contract: the
@@ -634,7 +637,7 @@ Open `http://localhost:3000/en`.
 
 - [ ] **Step 2: Check the beats land where the plan says**
 
-With the Playwright or Chrome MCP tools, screenshot at five scroll positions through the hero track — 0 %, 25 %, 50 %, 75 %, 100 % of its height. Expected: the eyebrow/headline/subtitle are settled by roughly 30 % and stay settled; the photograph's scale eases from 1.08 to 1.00 across 75 %; the scroll cue is gone by 15 %. The headline must be **fully legible in the 0 % screenshot** — it is the LCP element and it starts resolved.
+With the Playwright or Chrome MCP tools, screenshot at five scroll positions through the hero track — 0 %, 25 %, 50 %, 75 %, 100 % of its height. Expected: the eyebrow/headline/subtitle are fully legible at 0 % and stay put until roughly 55 %, then drift up and fade as the track finishes; the photograph's scale eases from 1.08 to 1.00 across 75 %; The headline must be **fully legible in the 0 % screenshot** — it is the LCP element and it starts resolved.
 
 - [ ] **Step 3: Confirm no layout shift**
 
