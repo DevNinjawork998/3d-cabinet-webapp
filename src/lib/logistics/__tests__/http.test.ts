@@ -49,6 +49,30 @@ describe("carrierFetch", () => {
 		).rejects.toBeInstanceOf(CarrierHttpError);
 	});
 
+	it("puts the carrier's own words in the message, not just the status", async () => {
+		// The whole point of the change: an admin reads `.message` on a
+		// comparison row, and "test responded 422" told them nothing about which
+		// field the carrier refused.
+		stubFetch(422, { errors: [{ id: "ERR_INVALID_SERVICE_TYPE" }] });
+
+		await expect(
+			carrierFetch("https://example.test/x", { carrierId: "test" }),
+		).rejects.toThrow(/ERR_INVALID_SERVICE_TYPE/);
+	});
+
+	it("treats a 2xx that is not JSON as a carrier failure, body and all", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () => new Response("<html>maintenance</html>", { status: 200 }),
+			),
+		);
+
+		await expect(
+			carrierFetch("https://example.test/x", { carrierId: "test" }),
+		).rejects.toThrow(/maintenance/);
+	});
+
 	it("does not retry a call that is not marked idempotent", async () => {
 		const fetchMock = stubFetch(500);
 

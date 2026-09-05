@@ -22,6 +22,16 @@ const ADAPTERS: Record<string, CarrierAdapter> = {
 	easyparcel: easyparcelAdapter,
 };
 
+/**
+ * The adapter for an id, configured or not — null when the id is not one of
+ * ours. The comparison screen needs this: a partner with no credentials has to
+ * appear as a row saying so, and `getAdapter` throwing is the wrong shape for
+ * a list it is building.
+ */
+export function findAdapter(carrierId: string): CarrierAdapter | null {
+	return ADAPTERS[carrierId] ?? null;
+}
+
 /** Throws rather than returning null: every caller would only rethrow. */
 export function getAdapter(carrierId: string): CarrierAdapter {
 	const adapter = ADAPTERS[carrierId];

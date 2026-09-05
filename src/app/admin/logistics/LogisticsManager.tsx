@@ -174,9 +174,9 @@ export function LogisticsManager({
 
 			{!geocodingConfigured && (
 				<p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-					Addresses are not being looked up — GOOGLE_GEOCODING_API_KEY is not
-					set on this deployment. Paste a pin on each job, or vehicle partners
-					cannot quote.
+					Addresses are not looked up here, so every job needs a pin pasted into
+					the Site pin field. Vehicle partners price by coordinate and cannot
+					quote without one.
 				</p>
 			)}
 

@@ -7,13 +7,32 @@
  * hangs until the platform kills it at 30s and the admin sees nothing.
  */
 
+import { trace } from "./trace";
+
+/**
+ * How much of the carrier's reply goes in the message.
+ *
+ * The whole body is kept on `.body` for the event log; the message is what an
+ * admin reads on a comparison row, and Lalamove puts the part that matters —
+ * `ERR_INVALID_SERVICE_TYPE`, a field name — in the first line.
+ */
+const DETAIL_CHARS = 300;
+
 export class CarrierHttpError extends Error {
 	constructor(
 		readonly carrierId: string,
 		readonly status: number,
 		readonly body: string,
 	) {
-		super(`${carrierId} responded ${status}`);
+		// The status alone was all this said for a while, and `.body` was on the
+		// object but read by nobody — so a partner explaining exactly what was
+		// wrong with our payload reached the admin as "lalamove responded 422".
+		const detail = body.trim().slice(0, DETAIL_CHARS);
+		super(
+			detail === ""
+				? `${carrierId} responded ${status}`
+				: `${carrierId} responded ${status}: ${detail}`,
+		);
 		this.name = "CarrierHttpError";
 	}
 }
@@ -52,6 +71,15 @@ export async function carrierFetch<T>(
 	let lastError: unknown;
 
 	for (let attempt = 0; attempt < attempts; attempt++) {
+		const sent =
+			body === undefined
+				? undefined
+				: typeof body === "string"
+					? body
+					: JSON.stringify(body);
+		const startedAt = Date.now();
+		trace("request", { carrierId, method, url, headers, body: sent, attempt });
+
 		try {
 			const response = await fetch(url, {
 				method,
@@ -60,17 +88,23 @@ export async function carrierFetch<T>(
 					accept: "application/json",
 					...headers,
 				},
-				body:
-					body === undefined
-						? undefined
-						: typeof body === "string"
-							? body
-							: JSON.stringify(body),
+				body: sent,
 				signal: AbortSignal.timeout(TIMEOUT_MS),
 			});
 
+			// Read once, whatever the status. The success path used to go straight
+			// to `.json()`, which meant a 200 carrying something unexpected was
+			// invisible — the parse threw with nothing to show for it.
+			const text = await response.text().catch(() => "");
+			trace("response", {
+				carrierId,
+				url,
+				status: response.status,
+				ms: Date.now() - startedAt,
+				body: text,
+			});
+
 			if (!response.ok) {
-				const text = await response.text().catch(() => "");
 				const error = new CarrierHttpError(carrierId, response.status, text);
 				if (response.status >= 500 && attempt < attempts - 1) {
 					lastError = error;
@@ -79,8 +113,22 @@ export async function carrierFetch<T>(
 				throw error;
 			}
 
-			return (await response.json()) as T;
+			try {
+				return JSON.parse(text) as T;
+			} catch {
+				// A 2xx that is not JSON is the carrier's contract breaking, and the
+				// body is the only thing that explains it.
+				throw new CarrierHttpError(carrierId, response.status, text);
+			}
 		} catch (error) {
+			if (!(error instanceof CarrierHttpError)) {
+				trace("failed", {
+					carrierId,
+					url,
+					ms: Date.now() - startedAt,
+					error,
+				});
+			}
 			// A CarrierHttpError here is a 4xx, or a 5xx on the final attempt.
 			if (error instanceof CarrierHttpError) throw error;
 			lastError = error;

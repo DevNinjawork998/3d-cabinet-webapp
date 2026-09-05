@@ -6,6 +6,7 @@ import { carrierFetch } from "../http";
 import { suggestVehicle, type VehicleClass } from "../measure";
 import { toE164 } from "../phone";
 import { mapCarrierStatus } from "../status";
+import { trace } from "../trace";
 import {
 	type CarrierAdapter,
 	type CarrierBooking,
@@ -93,6 +94,7 @@ export function signRequest(
 export function serviceTypeFor(job: DeliveryJob): string {
 	const suggestion = suggestVehicle(job.items);
 	if (suggestion.id === null) {
+		trace("lalamove.refused", { why: "vehicle", reason: suggestion.reason });
 		throw new LalamoveNotDeliverable(
 			`This job is ${suggestion.reason} — Lalamove books one vehicle at a time`,
 		);
@@ -108,6 +110,10 @@ function stop(
 	which: string,
 ) {
 	if (lat === null || lng === null) {
+		// Traced, because this throw happens before any request: without a line
+		// here the failure leaves no trace at all, which is how "no quotation and
+		// no explanation" happened in the first place.
+		trace("lalamove.refused", { why: "no pin", stop: which, address });
 		throw new LalamoveNotDeliverable(
 			`The ${which} address has no map location — edit it, or paste a pin`,
 		);
@@ -294,6 +300,23 @@ const driverSchema = z.object({
 	}),
 });
 
+/**
+ * A reply, or a message naming what arrived instead.
+ *
+ * `.parse()` threw a ZodError whose message is a path list — accurate, and
+ * useless on a comparison row. The payload is the only thing that explains a
+ * shape we did not expect, so it goes in the error.
+ */
+function readReply<T>(schema: z.ZodType<T>, payload: unknown, what: string): T {
+	const parsed = schema.safeParse(payload);
+	if (parsed.success) return parsed.data;
+	const seen = JSON.stringify(payload) ?? String(payload);
+	trace("lalamove.unreadable", { what, payload: seen });
+	throw new Error(
+		`Lalamove's ${what} reply was not the shape we expect: ${seen.slice(0, 200)}`,
+	);
+}
+
 /** `"3.12"` -> `3.12`; anything unreadable -> null rather than NaN. */
 function num(value: string | null | undefined): number | null {
 	if (value === null || value === undefined || value === "") return null;
@@ -334,9 +357,18 @@ export const lalamoveAdapter: CarrierAdapter = {
 	isConfigured: () => KEY() !== "" && SECRET() !== "",
 
 	async quote(job): Promise<CarrierQuote> {
+		trace("lalamove.quote", {
+			deliveryId: job.id,
+			pickup: { lat: job.pickupLat, lng: job.pickupLng },
+			site: { lat: job.siteLat, lng: job.siteLng },
+			scheduledAt: job.scheduledAt?.toISOString() ?? null,
+			items: job.items.length,
+		});
 		const body = quotationBody(job);
-		const parsed = quotationSchema.parse(
+		const parsed = readReply(
+			quotationSchema,
 			await call("POST", "/v3/quotations", body, true),
+			"quotation",
 		);
 		const { quotationId, stops, priceBreakdown } = parsed.data;
 
@@ -353,6 +385,11 @@ export const lalamoveAdapter: CarrierAdapter = {
 	},
 
 	async book(job, quote): Promise<CarrierBooking> {
+		trace("lalamove.book", {
+			deliveryId: job.id,
+			quoteRef: quote.quoteRef ?? null,
+			priceRm: quote.priceRm,
+		});
 		const ref = unpackQuoteRef(quote.quoteRef);
 		if (!ref) {
 			throw new LalamoveNotDeliverable(
@@ -362,12 +399,14 @@ export const lalamoveAdapter: CarrierAdapter = {
 
 		// Not idempotent, and `carrierFetch` will not retry it: a retried order
 		// is a second lorry.
-		const parsed = orderSchema.parse(
+		const parsed = readReply(
+			orderSchema,
 			await call(
 				"POST",
 				"/v3/orders",
 				orderBody(job, ref.quotationId, ref.senderStopId, ref.recipientStopId),
 			),
+			"order",
 		);
 
 		return {
@@ -377,8 +416,10 @@ export const lalamoveAdapter: CarrierAdapter = {
 	},
 
 	async track(carrierOrderId): Promise<TrackingUpdate> {
-		const order = orderSchema.parse(
+		const order = readReply(
+			orderSchema,
 			await call("GET", `/v3/orders/${carrierOrderId}`, undefined, true),
+			"order",
 		);
 		const update: TrackingUpdate = {
 			status: mapCarrierStatus("lalamove", order.data.status),
@@ -393,13 +434,15 @@ export const lalamoveAdapter: CarrierAdapter = {
 		// first: driver details are available only in a window around the pickup,
 		// so a 403 outside it is normal rather than an incident.
 		try {
-			const driver = driverSchema.parse(
+			const driver = readReply(
+				driverSchema,
 				await call(
 					"GET",
 					`/v3/orders/${carrierOrderId}/drivers/${driverId}`,
 					undefined,
 					true,
 				),
+				"driver",
 			);
 			return {
 				...update,
