@@ -81,7 +81,7 @@ export const emptyItem = (): FormItem => ({
 });
 
 /** What the pin input shows when the admin has not typed anything into it. */
-const NO_PIN_PLACEHOLDER = "Found from the address";
+export const NO_PIN_PLACEHOLDER = "Found from the address";
 
 export const blankForm = (workshopAddress: string) => ({
 	id: null as string | null,

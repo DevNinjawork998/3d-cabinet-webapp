@@ -10,6 +10,7 @@ import {
 	totalVolumeM3,
 	totalWeightKg,
 } from "@/lib/logistics/measure";
+import { trace } from "@/lib/logistics/trace";
 import { deliveryInputSchema } from "@/lib/logistics/types";
 
 export const runtime = "nodejs";
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
 	// the admin's typo, and they are far more likely to fix it now than when a
 	// partner comparison silently comes back one row short.
 	const blank = { lat: null, lng: null, geocodedFor: null };
+	trace("save", {
+		what: "create",
+		siteAddress: rest.siteAddress,
+		sitePinGiven:
+			siteLat !== null && siteLng !== null ? [siteLat, siteLng] : null,
+		pickupAddress: rest.pickupAddress,
+		pickupPinGiven:
+			pickupLat !== null && pickupLng !== null ? [pickupLat, pickupLng] : null,
+	});
 	const [site, pickup] = await Promise.all([
 		resolveCoordinates(
 			rest.siteAddress,
@@ -66,6 +76,12 @@ export async function POST(request: Request) {
 			pickupPin(rest.pickupAddress, pickupLat, pickupLng),
 		),
 	]);
+
+	trace("save.resolved", {
+		what: "create",
+		site: [site.lat, site.lng],
+		pickup: [pickup.lat, pickup.lng],
+	});
 
 	const delivery = await prisma.delivery.create({
 		data: {

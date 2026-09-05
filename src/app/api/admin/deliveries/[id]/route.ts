@@ -3,6 +3,7 @@ import { prisma } from "@/lib/catalogue/db";
 import { pickupPin } from "@/lib/logistics/carriers";
 import { resolveCoordinates } from "@/lib/logistics/geocode";
 import { totalVolumeM3, totalWeightKg } from "@/lib/logistics/measure";
+import { trace } from "@/lib/logistics/trace";
 import { deliveryInputSchema } from "@/lib/logistics/types";
 
 export const runtime = "nodejs";
@@ -64,6 +65,18 @@ export async function PATCH(
 
 	// `existing` seeds the current pin, so an edit that did not touch the address
 	// keeps it and spends no geocoding call.
+	trace("save", {
+		what: "edit",
+		deliveryId: id,
+		siteAddress: rest.siteAddress,
+		sitePinGiven:
+			siteLat !== null && siteLng !== null ? [siteLat, siteLng] : null,
+		sitePinStored: [existing.siteLat, existing.siteLng],
+		pickupAddress: rest.pickupAddress,
+		pickupPinGiven:
+			pickupLat !== null && pickupLng !== null ? [pickupLat, pickupLng] : null,
+		pickupPinStored: [existing.pickupLat, existing.pickupLng],
+	});
 	const [site, pickup] = await Promise.all([
 		resolveCoordinates(
 			rest.siteAddress,
@@ -86,6 +99,12 @@ export async function PATCH(
 			pickupPin(rest.pickupAddress, pickupLat, pickupLng),
 		),
 	]);
+
+	trace("save.resolved", {
+		what: "edit",
+		site: [site.lat, site.lng],
+		pickup: [pickup.lat, pickup.lng],
+	});
 
 	const delivery = await prisma.delivery.update({
 		where: { id },

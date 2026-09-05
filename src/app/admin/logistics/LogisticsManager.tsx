@@ -26,6 +26,7 @@ import {
 	type FormItem,
 	type FormState,
 	formFrom,
+	NO_PIN_PLACEHOLDER,
 	type QuoteRow,
 	toPayload,
 } from "./form";
@@ -200,6 +201,7 @@ export function LogisticsManager({
 					state={form}
 					onChange={setForm}
 					onSubmit={() => save(form)}
+					geocodingConfigured={geocodingConfigured}
 				/>
 			)}
 
@@ -289,10 +291,12 @@ function DeliveryForm({
 	state,
 	onChange,
 	onSubmit,
+	geocodingConfigured,
 }: {
 	state: FormState;
 	onChange: (next: FormState) => void;
 	onSubmit: () => void;
+	geocodingConfigured: boolean;
 }) {
 	const items = state.items.filter((i) => i.label.trim() !== "");
 	const suggestion = suggestVehicle(items);
@@ -361,8 +365,8 @@ function DeliveryForm({
 					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
-					Site pin — only if the address lands in the wrong place. Paste
-					“3.1509, 101.5931”
+					Site pin — where the customer is. Paste “3.1509, 101.5931” or a Google
+					Maps link
 					<input
 						className={fieldClass(false)}
 						placeholder={state.sitePinPlaceholder}
@@ -371,11 +375,23 @@ function DeliveryForm({
 					/>
 					{(() => {
 						const parsed = parseCoords(state.siteCoords);
-						return parsed.ok || parsed.reason === "empty" ? null : (
+						if (!parsed.ok && parsed.reason !== "empty") {
+							return (
+								<span className="text-[11px] text-amber-700">
+									{COORDS_HINT[parsed.reason]}
+								</span>
+							);
+						}
+						// Empty is normally fine — the address gets looked up. With
+						// lookup off it is the whole ballgame, and a job saved without
+						// it comes back unquotable with nothing said at the time.
+						const noStoredPin = state.sitePinPlaceholder === NO_PIN_PLACEHOLDER;
+						return !geocodingConfigured && noStoredPin ? (
 							<span className="text-[11px] text-amber-700">
-								{COORDS_HINT[parsed.reason]}
+								Addresses are not looked up here, so without this pin no vehicle
+								partner can quote the job.
 							</span>
-						);
+						) : null;
 					})()}
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
@@ -388,7 +404,7 @@ function DeliveryForm({
 					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
-					Pickup pin
+					Pickup pin — the workshop, filled in for you
 					<input
 						className={fieldClass(false)}
 						placeholder={state.pickupPinPlaceholder}
