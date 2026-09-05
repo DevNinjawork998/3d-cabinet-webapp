@@ -3,6 +3,7 @@ import {
 	type BoxMm,
 	INSET_OPEN_RAD,
 	OVERLAY_OPEN_RAD,
+	sharedMaxRad,
 	swingOf,
 } from "../swing";
 
@@ -170,5 +171,26 @@ describe("a leaf with a neighbour on its hinge side", () => {
 	it("free, the 600mm leaf overhangs by the 205mm that caused this", () => {
 		const spec = swingOf(overlayLeaf, carcass, "left", false);
 		expect(overhangMm(600, spec.maxRad)).toBeCloseTo(205, 0);
+	});
+});
+
+describe("every leaf on one cabinet opens the same amount", () => {
+	const boxed = swingOf(overlayLeaf, carcass, "left", true);
+	const free = swingOf(overlayLeaf, carcass, "left", false);
+
+	it("takes the tightest limit across the leaves", () => {
+		// The pair that made the first attempt at this look wrong: one half at
+		// 110° because its side is a run end, the other at 90° because it
+		// touches a neighbour.
+		expect(sharedMaxRad([free, boxed])).toBe(boxed.maxRad);
+		expect(sharedMaxRad([boxed, free])).toBe(boxed.maxRad);
+	});
+
+	it("leaves a cabinet with nothing beside it alone", () => {
+		expect(sharedMaxRad([free, free])).toBe(OVERLAY_OPEN_RAD);
+	});
+
+	it("falls back to the full swing when there are no leaves", () => {
+		expect(sharedMaxRad([])).toBe(OVERLAY_OPEN_RAD);
 	});
 });

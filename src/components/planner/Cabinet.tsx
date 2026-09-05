@@ -21,7 +21,7 @@ import {
 	type PartBoxMm,
 	standOf,
 } from "@/lib/planner/parts";
-import { type BoxMm, swingOf } from "@/lib/planner/swing";
+import { type BoxMm, sharedMaxRad, swingOf } from "@/lib/planner/swing";
 import { DesignedCabinet, useDesignMesh } from "./DesignedCabinet";
 import { type GrainDirection, useFrontSurface, useGrain } from "./grain";
 import { Hinge, hingeOf } from "./Hinge";
@@ -595,9 +595,27 @@ function Doors({
 	emissive: string;
 	emphasis: number;
 }) {
+	// Worked out for every leaf first, because the answer is a property of the
+	// cabinet and not of one leaf. A pair whose left side is a run end and whose
+	// right side touches a neighbour would otherwise open 110° and 90° — two
+	// halves of one door front at visibly different angles, which is worse than
+	// either angle on its own. The tightest limit wins for all of them.
+	const specs = parts.map((leaf) =>
+		swingOf(
+			boxOf(leaf),
+			carcassMm,
+			hingeOf(leaf.index, parts.length, hinge),
+			// A leaf hangs on the cabinet's outer stile, so whether it is boxed in
+			// is exactly whether that side is exposed — the same question
+			// `exposure.ts` already answers for the end panels.
+			!exposed[hingeOf(leaf.index, parts.length, hinge)],
+		),
+	);
+	const maxRad = sharedMaxRad(specs);
+
 	return (
 		<>
-			{parts.map((leaf) => {
+			{parts.map((leaf, i) => {
 				const side = hingeOf(leaf.index, parts.length, hinge);
 				// The handle goes on the free edge, opposite the hinge, and travels
 				// with the leaf because it is inside the same pivot.
@@ -606,10 +624,7 @@ function Doors({
 				const y = m(leaf.centreMm.y);
 				const z = m(leaf.centreMm.z);
 				const leafW = m(leaf.sizeMm.x);
-				// A leaf hangs on the cabinet's outer stile, so whether it is boxed
-				// in is exactly whether that side is exposed — the same question
-				// `exposure.ts` already answers for the end panels.
-				const spec = swingOf(boxOf(leaf), carcassMm, side, !exposed[side]);
+				const spec = { ...specs[i], maxRad };
 
 				return (
 					<Hinge key={leaf.index} spec={spec} open={open}>

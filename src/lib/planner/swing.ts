@@ -93,6 +93,20 @@ export const BOXED_IN_OPEN_RAD = Math.PI / 2;
  * wide door is only slightly wider than tall; a flap is nothing like it. */
 const FLAP_RATIO = 1.6;
 
+/**
+ * The one angle every leaf on a cabinet opens to: the tightest of them.
+ *
+ * The limit is a property of the cabinet, not of one leaf. A pair whose left
+ * side is a run end and whose right side touches a neighbour would otherwise
+ * open 110° and 90° — two halves of one door front at visibly different
+ * angles, which reads worse than either angle does on its own.
+ */
+export function sharedMaxRad(specs: SwingSpec[]): number {
+	return specs.length === 0
+		? OVERLAY_OPEN_RAD
+		: Math.min(...specs.map((spec) => spec.maxRad));
+}
+
 export function swingOf(
 	leaf: BoxMm,
 	carcass: BoxMm,
