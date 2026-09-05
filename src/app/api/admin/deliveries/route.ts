@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
 import { WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
-import { resolveCoordinates } from "@/lib/logistics/geocode";
+import {
+	isGeocodingConfigured,
+	resolveCoordinates,
+} from "@/lib/logistics/geocode";
 import {
 	suggestVehicle,
 	totalVolumeM3,
@@ -16,7 +19,11 @@ export async function GET() {
 	const deliveries = await prisma.delivery.findMany({
 		orderBy: { number: "desc" },
 	});
-	return NextResponse.json({ deliveries, workshopAddress: WORKSHOP_ADDRESS });
+	return NextResponse.json({
+		deliveries,
+		workshopAddress: WORKSHOP_ADDRESS,
+		geocodingConfigured: isGeocodingConfigured(),
+	});
 }
 
 export async function POST(request: Request) {

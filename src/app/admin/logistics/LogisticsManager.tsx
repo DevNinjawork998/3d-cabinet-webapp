@@ -4,7 +4,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { chipClass, fieldClass } from "@/components/admin/styles";
 import { LABEL } from "@/lib/logistics/carriers";
-import { COORDS_HINT, parseCoords } from "@/lib/logistics/coords";
+import {
+	COORDS_HINT,
+	type PinState,
+	parseCoords,
+	pinState,
+} from "@/lib/logistics/coords";
 import {
 	suggestVehicle,
 	totalVolumeM3,
@@ -88,9 +93,11 @@ const POLL_MS = 4000;
 export function LogisticsManager({
 	initial,
 	workshopAddress,
+	geocodingConfigured,
 }: {
 	initial: DeliveryRow[];
 	workshopAddress: string;
+	geocodingConfigured: boolean;
 }) {
 	const router = useRouter();
 	const [rows, setRows] = useState<DeliveryRow[]>(initial);
@@ -135,6 +142,8 @@ export function LogisticsManager({
 		}
 		setForm(null);
 		await load();
+		const body = await res.json().catch(() => null);
+		if (body?.delivery?.id) setOpenId(body.delivery.id);
 	}
 
 	async function remove(row: DeliveryRow) {
@@ -161,6 +170,14 @@ export function LogisticsManager({
 			{error && (
 				<p className="rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">
 					{error}
+				</p>
+			)}
+
+			{!geocodingConfigured && (
+				<p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+					Addresses are not being looked up — GOOGLE_GEOCODING_API_KEY is not
+					set on this deployment. Paste a pin on each job, or vehicle partners
+					cannot quote.
 				</p>
 			)}
 
@@ -216,6 +233,14 @@ export function LogisticsManager({
 								>
 									{STATUS_LABEL[row.status]}
 								</span>
+								{!row.carrierOrderId &&
+									(pinState(row.siteLat, geocodingConfigured) !== "located" ||
+										pinState(row.pickupLat, geocodingConfigured) !==
+											"located") && (
+										<span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-[11px] text-amber-800">
+											No map pin
+										</span>
+									)}
 								<button
 									type="button"
 									className={chipClass(openId === row.id)}
@@ -250,6 +275,7 @@ export function LogisticsManager({
 									id={row.id}
 									onChanged={load}
 									onError={setError}
+									geocodingConfigured={geocodingConfigured}
 								/>
 							)}
 						</li>
@@ -481,14 +507,24 @@ function DeliveryForm({
 	);
 }
 
+/** Why a stop has no pin, in words an admin can act on. */
+const PIN_TROUBLE: Record<Exclude<PinState, "located">, string> = {
+	"geocoder-off":
+		"was not looked up — address lookup is switched off on this deployment.",
+	"not-found":
+		"did not resolve to a map location — the address may be too vague to place.",
+};
+
 function DeliveryDetail({
 	id,
 	onChanged,
 	onError,
+	geocodingConfigured,
 }: {
 	id: string;
 	onChanged: () => Promise<void>;
 	onError: (message: string | null) => void;
+	geocodingConfigured: boolean;
 }) {
 	const [delivery, setDelivery] = useState<DeliveryRow | null>(null);
 	const [events, setEvents] = useState<DeliveryEventRow[]>([]);
@@ -620,17 +656,25 @@ function DeliveryDetail({
 				<p>Phone: {delivery.customerPhone}</p>
 				<p>Pickup: {delivery.pickupAddress}</p>
 				{delivery.addressNotes && <p>Access: {delivery.addressNotes}</p>}
-				{delivery.siteLat === null ? (
-					<p className="text-amber-700 sm:col-span-2">
-						Site address did not resolve to a map location. Vehicle partners
-						price by coordinate, so only own lorry can be booked — edit the
-						address, or paste a pin.
-					</p>
-				) : (
+				{delivery.siteLat !== null && (
 					<p>
 						Site pin: {delivery.siteLat}, {delivery.siteLng}
 					</p>
 				)}
+				{(["site", "pickup"] as const).map((stop) => {
+					const state = pinState(
+						stop === "site" ? delivery.siteLat : delivery.pickupLat,
+						geocodingConfigured,
+					);
+					if (state === "located") return null;
+					return (
+						<p key={stop} className="text-amber-700 sm:col-span-2">
+							The {stop} address {PIN_TROUBLE[state]} Vehicle partners price by
+							coordinate, so only own lorry can be booked. Use Edit above to fix
+							the address or paste a pin.
+						</p>
+					);
+				})}
 				<p>
 					{delivery.totalVolumeM3 ?? 0} m³
 					{delivery.totalWeightKg === null

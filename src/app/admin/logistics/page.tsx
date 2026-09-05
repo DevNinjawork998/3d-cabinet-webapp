@@ -1,6 +1,7 @@
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { prisma } from "@/lib/catalogue/db";
 import { WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
+import { isGeocodingConfigured } from "@/lib/logistics/geocode";
 import { LogisticsManager } from "./LogisticsManager";
 
 /**
@@ -30,6 +31,7 @@ export default async function LogisticsAdminPage() {
 				<LogisticsManager
 					initial={JSON.parse(JSON.stringify(deliveries))}
 					workshopAddress={WORKSHOP_ADDRESS}
+					geocodingConfigured={isGeocodingConfigured()}
 				/>
 			</main>
 		</div>

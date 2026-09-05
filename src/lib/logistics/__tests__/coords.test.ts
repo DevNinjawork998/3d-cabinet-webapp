@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCoords } from "../coords";
+import { parseCoords, pinState } from "../coords";
 
 describe("parseCoords", () => {
 	it("reads the bare pair a long-press copies", () => {
@@ -54,5 +54,23 @@ describe("parseCoords", () => {
 
 	it("refuses a lone number", () => {
 		expect(parseCoords("3.1509")).toEqual({ ok: false, reason: "unreadable" });
+	});
+});
+
+describe("pinState", () => {
+	it("is located when there is a pin", () => {
+		expect(pinState(3.1509, true)).toBe("located");
+	});
+
+	it("blames the missing key, not the admin's typing, when geocoding is off", () => {
+		expect(pinState(null, false)).toBe("geocoder-off");
+	});
+
+	it("blames the address when geocoding is on and found nothing", () => {
+		expect(pinState(null, true)).toBe("not-found");
+	});
+
+	it("is located even with geocoding off, because the pin was pasted by hand", () => {
+		expect(pinState(3.1509, false)).toBe("located");
 	});
 });

@@ -64,6 +64,23 @@ export function parseCoords(raw: string): ParsedCoords {
 	return { ok: false, reason: "unreadable" };
 }
 
+/**
+ * Why a delivery has no pin, which decides what the admin should do about it.
+ *
+ * "Did not resolve" reads as a typo, and with no `GOOGLE_GEOCODING_API_KEY`
+ * every address ever typed resolves to nothing. Telling an admin to fix an
+ * address that was never looked up sends them round a loop they cannot win.
+ */
+export type PinState = "located" | "geocoder-off" | "not-found";
+
+export function pinState(
+	lat: number | null,
+	geocodingConfigured: boolean,
+): PinState {
+	if (lat !== null) return "located";
+	return geocodingConfigured ? "not-found" : "geocoder-off";
+}
+
 export const COORDS_HINT = {
 	"short-link":
 		"That is a shortened Maps link. Open it, long-press the pin, and paste the numbers it copies.",
