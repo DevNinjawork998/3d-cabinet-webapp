@@ -57,3 +57,21 @@ export function negotiateLocale(header: string | null | undefined): Locale {
 	}
 	return DEFAULT_LOCALE;
 }
+
+/** Paths that belong to the app rather than to a reader: the admin surface,
+ * every API route, Next's own assets, and anything with a file extension. */
+const EXEMPT = /^\/(?:admin|api|_next)(?:\/|$)|\.[a-z0-9]+$/i;
+
+/**
+ * Whether this request should be sent to a locale-prefixed URL.
+ *
+ * The exemption list is the load-bearing half. `/admin` is gated by a
+ * shared-secret cookie in this same proxy, and bouncing it through a locale
+ * redirect would fight that gate — at best an extra hop, at worst a loop that
+ * locks out all three internal users.
+ */
+export function needsLocaleRedirect(pathname: string): boolean {
+	if (EXEMPT.test(pathname)) return false;
+	const [, first] = pathname.split("/");
+	return !isLocale(first);
+}
