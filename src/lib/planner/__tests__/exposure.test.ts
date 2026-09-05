@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PLANNER_CATALOGUE } from "../catalogue";
-import { exposedSides, FULLY_EXPOSED } from "../exposure";
-import { emptyLayout, plannerEngine } from "../layout";
+import { exposedSides, FULLY_EXPOSED, sideGapsMm } from "../exposure";
+import { emptyLayout, type Positioned, plannerEngine } from "../layout";
 
 const { addModule, positionsOf } = plannerEngine(PLANNER_CATALOGUE);
 
@@ -138,5 +138,51 @@ describe("walls bury a side the way a neighbour does", () => {
 		const row = bothEnds();
 		expect(exposedSides(row, 0)).toEqual(exposedSides(row, 0, open));
 		expect(exposedSides(row, 1)).toEqual(exposedSides(row, 1, open));
+	});
+});
+
+describe("sideGapsMm", () => {
+	const at = (xMm: number, widthMm: number) =>
+		({ xMm, widthMm }) as unknown as Positioned;
+
+	it("measures the clear space to the neighbour on each side", () => {
+		// 900 wide at 1300, a neighbour ending at 1200 and another starting at 2300.
+		const row = [at(0, 1200), at(1300, 900), at(2300, 600)];
+		expect(sideGapsMm(row, 1)).toEqual({ left: 100, right: 100 });
+	});
+
+	it("reports touching neighbours as no gap at all", () => {
+		const row = [at(0, 1300), at(1300, 900), at(2200, 600)];
+		expect(sideGapsMm(row, 1)).toEqual({ left: 0, right: 0 });
+	});
+
+	it("is unbounded where nothing stands beside the cabinet", () => {
+		const row = [at(1300, 900)];
+		expect(sideGapsMm(row, 0)).toEqual({
+			left: Number.POSITIVE_INFINITY,
+			right: Number.POSITIVE_INFINITY,
+		});
+	});
+
+	it("takes the nearest neighbour, not the first one found", () => {
+		// A row is sorted by xMm, but a dragged cabinet can leave a nearer one
+		// later in the array — the same reason exposedSides scans them all.
+		const row = [at(0, 100), at(900, 300), at(1300, 900)];
+		expect(sideGapsMm(row, 2).left).toBe(100);
+	});
+
+	it("counts a return wall as a neighbour", () => {
+		const row = [at(200, 900)];
+		expect(sideGapsMm(row, 0, { wallWidthMm: 4200, enclosed: true })).toEqual({
+			left: 200,
+			right: 3100,
+		});
+	});
+
+	it("ignores the walls when the run stands in open space", () => {
+		const row = [at(200, 900)];
+		expect(
+			sideGapsMm(row, 0, { wallWidthMm: 4200, enclosed: false }).left,
+		).toBe(Number.POSITIVE_INFINITY);
 	});
 });

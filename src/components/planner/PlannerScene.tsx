@@ -19,7 +19,12 @@ import {
 	WORKTOP_COLOR,
 } from "@/lib/planner/catalogue";
 import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
-import { type ExposedSides, exposedSides } from "@/lib/planner/exposure";
+import {
+	type ExposedSides,
+	exposedSides,
+	type SideGaps,
+	sideGapsMm,
+} from "@/lib/planner/exposure";
 import type {
 	PlannerEngine,
 	PlannerLayout,
@@ -467,7 +472,7 @@ function Run({
 		[layout, overhangingIds],
 	);
 
-	const exposure = useMemo(() => {
+	const { map: exposure, gaps: sideGaps } = useMemo(() => {
 		// A return wall buries an end as surely as a neighbour does, so a run
 		// built into an alcove must not veneer the two faces inside the walls.
 		const walls = {
@@ -475,13 +480,18 @@ function Run({
 			enclosed: layout.wallToWall,
 		};
 		const map = new Map<string, ExposedSides>();
+		// The distance as well as the yes/no: an end panel only needs to know
+		// whether a side is buried, but a door needs to know how far away the
+		// neighbour is before it can decide how far to swing.
+		const gaps = new Map<string, SideGaps>();
 		for (const row of ["floor", "wall"] as const) {
 			const positions = positionsOf(layout, row);
 			positions.forEach((position, i) => {
 				map.set(position.placed.id, exposedSides(positions, i, walls));
+				gaps.set(position.placed.id, sideGapsMm(positions, i, walls));
 			});
 		}
-		return map;
+		return { map, gaps };
 	}, [layout, positionsOf]);
 
 	// The group sits on the wall plane itself: everything in the run is placed
@@ -552,6 +562,7 @@ function Run({
 					widthMm={position.widthMm}
 					construction={construction}
 					exposed={exposure.get(position.placed.id)}
+					gaps={sideGaps.get(position.placed.id)}
 					overhanging={overhanging.has(position.placed.id)}
 					door={
 						position.placed.doorStyleId

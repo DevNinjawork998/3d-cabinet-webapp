@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hingeOf } from "@/components/planner/Hinge";
 import { CONSTRUCTION, PLANNER_CATALOGUE } from "../catalogue";
-import { exposedSides } from "../exposure";
+import { sideGapsMm } from "../exposure";
 import { type HingeSide, plannerEngine } from "../layout";
 import { cabinetPartsMm } from "../parts";
 import { type BoxMm, swingOf } from "../swing";
@@ -43,104 +43,112 @@ describe("two open doors never sweep through each other", () => {
 	 * arrangement, because the first attempt at this was checked against one
 	 * layout, found nothing, and shipped a fix for a problem that was not there.
 	 */
-	it("across every hinge combination in the starter kitchen", () => {
-		const base = engine.starterFor("kitchen");
-		const positions = engine.positionsOf(base, "floor");
-		const out: string[] = [];
+	it.each([0, 30, 80, 150, 400])(
+		"across every hinge combination, with the run spread by %imm",
+		(spreadMm) => {
+			const base = engine.starterFor("kitchen");
+			// Slide each cabinet progressively right, which is what the user did:
+			// the gaps open up, nothing is "touching" any more, and a boolean view
+			// of the neighbour would switch every limit off at once.
+			const positions = engine
+				.positionsOf(base, "floor")
+				.map((p, i) => ({ ...p, xMm: p.xMm + i * spreadMm }));
+			const out: string[] = [];
 
-		// Every cabinet with leaves, each way round.
-		const n = positions.length;
-		for (let mask = 0; mask < 1 << n; mask++) {
-			const sides: HingeSide[] = positions.map((_, i) =>
-				mask & (1 << i) ? "right" : "left",
-			);
-			const leaves: Leaf[] = [];
+			// Every cabinet with leaves, each way round.
+			const n = positions.length;
+			for (let mask = 0; mask < 1 << n; mask++) {
+				const sides: HingeSide[] = positions.map((_, i) =>
+					mask & (1 << i) ? "right" : "left",
+				);
+				const leaves: Leaf[] = [];
 
-			positions.forEach((p, i) => {
-				const parts = cabinetPartsMm(p.family, p.widthMm, true, CONSTRUCTION);
-				const doors = parts.filter((q) => q.role === "doorLeaf");
-				const exposed = exposedSides(positions, i);
-				const d = p.family.depthMm;
+				positions.forEach((p, i) => {
+					const parts = cabinetPartsMm(p.family, p.widthMm, true, CONSTRUCTION);
+					const doors = parts.filter((q) => q.role === "doorLeaf");
+					const gaps = sideGapsMm(positions, i);
+					const d = p.family.depthMm;
 
-				const rads: number[] = [];
-				doors.forEach((leaf) => {
-					const side = hingeOf(leaf.index, doors.length, sides[i]);
-					const hb = {
-						min: {
-							x: leaf.centreMm.x - leaf.sizeMm.x / 2,
-							y: leaf.centreMm.y - leaf.sizeMm.y / 2,
-							z: leaf.centreMm.z - leaf.sizeMm.z / 2,
-						},
-						max: {
-							x: leaf.centreMm.x + leaf.sizeMm.x / 2,
-							y: leaf.centreMm.y + leaf.sizeMm.y / 2,
-							z: leaf.centreMm.z + leaf.sizeMm.z / 2,
-						},
-					};
-					rads.push(
-						swingOf(
-							hb,
-							{
-								min: { x: -p.widthMm / 2, y: 0, z: -d / 2 },
-								max: { x: p.widthMm / 2, y: p.family.heightMm, z: d / 2 },
+					const rads: number[] = [];
+					doors.forEach((leaf) => {
+						const side = hingeOf(leaf.index, doors.length, sides[i]);
+						const hb = {
+							min: {
+								x: leaf.centreMm.x - leaf.sizeMm.x / 2,
+								y: leaf.centreMm.y - leaf.sizeMm.y / 2,
+								z: leaf.centreMm.z - leaf.sizeMm.z / 2,
 							},
-							side,
-							!exposed[side],
-						).maxRad,
-					);
-				});
-				const shared = Math.min(...rads);
+							max: {
+								x: leaf.centreMm.x + leaf.sizeMm.x / 2,
+								y: leaf.centreMm.y + leaf.sizeMm.y / 2,
+								z: leaf.centreMm.z + leaf.sizeMm.z / 2,
+							},
+						};
+						rads.push(
+							swingOf(
+								hb,
+								{
+									min: { x: -p.widthMm / 2, y: 0, z: -d / 2 },
+									max: { x: p.widthMm / 2, y: p.family.heightMm, z: d / 2 },
+								},
+								side,
+								gaps[side],
+							).maxRad,
+						);
+					});
+					const shared = Math.min(...rads);
 
-				doors.forEach((leaf) => {
-					const side = hingeOf(leaf.index, doors.length, sides[i]);
-					const half = leaf.sizeMm.x / 2;
-					const leafBox = {
-						min: {
-							x: leaf.centreMm.x - half,
-							y: leaf.centreMm.y - leaf.sizeMm.y / 2,
-							z: leaf.centreMm.z - leaf.sizeMm.z / 2,
-						},
-						max: {
-							x: leaf.centreMm.x + half,
-							y: leaf.centreMm.y + leaf.sizeMm.y / 2,
-							z: leaf.centreMm.z + leaf.sizeMm.z / 2,
-						},
-					};
-					const carcassBox = {
-						min: { x: -p.widthMm / 2, y: 0, z: -d / 2 },
-						max: { x: p.widthMm / 2, y: p.family.heightMm, z: d / 2 },
-					};
-					const spec = swingOf(leafBox, carcassBox, side, !exposed[side]);
-					const W = leaf.sizeMm.x;
-					const px = p.xMm + p.widthMm / 2 + spec.pivotXMm;
-					const t = shared;
-					const floor = p.family.floorHeightMm;
-					leaves.push({
-						label: `${p.family.id}@${p.xMm}#${leaf.index}(${side})`,
-						px,
-						pz: spec.pivotZMm,
-						tx: side === "left" ? px + W * Math.cos(t) : px - W * Math.cos(t),
-						tz: spec.pivotZMm + W * Math.sin(t),
-						y0: floor + leafBox.min.y,
-						y1: floor + leafBox.max.y,
+					doors.forEach((leaf) => {
+						const side = hingeOf(leaf.index, doors.length, sides[i]);
+						const half = leaf.sizeMm.x / 2;
+						const leafBox = {
+							min: {
+								x: leaf.centreMm.x - half,
+								y: leaf.centreMm.y - leaf.sizeMm.y / 2,
+								z: leaf.centreMm.z - leaf.sizeMm.z / 2,
+							},
+							max: {
+								x: leaf.centreMm.x + half,
+								y: leaf.centreMm.y + leaf.sizeMm.y / 2,
+								z: leaf.centreMm.z + leaf.sizeMm.z / 2,
+							},
+						};
+						const carcassBox = {
+							min: { x: -p.widthMm / 2, y: 0, z: -d / 2 },
+							max: { x: p.widthMm / 2, y: p.family.heightMm, z: d / 2 },
+						};
+						const spec = swingOf(leafBox, carcassBox, side, gaps[side]);
+						const W = leaf.sizeMm.x;
+						const px = p.xMm + p.widthMm / 2 + spec.pivotXMm;
+						const t = shared;
+						const floor = p.family.floorHeightMm;
+						leaves.push({
+							label: `${p.family.id}@${p.xMm}#${leaf.index}(${side})`,
+							px,
+							pz: spec.pivotZMm,
+							tx: side === "left" ? px + W * Math.cos(t) : px - W * Math.cos(t),
+							tz: spec.pivotZMm + W * Math.sin(t),
+							y0: floor + leafBox.min.y,
+							y1: floor + leafBox.max.y,
+						});
 					});
 				});
-			});
 
-			for (let a = 0; a < leaves.length; a++) {
-				for (let b = a + 1; b < leaves.length; b++) {
-					const hit = cross(leaves[a], leaves[b]);
-					if (hit) {
-						out.push(
-							`hinges=[${sides.join(",")}] ${leaves[a].label} X ${leaves[b].label} at x=${hit.x.toFixed(0)} z=${hit.z.toFixed(0)}`,
-						);
+				for (let a = 0; a < leaves.length; a++) {
+					for (let b = a + 1; b < leaves.length; b++) {
+						const hit = cross(leaves[a], leaves[b]);
+						if (hit) {
+							out.push(
+								`hinges=[${sides.join(",")}] ${leaves[a].label} X ${leaves[b].label} at x=${hit.x.toFixed(0)} z=${hit.z.toFixed(0)}`,
+							);
+						}
 					}
 				}
 			}
-		}
 
-		expect([...new Set(out)]).toEqual([]);
-	});
+			expect([...new Set(out)]).toEqual([]);
+		},
+	);
 });
 
 describe("two leaves on a shared stile touch instead of merging", () => {
@@ -177,8 +185,8 @@ describe("two leaves on a shared stile touch instead of merging", () => {
 	};
 
 	it("no longer overlap once each has slid clear", () => {
-		const right = swingOf(rightLeaf, carcass, "right", true);
-		const left = swingOf(leftLeaf, carcass, "left", true);
+		const right = swingOf(rightLeaf, carcass, "right", 0);
+		const left = swingOf(leftLeaf, carcass, "left", 0);
 
 		// Shared stile at x = 2200: one cabinet ends there, the next begins.
 		const a = bodyAt(2200 - 4, right);
@@ -191,8 +199,8 @@ describe("two leaves on a shared stile touch instead of merging", () => {
 	});
 
 	it("would overlap by the hinge spacing without the shift", () => {
-		const right = { ...swingOf(rightLeaf, carcass, "right", true), clearMm: 0 };
-		const left = { ...swingOf(leftLeaf, carcass, "left", true), clearMm: 0 };
+		const right = { ...swingOf(rightLeaf, carcass, "right", 0), clearMm: 0 };
+		const left = { ...swingOf(leftLeaf, carcass, "left", 0), clearMm: 0 };
 		const a = bodyAt(2200 - 4, right);
 		const b = bodyAt(2200 + 4, left);
 		expect(Math.min(a[1], b[1]) - Math.max(a[0], b[0])).toBeCloseTo(8);

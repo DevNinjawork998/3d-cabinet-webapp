@@ -11,7 +11,11 @@ import {
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
 import type { ExposedSides } from "@/lib/planner/exposure";
-import { FULLY_EXPOSED } from "@/lib/planner/exposure";
+import {
+	FULLY_EXPOSED,
+	type SideGaps,
+	UNBOUNDED_GAPS,
+} from "@/lib/planner/exposure";
 import type { HingeSide } from "@/lib/planner/layout";
 import {
 	cabinetPartsMm,
@@ -92,6 +96,7 @@ export function Cabinet({
 	highlighted,
 	overhanging = false,
 	exposed = FULLY_EXPOSED,
+	gaps = UNBOUNDED_GAPS,
 	onPointerDown,
 	onPointerMove,
 	onPointerOut,
@@ -136,6 +141,8 @@ export function Cabinet({
 	 * a run can be veneered the way a fitter really finishes it. Defaults to
 	 * both, which is what a cabinet drawn on its own wears. */
 	exposed?: ExposedSides;
+	/** Clear space each side, so a door knows how far it may swing. */
+	gaps?: SideGaps;
 	onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
 	onPointerMove?: (e: ThreeEvent<PointerEvent>) => void;
 	onPointerOut?: (e: ThreeEvent<PointerEvent>) => void;
@@ -260,7 +267,7 @@ export function Cabinet({
 					groups={designGroups}
 					door={door}
 					hinge={hinge}
-					exposed={exposed}
+					gaps={gaps}
 					open={doorsOpen}
 					doorsHidden={doorsHidden}
 					finishHex={finishHex}
@@ -335,7 +342,7 @@ export function Cabinet({
 							<Doors
 								parts={leaves}
 								carcassMm={carcassMm}
-								exposed={exposed}
+								gaps={gaps}
 								finishPhoto={finishPhoto}
 								door={door}
 								hinge={hinge}
@@ -576,7 +583,7 @@ const boxOf = (part: PartBoxMm): BoxMm => ({
 function Doors({
 	parts,
 	carcassMm,
-	exposed,
+	gaps,
 	door,
 	hinge,
 	open,
@@ -589,9 +596,9 @@ function Doors({
 	/** The box the leaves hang on, so `swingOf` can tell an overlay door from
 	 * an inset one and pivot on the right edge. */
 	carcassMm: BoxMm;
-	/** Which outer sides nothing sits against — decides how far a leaf may
-	 * open before it would cross into the neighbour. */
-	exposed: ExposedSides;
+	/** Clear space beside the cabinet — decides how far a leaf may open before
+	 * it would reach into the neighbour. */
+	gaps: SideGaps;
 	door: DoorStyle;
 	hinge: HingeSide;
 	open: boolean;
@@ -610,10 +617,10 @@ function Doors({
 			boxOf(leaf),
 			carcassMm,
 			hingeOf(leaf.index, parts.length, hinge),
-			// A leaf hangs on the cabinet's outer stile, so whether it is boxed in
-			// is exactly whether that side is exposed — the same question
-			// `exposure.ts` already answers for the end panels.
-			!exposed[hingeOf(leaf.index, parts.length, hinge)],
+			// A leaf hangs on the cabinet's outer stile, so the room it has is
+			// the room on that side — measured by `sideGapsMm`, not guessed from
+			// whether a neighbour happens to be touching.
+			gaps[hingeOf(leaf.index, parts.length, hinge)],
 		),
 	);
 	const maxRad = sharedMaxRad(specs);

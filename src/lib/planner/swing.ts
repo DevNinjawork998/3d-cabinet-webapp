@@ -135,21 +135,72 @@ export function swingOf(
 	carcass: BoxMm,
 	side: HingeSide,
 	/**
-	 * Whether something sits against the stile this leaf hangs on — a
-	 * neighbouring cabinet, or the wall at the end of a run.
+	 * Clear space beyond the stile this leaf hangs on, millimetres, before the
+	 * neighbouring cabinet begins. `Infinity` at the end of a run.
 	 *
-	 * A boolean and not the layout: `swingOf` answers a question about two
-	 * boxes, and the caller already knows what is beside the cabinet because
-	 * `exposure.ts` computes exactly that for the end panels. Defaults to
-	 * false so a caller that has not been threaded yet behaves as before.
+	 * A distance and not a boolean, because a leaf swings *past* its own stile
+	 * — 152mm past it for a 444mm leaf at 110° — so whether it fouls what is
+	 * next to it is a matter of how far away that is. A boolean could only ask
+	 * "touching?", which flips to "clear" the moment a cabinet is slid 50mm
+	 * over while the doors still collide.
+	 *
+	 * A number and not the layout: `swingOf` answers a question about two
+	 * boxes, and `sideGapsMm` in `exposure.ts` measures this for the caller.
+	 * Defaults to unbounded, so a caller that has not been threaded yet behaves
+	 * as it always did.
 	 */
-	boxedIn = false,
+	clearanceMm = Number.POSITIVE_INFINITY,
 ): SwingSpec {
 	const fit: DoorFit =
 		leaf.min.z >= carcass.max.z - OVERLAY_TOL_MM ? "overlay" : "inset";
 
 	const widthMm = leaf.max.x - leaf.min.x;
 	const heightMm = leaf.max.y - leaf.min.y;
+
+	// How far the leaf reaches sideways past its own hinge stile at a given
+	// angle: its thickness swinging out, plus — once it is past a right angle —
+	// its free edge coming back over the stile.
+	const thicknessMm = leaf.max.z - leaf.min.z;
+	const reach = (rad: number) =>
+		thicknessMm * Math.sin(rad) + Math.max(0, -widthMm * Math.cos(rad));
+
+	// What it may use: the reveal already between its stile and the carcass
+	// edge, plus its half of the gap. Half, because the neighbour's own leaf
+	// has the same claim on the other half.
+	const revealMm = Math.max(
+		0,
+		side === "left" ? leaf.min.x - carcass.min.x : carcass.max.x - leaf.max.x,
+	);
+	const allowance = revealMm + clearanceMm / 2;
+
+	// An inset leaf binds on its own carcass at 95° whether or not anything is
+	// beside it, so that is the ceiling before the neighbour is considered.
+	const ownLimit = fit === "overlay" ? OVERLAY_OPEN_RAD : INSET_OPEN_RAD;
+
+	// `reach` climbs monotonically across this range for any real leaf, since
+	// the width term dwarfs the thickness one. Bisection rather than the trig
+	// identity that solves it: six lines nobody has to re-derive at 3am.
+	//
+	// The early-out is not only for speed. Bisection lands a hair off the
+	// bound, and the common case — a cabinet with room to open — has to return
+	// its own limit *exactly*, or every caller comparing against
+	// OVERLAY_OPEN_RAD sees a number that is merely very close.
+	let lo = ownLimit;
+	if (reach(ownLimit) > allowance) {
+		lo = 0;
+		let hi = ownLimit;
+		for (let i = 0; i < 40; i++) {
+			const mid = (lo + hi) / 2;
+			if (reach(mid) <= allowance) lo = mid;
+			else hi = mid;
+		}
+	}
+
+	// Never fold below a right angle. Fitting a leaf inside the reveal alone
+	// would need about 13°, which is a door barely ajar and reads as broken;
+	// at 90° it stands square and `clearMm` slides it clear of the neighbour
+	// instead.
+	const maxRad = Math.min(ownLimit, Math.max(BOXED_IN_OPEN_RAD, lo));
 
 	return {
 		side,
@@ -158,26 +209,11 @@ export function swingOf(
 		// Overlay turns on the face against the carcass; inset turns on the face
 		// away from it. Same leaf, opposite edge, and the depths decide which.
 		pivotZMm: fit === "overlay" ? leaf.min.z : leaf.max.z,
-		// `min`, never a replacement: an inset leaf binds at 95° whether or not
-		// anything is beside it, and being boxed in can only ever close a door
-		// further, never swing it wider.
-		maxRad: Math.min(
-			fit === "overlay" ? OVERLAY_OPEN_RAD : INSET_OPEN_RAD,
-			boxedIn ? BOXED_IN_OPEN_RAD : Number.POSITIVE_INFINITY,
-		),
+		maxRad,
 		suspectFlap: heightMm > 0 && widthMm / heightMm >= FLAP_RATIO,
 		// The leaf's own thickness, less the reveal already between its hinge
 		// stile and the carcass edge — that reveal is half the clearance the two
 		// leaves need, and it is there whether or not anyone asked for it.
-		clearMm: boxedIn
-			? Math.max(
-					0,
-					leaf.max.z -
-						leaf.min.z -
-						(side === "left"
-							? leaf.min.x - carcass.min.x
-							: carcass.max.x - leaf.max.x),
-				)
-			: 0,
+		clearMm: Math.max(0, reach(maxRad) - allowance),
 	};
 }
