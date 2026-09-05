@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { pickupPlace } from "../carriers";
 import { carrierFetch } from "../http";
+import { longestEdgeMm } from "../measure";
 import { easyparcelAppConfigured } from "../oauth";
 import { accessTokenFor } from "../tokens";
 import { trace } from "../trace";
@@ -78,11 +79,16 @@ export type Parcel = {
  * the whole job's; the box is the largest item's, because that is what has to
  * fit through the courier's gauge.
  *
- * ponytail: a job of several bulky lines is quoted as its biggest box at the
- * full weight, which under-states volumetric charge. It holds for what this
- * partner is actually for — a couple of doors, a box of hinges. If invoices
- * start disagreeing, the fix is one shipment per line item, which the
- * `shipment[]` array already supports and `carrierOrderId` does not.
+ * ponytail: the dimensions sent to EasyParcel still describe only the
+ * largest box, so a job of several bulky lines is quoted at that box's size
+ * and the full weight — which under-states volumetric charge. It holds for
+ * what this partner is actually for — a couple of doors, a box of hinges. If
+ * invoices start disagreeing, the fix is one shipment per line item, which
+ * the `shipment[]` array already supports and `carrierOrderId` does not.
+ * What it can no longer do is under-state the *edge*: the oversize check
+ * below runs against the longest edge across every item on the job, not just
+ * the chosen box, so a long, low-volume item (a trim strip) cannot hide
+ * behind a bulkier, shorter one and slip past the cap unchecked.
  */
 export function parcelOf(job: DeliveryJob): Parcel {
 	if (job.items.length === 0) {
@@ -99,7 +105,17 @@ export function parcelOf(job: DeliveryJob): Parcel {
 		);
 	}
 
-	// The biggest box on the job, by its own volume.
+	// Checked against the whole job, not just the chosen box below — a long
+	// item can lose the volume contest and still be the one a courier refuses.
+	const longestEdge = longestEdgeMm(job.items);
+	if (longestEdge > MAX_EDGE_MM) {
+		throw new EasyParcelNotDeliverable(
+			`${longestEdge} mm on its longest edge is past what a courier will take — this is a lorry job`,
+		);
+	}
+
+	// The biggest box on the job, by its own volume — what actually gets sent
+	// as the parcel's dimensions. See the ponytail note above.
 	const largest = job.items.reduce((a, b) =>
 		a.widthMm * a.heightMm * a.depthMm >= b.widthMm * b.heightMm * b.depthMm
 			? a
@@ -108,11 +124,6 @@ export function parcelOf(job: DeliveryJob): Parcel {
 	const edges = [largest.widthMm, largest.heightMm, largest.depthMm].sort(
 		(a, b) => b - a,
 	);
-	if (edges[0] > MAX_EDGE_MM) {
-		throw new EasyParcelNotDeliverable(
-			`${edges[0]} mm on its longest edge is past what a courier will take — this is a lorry job`,
-		);
-	}
 
 	return {
 		weight: job.totalWeightKg,

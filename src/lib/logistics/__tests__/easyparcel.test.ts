@@ -92,6 +92,31 @@ describe("parcelOf", () => {
 			EasyParcelNotDeliverable,
 		);
 	});
+
+	it("refuses on a long item's edge even when a bulkier item wins on volume", () => {
+		// The strip loses the volume contest to the box (2.6L vs 125L) but its
+		// 2400mm edge is the one that actually decides whether a courier can
+		// take the consignment — the box's chosen dimensions would pass.
+		const strip: DeliveryItem = {
+			label: "Trim strip",
+			qty: 1,
+			widthMm: 2400,
+			heightMm: 60,
+			depthMm: 18,
+			weightKg: 2,
+		};
+		const box: DeliveryItem = {
+			label: "Hardware box",
+			qty: 1,
+			widthMm: 500,
+			heightMm: 500,
+			depthMm: 500,
+			weightKg: 5,
+		};
+		expect(() =>
+			parcelOf(job({ items: [strip, box], totalWeightKg: 7 })),
+		).toThrow(EasyParcelNotDeliverable);
+	});
 });
 
 describe("quotationBody", () => {
@@ -268,6 +293,31 @@ describe("easyparcelAdapter.quote", () => {
 
 		await expect(
 			easyparcelAdapter.quote(job({ totalWeightKg: null })),
+		).rejects.toBeInstanceOf(EasyParcelNotDeliverable);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("never calls out for a job whose longest edge is oversized, even when another item is bulkier", async () => {
+		const fetchMock = stubResponses(quotationReply);
+		const strip: DeliveryItem = {
+			label: "Trim strip",
+			qty: 1,
+			widthMm: 2400,
+			heightMm: 60,
+			depthMm: 18,
+			weightKg: 2,
+		};
+		const box: DeliveryItem = {
+			label: "Hardware box",
+			qty: 1,
+			widthMm: 500,
+			heightMm: 500,
+			depthMm: 500,
+			weightKg: 5,
+		};
+
+		await expect(
+			easyparcelAdapter.quote(job({ items: [strip, box], totalWeightKg: 7 })),
 		).rejects.toBeInstanceOf(EasyParcelNotDeliverable);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
