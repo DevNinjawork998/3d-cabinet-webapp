@@ -61,10 +61,6 @@ body {
 	will-change: transform;
 }
 
-[data-beats="on"] [data-beat="hero-cue"] {
-	opacity: calc(1 - clamp(0, calc(var(--p, 1) / 0.15), 1));
-}
-
 /* Arrive-on-entry, for the sections below the pinned hero. Same contract: the
    revealed state is the default, and only a mounted observer can take it away
    and give it back. */
