@@ -299,3 +299,20 @@ model DeliveryEvent {
 
   @@index([deliveryId, at])
 }
+
+/// What a prepaid carrier last told us was in its wallet.
+///
+/// One row per carrier, overwritten in place: this is a cache of the last push,
+/// not a ledger. Lalamove has no endpoint to ask, so the only way this is ever
+/// current is that they told us — which is why `reportedAt` is rendered beside
+/// the number wherever it appears.
+model CarrierWallet {
+  carrierId  String   @id
+  /// Null when an event arrived that we could not read a number out of.
+  amount     Float?
+  currency   String?
+  reportedAt DateTime @default(now())
+  /// The untouched payload. The event's body is undocumented, so this is how
+  /// the real shape gets learned.
+  raw        Json?
+}
