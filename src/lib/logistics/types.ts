@@ -144,10 +144,19 @@ export const ACTIVE_STATUSES = [
 	"IN_TRANSIT",
 ] as const satisfies readonly DeliveryStatusName[];
 
-export type CarrierWebhookEvent = {
-	carrierOrderId: string;
-	update: TrackingUpdate;
-};
+/**
+ * A verified callback, and whether there is anything to do with it.
+ *
+ * `ignored` is the load-bearing member. Lalamove documents ten event types and
+ * only two of them carry an order; the rest — wallet balance, proof of
+ * delivery, proof of pickup, delivery code — used to fail the order-shaped
+ * parse and leave the route answering 400, which Lalamove reads as a broken
+ * endpoint and retries for hours. A verified event we have no use for is a
+ * 200 that says so.
+ */
+export type CarrierWebhookEvent =
+	| { kind: "order"; carrierOrderId: string; update: TrackingUpdate }
+	| { kind: "ignored"; eventType: string | null };
 
 /** Implemented once per logistics partner. */
 export interface CarrierAdapter {

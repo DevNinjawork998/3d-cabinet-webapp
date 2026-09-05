@@ -9,7 +9,6 @@ import type {
 	TrackingUpdate,
 } from "./types";
 import { deliveryItemSchema } from "./types";
-import type { WalletReading } from "./wallet";
 
 /**
  * The delivery read and write path, in one place.
@@ -116,30 +115,4 @@ export async function applyTrackingUpdate(
 	]);
 
 	return row;
-}
-
-/**
- * The last balance a carrier pushed us. Upsert, not insert: there is one wallet
- * per carrier and only its latest value matters.
- */
-export async function recordWalletBalance(
-	carrierId: string,
-	reading: WalletReading,
-	raw?: unknown,
-): Promise<void> {
-	const data = {
-		amount: reading.amount,
-		currency: reading.currency,
-		reportedAt: new Date(),
-		raw: (raw ?? null) as never,
-	};
-	await prisma.carrierWallet.upsert({
-		where: { carrierId },
-		create: { carrierId, ...data },
-		update: data,
-	});
-}
-
-export async function readWallet(carrierId: string) {
-	return prisma.carrierWallet.findUnique({ where: { carrierId } });
 }

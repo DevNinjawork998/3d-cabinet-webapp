@@ -332,8 +332,13 @@ function num(value: string | null | undefined): number | null {
 const webhookSchema = z.object({
 	apiKey: z.string(),
 	eventType: z.string().nullish(),
-	data: z.object({
-		order: z.object({ orderId: z.string(), status: z.string().nullish() }),
+	// `order` is optional and `data` is loose on purpose: six of Lalamove's ten
+	// documented events carry no order, and a schema tight enough to validate
+	// one rejected the rest outright.
+	data: z.looseObject({
+		order: z
+			.object({ orderId: z.string(), status: z.string().nullish() })
+			.nullish(),
 		driver: z
 			.object({
 				name: z.string().nullish(),
@@ -485,11 +490,24 @@ export const lalamoveAdapter: CarrierAdapter = {
 
 		if (!secretsMatch(parsed.apiKey, KEY())) return null;
 
-		const status = parsed.data.order.status ?? "";
+		// The one place an undocumented payload can be read from: every event
+		// Lalamove sends passes through here, whether we act on it or not.
+		trace("lalamove.webhook", {
+			eventType: parsed.eventType ?? null,
+			data: parsed.data,
+		});
+
+		const order = parsed.data.order;
+		if (!order) {
+			return { kind: "ignored", eventType: parsed.eventType ?? null };
+		}
+
+		const status = order.status ?? "";
 		const driver = parsed.data.driver;
 
 		return {
-			carrierOrderId: parsed.data.order.orderId,
+			kind: "order",
+			carrierOrderId: order.orderId,
 			update: {
 				status: status === "" ? null : mapCarrierStatus("lalamove", status),
 				...(driver

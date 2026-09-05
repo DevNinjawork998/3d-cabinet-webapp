@@ -400,6 +400,7 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 		});
 
 		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toMatchObject({
+			kind: "order",
 			carrierOrderId: "9",
 			update: { status: "PICKED_UP" },
 		});
@@ -420,9 +421,35 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 		});
 
 		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toMatchObject({
+			kind: "order",
 			carrierOrderId: "9",
 			update: { driverName: "Ah Meng", vehiclePlate: "W** 12*4" },
 		});
+	});
+
+	it("acknowledges an event that carries no order instead of refusing it", () => {
+		// Six of Lalamove's ten documented events have no order — wallet balance,
+		// proof of delivery, proof of pickup, delivery code. Each of them used to
+		// fail the parse and get a 400, which Lalamove retries for hours.
+		const body = JSON.stringify({
+			apiKey: "pk_test_abc",
+			eventType: "WALLET_BALANCE_CHANGED",
+			data: { wallet: { balance: "125.40", currency: "MYR" } },
+		});
+
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toEqual({
+			kind: "ignored",
+			eventType: "WALLET_BALANCE_CHANGED",
+		});
+	});
+
+	it("still refuses a payload carrying someone else's api key, order or not", () => {
+		const body = JSON.stringify({
+			apiKey: "pk_test_someone_else",
+			eventType: "WALLET_BALANCE_CHANGED",
+			data: { wallet: { balance: "125.40" } },
+		});
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toBeNull();
 	});
 
 	it("rejects a payload carrying someone else's api key", () => {

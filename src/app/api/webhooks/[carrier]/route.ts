@@ -57,6 +57,13 @@ export async function POST(
 		return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
 	}
 
+	// Verified, and nothing here to act on — a wallet balance, a proof of
+	// delivery, an event type added after this code was written. Answering
+	// anything but 200 has the carrier resending it for hours.
+	if (event.kind === "ignored") {
+		return NextResponse.json({ received: true });
+	}
+
 	const delivery = await prisma.delivery.findUnique({
 		where: { carrierOrderId: event.carrierOrderId },
 	});
