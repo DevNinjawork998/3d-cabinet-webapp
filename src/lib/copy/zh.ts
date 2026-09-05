@@ -27,8 +27,8 @@ export const zh: Dictionary = {
 		},
 		hero: {
 			eyebrow: "免费试用 · 无需注册",
-			titleBeforeAccent: "以 3D 设计您的厨房",
-			titleAccent: "橱柜",
+			titleBeforeAccent: "设计您的厨房，尽在",
+			titleAccent: "3D",
 			subtitle:
 				"将真实的 Infinite Cabinet 橱柜放入您自己的房间，边搭配边看价格变化，完成后直接把方案发给我们。",
 			cta: "开始设计",
