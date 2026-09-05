@@ -314,3 +314,25 @@ model DeliveryEvent {
 
   @@index([deliveryId, at])
 }
+
+/// One logistics partner's OAuth tokens.
+///
+/// A row rather than an environment variable because the refresh token rotates:
+/// EasyParcel hands back a new one on every refresh, and an env var cannot be
+/// written from a function. One row per carrier, `carrierId` as the id, so a
+/// second OAuth partner needs no migration.
+///
+/// These are booking credentials. Nothing outside `lib/logistics/tokens.ts`
+/// reads this table, and that file is `server-only`.
+model CarrierToken {
+  carrierId             String   @id
+  accessToken           String
+  refreshToken          String
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+  /// The admin who clicked through the authorisation. Admin auth is one shared
+  /// password, so this name is the whole record of who connected the account.
+  connectedBy           String?
+  connectedAt           DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}

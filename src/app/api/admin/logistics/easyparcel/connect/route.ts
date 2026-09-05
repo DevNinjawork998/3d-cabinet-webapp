@@ -1,0 +1,35 @@
+import { randomUUID } from "node:crypto";
+import { NextResponse } from "next/server";
+import {
+	easyparcelAppConfigured,
+	easyparcelLoginUrl,
+} from "@/lib/logistics/oauth";
+
+export const runtime = "nodejs";
+
+/**
+ * Send the admin to EasyParcel's login so they can link the account.
+ *
+ * Under `/api/admin`, so `proxy.ts` has already checked the admin cookie — and
+ * so has the callback, which the browser reaches with the same cookie.
+ *
+ * `state` is a nonce in a short-lived cookie, checked on the way back. It is
+ * the CSRF guard EasyParcel's own docs ask for: without it, anyone can feed
+ * this app an authorization code for an account we did not choose.
+ */
+export async function GET() {
+	if (!easyparcelAppConfigured()) {
+		return NextResponse.json({ error: "not_configured" }, { status: 409 });
+	}
+
+	const state = randomUUID();
+	const response = NextResponse.redirect(easyparcelLoginUrl(state));
+	response.cookies.set("easyparcel_oauth_state", state, {
+		httpOnly: true,
+		secure: process.env.NODE_ENV === "production",
+		sameSite: "lax",
+		path: "/",
+		maxAge: 600,
+	});
+	return response;
+}
