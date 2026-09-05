@@ -41,7 +41,11 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-	// Everything except Next's own assets. The predicate above does the real
-	// filtering; this only keeps the function off the static path.
-	matcher: ["/((?!_next/static|_next/image).*)"],
+	// Everything except: Next's own assets, public API routes (the mesh
+	// endpoint is this app's hot path — every cabinet on screen fetches it),
+	// and anything with a file extension (images, favicon, etc). `api/(?!admin)`
+	// is load-bearing: a bare `api` exclusion would drop /api/admin/* out of
+	// the matcher entirely and silently unauthenticate the admin API, since
+	// the admin gate above only runs when the proxy runs at all.
+	matcher: ["/((?!_next|api/(?!admin)|.*\\..*).*)"],
 };
