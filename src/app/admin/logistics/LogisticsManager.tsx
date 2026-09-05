@@ -30,6 +30,13 @@ import {
 	type QuoteRow,
 	toPayload,
 } from "./form";
+import {
+	defaultChoice,
+	JOURNEY,
+	journeySteps,
+	quoteTags,
+	STATUS_LABEL,
+} from "./tracking";
 
 export type { DeliveryEventRow, DeliveryRow, QuoteRow } from "./form";
 
@@ -42,18 +49,6 @@ export type { DeliveryEventRow, DeliveryRow, QuoteRow } from "./form";
  * of it needs to be server-rendered.
  */
 
-const STATUS_LABEL: Record<DeliveryStatusName, string> = {
-	DRAFT: "Draft",
-	QUOTED: "Quoted",
-	BOOKED: "Booked",
-	DRIVER_ASSIGNED: "Driver assigned",
-	PICKED_UP: "Picked up",
-	IN_TRANSIT: "In transit",
-	DELIVERED: "Delivered",
-	CANCELLED: "Cancelled",
-	FAILED: "Failed",
-};
-
 const BADGE_TONE: Record<DeliveryStatusName, string> = {
 	DRAFT: "bg-neutral-100 text-neutral-500",
 	QUOTED: "bg-[#f2efe6] text-[#6b5f2e]",
@@ -65,15 +60,6 @@ const BADGE_TONE: Record<DeliveryStatusName, string> = {
 	CANCELLED: "bg-neutral-100 text-neutral-500",
 	FAILED: "bg-red-50 text-red-700",
 };
-
-/** The states a job passes through, in the order the timeline offers them. */
-const JOURNEY: DeliveryStatusName[] = [
-	"BOOKED",
-	"DRIVER_ASSIGNED",
-	"PICKED_UP",
-	"IN_TRANSIT",
-	"DELIVERED",
-];
 
 const ACTIVE: DeliveryStatusName[] = [
 	"BOOKED",
@@ -545,6 +531,62 @@ const PIN_TROUBLE: Record<
 	},
 };
 
+/** A carrier id as a person says it, and a sentence-safe fallback. */
+const carrierLabel = (id: string | null | undefined) =>
+	id ? (LABEL[id] ?? id) : "the partner";
+
+/** Dates as this screen says them: "Sep 5, 11:04 pm". */
+const shortTime = (iso: string) =>
+	new Date(iso).toLocaleString(undefined, {
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+	});
+
+const Spinner = () => (
+	<span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-[#1f5138]" />
+);
+
+/** The three moves this panel asks for, and which one is being made now. */
+const PROCESS = ["Get quotations", "Choose partner", "Book pickup"];
+
+function ProcessSteps({ stage }: { stage: number }) {
+	return (
+		<ol className="m-0 flex list-none flex-wrap items-center gap-2 p-0">
+			{PROCESS.map((label, i) => {
+				const done = i < stage;
+				const active = i === stage;
+				return (
+					<li
+						key={label}
+						className={`flex items-center gap-[7px] rounded-full py-1.5 pr-3 pl-2 text-[12px] ${
+							active
+								? "border border-[#1f5138] bg-[#f2f7f4] font-semibold text-[#17402c]"
+								: done
+									? "border border-[#bcd0c3] bg-white font-medium text-[#1f5138]"
+									: "border border-neutral-200 bg-white font-medium text-neutral-500"
+						}`}
+					>
+						<span
+							className={`flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full font-bold text-[11px] ${
+								active
+									? "bg-[#1f5138] text-white"
+									: done
+										? "bg-[#dbe8e0] text-[#1f5138]"
+										: "bg-[#f0efec] text-neutral-600"
+							}`}
+						>
+							{done ? "✓" : i + 1}
+						</span>
+						{label}
+					</li>
+				);
+			})}
+		</ol>
+	);
+}
+
 function DeliveryDetail({
 	id,
 	onChanged,
@@ -560,7 +602,8 @@ function DeliveryDetail({
 	const [events, setEvents] = useState<DeliveryEventRow[]>([]);
 	const [quotes, setQuotes] = useState<QuoteRow[] | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
-	const [confirming, setConfirming] = useState<QuoteRow | null>(null);
+	const [selected, setSelected] = useState<string | null>(null);
+	const [copied, setCopied] = useState(false);
 	const [bookedBy, setBookedBy] = useState("");
 
 	// Read after mount, not in the initial state: `localStorage` does not exist
@@ -613,22 +656,25 @@ function DeliveryDetail({
 			return;
 		}
 		const body = await res.json();
-		setQuotes(body.quotes ?? []);
+		const rows: QuoteRow[] = body.quotes ?? [];
+		setQuotes(rows);
+		setSelected(defaultChoice(rows));
 		await read();
 		await onChanged();
 	}
 
 	async function book() {
-		if (!confirming) return;
+		const choice = quotes?.find((quote) => quote.carrierId === selected);
+		if (!choice) return;
 		setBusy("book");
 		onError(null);
 		const res = await fetch(`/api/admin/deliveries/${id}/book`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
-				carrierId: confirming.carrierId,
+				carrierId: choice.carrierId,
 				bookedBy,
-				quotedPriceRm: confirming.priceRm,
+				quotedPriceRm: choice.priceRm,
 			}),
 		});
 		setBusy(null);
@@ -643,7 +689,6 @@ function DeliveryDetail({
 			onError(messageFor(body?.error, "Booking failed"));
 			return;
 		}
-		setConfirming(null);
 		setQuotes(null);
 		await read();
 		await onChanged();
@@ -703,9 +748,73 @@ function DeliveryDetail({
 
 	const booked = delivery.carrierOrderId !== null;
 	const nextStep = JOURNEY[JOURNEY.indexOf(delivery.status) + 1];
+	const steps = journeySteps(delivery.status, events);
+	const tags = quotes === null ? {} : quoteTags(quotes);
+	const choice = quotes?.find((q) => q.carrierId === selected) ?? null;
+
+	// Which of the three moves is being made now — the stepper and the sentence
+	// under it are the same fact said twice, so they read it from one place.
+	const stage = booked
+		? 3
+		: busy === "book"
+			? 2
+			: quotes === null || busy === "compare"
+				? 0
+				: 1;
+
+	const guide = booked
+		? "Pickup is booked. Follow the shipment below; refresh from the carrier for a fresh position."
+		: busy === "compare"
+			? "Asking every partner what this job costs. Nothing is booked yet."
+			: quotes === null
+				? "Start by comparing partners. Nothing reaches a carrier until you book."
+				: busy === "book"
+					? `Creating the job with ${carrierLabel(choice?.carrierId)}. Stay on this page until it confirms.`
+					: "Compare the prices below, pick a partner, then book the pickup.";
+
+	const copyLink = async () => {
+		if (delivery.trackingUrl === null) return;
+		await navigator.clipboard.writeText(delivery.trackingUrl);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	};
 
 	return (
 		<div className="flex flex-col gap-5 border-neutral-200 border-t px-4 py-4">
+			<section className="flex flex-col rounded-xl border border-neutral-200 bg-white px-5 py-4">
+				<p className="mb-2.5 font-semibold text-[12px] text-neutral-600 uppercase tracking-[.06em]">
+					On the lorry
+				</p>
+				{delivery.items.length === 0 ? (
+					<p className="text-[13px] text-neutral-500">Nothing listed yet.</p>
+				) : (
+					delivery.items.map((item) => (
+						<div
+							key={`${item.label}-${item.widthMm}-${item.heightMm}-${item.depthMm}`}
+							className="flex justify-between gap-3 py-1.5 text-[13px]"
+						>
+							<span>
+								{item.label}{" "}
+								<span className="text-[#8a857c]">× {item.qty}</span>
+							</span>
+							<span className="shrink-0 text-neutral-500 tabular-nums">
+								{item.widthMm} × {item.heightMm} × {item.depthMm} mm
+								{item.weightKg === null ? "" : ` · ${item.weightKg} kg`}
+							</span>
+						</div>
+					))
+				)}
+				<p className="mt-1.5 border-[#ecebe7] border-t pt-2.5 text-[13px] font-semibold">
+					{delivery.totalVolumeM3 ?? 0} m³
+					{delivery.totalWeightKg === null
+						? ", weight not given"
+						: `, ${delivery.totalWeightKg} kg`}
+				</p>
+				<p className="mt-2.5 text-[12px] text-[#5c574e]">
+					Deliver to: {delivery.siteAddress}
+				</p>
+			</section>
+
 			<div className="grid grid-cols-1 gap-1 text-[12px] text-neutral-500 sm:grid-cols-2">
 				<p>Phone: {delivery.customerPhone}</p>
 				<p>Pickup: {delivery.pickupAddress}</p>
@@ -730,13 +839,22 @@ function DeliveryDetail({
 							</p>
 						);
 					})}
-				<p>
-					{delivery.totalVolumeM3 ?? 0} m³
-					{delivery.totalWeightKg === null
-						? ", weight not given"
-						: `, ${delivery.totalWeightKg} kg`}
-				</p>
 			</div>
+
+			<ProcessSteps stage={stage} />
+
+			<p
+				className={`flex items-start gap-2.5 rounded-[10px] border px-3.5 py-2.5 text-[12px] leading-[18px] ${
+					booked
+						? "border-[#bcd0c3] bg-[#f2f7f4] text-[#17402c]"
+						: "border-neutral-200 bg-[#f8f7f4] text-neutral-700"
+				}`}
+			>
+				<span className="shrink-0 font-bold">
+					{booked ? "Done" : `Step ${stage + 1} of 3`}
+				</span>
+				<span>{guide}</span>
+			</p>
 
 			{!booked && (
 				<div className="flex flex-col gap-3">
@@ -744,10 +862,19 @@ function DeliveryDetail({
 						type="button"
 						className={`${chipClass(false)} self-start`}
 						onClick={compare}
-						disabled={busy === "compare"}
+						disabled={busy !== null}
 					>
-						{busy === "compare" ? "Asking partners…" : "Compare partners"}
+						{quotes === null ? "Compare partners" : "Compare again"}
 					</button>
+
+					{busy === "compare" && (
+						<div className="flex items-center gap-2.5 rounded-[10px] border border-neutral-200 bg-[#faf9f7] px-4 py-3">
+							<Spinner />
+							<span className="text-[13px] text-neutral-700">
+								Asking every partner what this job costs…
+							</span>
+						</div>
+					)}
 
 					{quotes !== null && quotes.length === 0 && (
 						<p className="text-[13px] text-neutral-500">
@@ -758,62 +885,82 @@ function DeliveryDetail({
 					)}
 
 					{quotes !== null && quotes.length > 0 && (
-						<ul className="flex flex-col gap-2">
-							{quotes.map((quote) => (
-								<li
-									key={quote.carrierId}
-									className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2"
-								>
-									<span className="min-w-[120px] flex-1 font-medium text-[13px]">
-										{LABEL[quote.carrierId] ?? quote.carrierId}
-									</span>
-									{quote.error ? (
-										<span className="text-[12px] text-red-700">
-											{quote.error}
-										</span>
-									) : (
-										<>
-											<span className="text-[13px] tabular-nums">
-												{quote.priceRm === null
-													? "Price agreed by phone"
-													: `RM ${quote.priceRm}`}
+						<div className="flex flex-col gap-2">
+							{quotes.map((quote) => {
+								const active = selected === quote.carrierId;
+								const failed = quote.error !== undefined;
+								const tag = tags[quote.carrierId];
+								return (
+									<button
+										key={quote.carrierId}
+										type="button"
+										aria-pressed={active}
+										disabled={failed || busy !== null}
+										onClick={() => setSelected(quote.carrierId)}
+										className={`flex flex-col gap-1 rounded-xl border-[1.5px] px-4 py-3 text-left ${
+											active
+												? "border-[#1f5138] bg-[#f2f7f4]"
+												: "border-neutral-200 bg-white"
+										} ${failed ? "opacity-70" : ""}`}
+									>
+										<span className="flex w-full items-center gap-2">
+											<span
+												className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[#1f5138]" : "bg-neutral-300"}`}
+											/>
+											<span className="font-semibold text-[13px]">
+												{carrierLabel(quote.carrierId)}
 											</span>
-											{quote.etaMinutes !== null && (
-												<span className="text-[12px] text-neutral-500">
-													~{quote.etaMinutes} min
+											{tag && (
+												<span
+													className={`shrink-0 rounded-full px-2 py-0.5 font-bold text-[10px] ${
+														tag === "Cheapest"
+															? "bg-[#eef3ef] text-[#1f5138]"
+															: "bg-[#f2efe6] text-[#6b5f2e]"
+													}`}
+												>
+													{tag}
 												</span>
 											)}
-											<button
-												type="button"
-												className={chipClass(
-													confirming?.carrierId === quote.carrierId,
-												)}
-												onClick={() => setConfirming(quote)}
-											>
-												Book
-											</button>
-										</>
-									)}
-								</li>
-							))}
-						</ul>
+											<span className="ml-auto shrink-0 font-semibold text-[13px] tabular-nums">
+												{failed
+													? "—"
+													: quote.priceRm === null
+														? "Price agreed by phone"
+														: `RM ${quote.priceRm}`}
+											</span>
+										</span>
+										<span className="flex items-center gap-2 pl-[18px] text-[11px]">
+											{quote.error ? (
+												<span className="text-red-700">{quote.error}</span>
+											) : quote.etaMinutes !== null ? (
+												<span className="text-[#8a857c]">
+													~{quote.etaMinutes} min
+												</span>
+											) : null}
+											{active && (
+												<span className="font-semibold text-[#1f5138]">
+													Selected
+												</span>
+											)}
+										</span>
+									</button>
+								);
+							})}
+						</div>
 					)}
 
-					{confirming && (
-						<div className="flex flex-col gap-2 rounded-lg bg-[#f4f3f1] p-3">
-							<p className="text-[13px]">
-								Book{" "}
-								<span className="font-medium">
-									{LABEL[confirming.carrierId] ?? confirming.carrierId}
-								</span>{" "}
-								for{" "}
-								<span className="font-medium">
-									{confirming.priceRm === null
-										? "a price agreed by phone"
-										: `RM ${confirming.priceRm}`}
-								</span>
-								. This books a real vehicle.
-							</p>
+					{busy === "book" && (
+						<div className="flex items-center gap-2.5 rounded-[10px] border border-neutral-200 bg-[#faf9f7] px-4 py-3">
+							<Spinner />
+							<span className="text-[13px] text-neutral-700">
+								Booking with {carrierLabel(choice?.carrierId)} — creating the
+								job…
+							</span>
+						</div>
+					)}
+
+					{choice && busy === null && (
+						<div className="flex flex-col gap-2">
 							<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 								Your name — recorded against the booking
 								<input
@@ -822,68 +969,136 @@ function DeliveryDetail({
 									onChange={(e) => rememberActor(e.target.value)}
 								/>
 							</label>
-							<div className="flex gap-2">
-								<button
-									type="button"
-									className="rounded-full bg-neutral-900 px-4 py-2 text-[13px] text-white disabled:opacity-40"
-									disabled={bookedBy.trim() === "" || busy === "book"}
-									onClick={book}
-								>
-									{busy === "book" ? "Booking…" : "Confirm booking"}
-								</button>
-								<button
-									type="button"
-									className={chipClass(false)}
-									onClick={() => setConfirming(null)}
-								>
-									Cancel
-								</button>
-							</div>
+							<button
+								type="button"
+								className="self-start rounded-full bg-[#1f5138] px-5 py-2.5 font-semibold text-[13px] text-white disabled:opacity-40"
+								disabled={bookedBy.trim() === ""}
+								onClick={book}
+							>
+								Book pickup with {carrierLabel(choice.carrierId)}
+								{choice.priceRm === null ? "" : ` — RM ${choice.priceRm}`} →
+							</button>
+							<p className="text-[12px] text-neutral-500">
+								This books a real vehicle with the partner.
+							</p>
 						</div>
 					)}
 				</div>
 			)}
 
 			{booked && (
-				<div className="flex flex-col gap-3">
+				<section className="flex flex-col gap-4 rounded-xl border border-neutral-200 bg-white px-5 py-4">
+					<div className="flex flex-wrap items-start justify-between gap-4">
+						<div>
+							<p className="mb-1 font-semibold text-[12px] text-neutral-600 uppercase tracking-[.06em]">
+								Shipment tracking
+							</p>
+							<p className="text-[13px] text-[#5c574e]">
+								{carrierLabel(delivery.carrierId)} ·{" "}
+								<span className="font-mono">{delivery.carrierOrderId}</span>
+							</p>
+						</div>
+						<div className="text-right">
+							<p className="mb-0.5 text-[11px] text-[#8a857c]">Scheduled</p>
+							<p className="font-semibold text-[13px]">
+								{delivery.scheduledAt ? shortTime(delivery.scheduledAt) : "—"}
+							</p>
+						</div>
+					</div>
+
+					<div className="flex">
+						{steps.map((step, i) => (
+							<div
+								key={step.status}
+								className="flex flex-1 flex-col items-center"
+							>
+								<div className="flex w-full items-center">
+									<div
+										className={`h-0.5 flex-1 ${
+											i === 0
+												? "bg-transparent"
+												: step.state === "pending"
+													? "bg-neutral-200"
+													: "bg-[#1f5138]"
+										}`}
+									/>
+									<span
+										className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border-2 text-[12px] text-white ${
+											step.state === "pending"
+												? "border-neutral-300 bg-neutral-300"
+												: "border-[#1f5138] bg-[#1f5138]"
+										} ${step.state === "active" ? "ring-[3px] ring-[#dbe8e0]" : ""}`}
+									>
+										{step.state === "done" ? "✓" : ""}
+									</span>
+									<div
+										className={`h-0.5 flex-1 ${
+											i === steps.length - 1
+												? "bg-transparent"
+												: steps[i + 1].state === "pending"
+													? "bg-neutral-200"
+													: "bg-[#1f5138]"
+										}`}
+									/>
+								</div>
+								<p
+									className={`mt-2.5 mb-0.5 text-center font-semibold text-[12px] ${
+										step.state === "pending"
+											? "text-[#a3a19b]"
+											: "text-neutral-900"
+									}`}
+								>
+									{step.label}
+								</p>
+								<p className="text-center text-[11px] text-[#8a857c]">
+									{step.at ? shortTime(step.at) : "—"}
+								</p>
+							</div>
+						))}
+					</div>
+
 					<div className="flex flex-wrap items-center gap-3 text-[12px] text-neutral-500">
-						<span>
-							{LABEL[delivery.carrierId ?? ""] ?? delivery.carrierId} ·{" "}
-							{delivery.carrierOrderId}
-						</span>
 						{delivery.quotedPriceRm !== null && (
 							<span>RM {delivery.quotedPriceRm}</span>
 						)}
 						{delivery.bookedBy && <span>Booked by {delivery.bookedBy}</span>}
-						{delivery.trackingUrl && (
+						{(delivery.driverName || delivery.vehiclePlate) && (
+							<span className="text-neutral-900">
+								Driver {delivery.driverName ?? "—"}
+								{delivery.driverPhone ? ` · ${delivery.driverPhone}` : ""}
+								{delivery.vehiclePlate ? ` · ${delivery.vehiclePlate}` : ""}
+							</span>
+						)}
+						<span>
+							{delivery.lastLatitude === null
+								? "No position reported yet."
+								: `Last seen ${delivery.lastLatitude}, ${delivery.lastLongitude}${
+										delivery.lastLocationAt
+											? ` at ${new Date(delivery.lastLocationAt).toLocaleTimeString()}`
+											: ""
+									}`}
+						</span>
+					</div>
+
+					{delivery.trackingUrl && (
+						<div className="flex items-center gap-2 rounded-[9px] border border-[#ecebe7] bg-[#faf9f7] px-3 py-2.5">
 							<a
-								className="underline"
+								className="flex-1 truncate text-[12px] underline"
 								href={delivery.trackingUrl}
 								target="_blank"
 								rel="noreferrer"
 							>
-								Carrier tracking
+								{delivery.trackingUrl}
 							</a>
-						)}
-					</div>
-
-					{(delivery.driverName || delivery.vehiclePlate) && (
-						<p className="text-[13px]">
-							Driver {delivery.driverName ?? "—"}
-							{delivery.driverPhone ? ` · ${delivery.driverPhone}` : ""}
-							{delivery.vehiclePlate ? ` · ${delivery.vehiclePlate}` : ""}
-						</p>
+							<button
+								type="button"
+								className="shrink-0 font-semibold text-[12px] text-[#1f5138]"
+								onClick={copyLink}
+							>
+								{copied ? "Copied" : "Copy"}
+							</button>
+						</div>
 					)}
-
-					<p className="text-[12px] text-neutral-500">
-						{delivery.lastLatitude === null
-							? "No position reported yet."
-							: `Last seen ${delivery.lastLatitude}, ${delivery.lastLongitude}${
-									delivery.lastLocationAt
-										? ` at ${new Date(delivery.lastLocationAt).toLocaleTimeString()}`
-										: ""
-								}`}
-					</p>
 
 					<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 						Your name — recorded against every update
@@ -924,23 +1139,30 @@ function DeliveryDetail({
 							</button>
 						)}
 					</div>
-				</div>
+				</section>
 			)}
 
-			<div className="flex flex-col gap-1">
+			<div className="flex flex-col gap-2">
 				<p className="font-medium text-[13px]">Timeline</p>
 				{events.length === 0 ? (
 					<p className="text-[12px] text-neutral-500">Nothing recorded yet.</p>
 				) : (
-					<ul className="flex flex-col gap-1">
+					<ul className="flex flex-col gap-2.5">
 						{events.map((event) => (
-							<li key={event.id} className="text-[12px] text-neutral-500">
-								<span className="tabular-nums">
-									{new Date(event.at).toLocaleString()}
-								</span>{" "}
-								· {event.message}
-								{event.actor ? ` · ${event.actor}` : ""}
-								<span className="text-neutral-400"> ({event.source})</span>
+							<li key={event.id} className="flex items-start gap-3">
+								<span
+									className={`mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full ${
+										event.source === "ADMIN" ? "bg-neutral-300" : "bg-[#1f5138]"
+									}`}
+								/>
+								<div className="flex-1">
+									<p className="text-[13px]">{event.message}</p>
+									<p className="text-[11px] text-[#8a857c]">
+										{shortTime(event.at)}
+										{event.actor ? ` · ${event.actor}` : ""} ·{" "}
+										{event.source.toLowerCase().replace("_", " ")}
+									</p>
+								</div>
 							</li>
 						))}
 					</ul>
