@@ -39,18 +39,24 @@ body {
  */
 
 [data-beats="on"] {
-	/* The `1` fallback matters: it defends the instant before the first
-	   `write()` sets `--p`, and any future path that ever sets `data-beats`
-	   without a paired write. An undefined `--p` would make the whole clamp
-	   invalid; falling back to 1 renders the finished state, which is the
-	   only wrong answer this page tolerates. */
-	--beat-copy: clamp(0, calc((var(--p, 1) - 0.02) / 0.28), 1);
+	/* Each fallback is chosen so that an unknown `--p` renders the READABLE
+	   state — not a fixed number. It defends the instant before the first
+	   `write()`, and any future path that sets `data-beats` without a paired
+	   write. The two differ because the beats point in opposite directions:
+	   the photo's is an arrival (1 = settled), the copy's is a departure
+	   (0 = still here, fully legible). */
 	--beat-photo: clamp(0, calc(var(--p, 1) / 0.75), 1);
+	--beat-exit: clamp(0, calc((var(--p, 0) - 0.55) / 0.45), 1);
 }
 
+/* The hero copy does NOT arrive on scroll — it is the LCP element and must be
+   legible the instant the page paints. It leaves instead, drifting up and out
+   over the back half of the track, which is what the reference product pages
+   actually do. Fading it in would reproduce, one frame later, exactly the
+   blank-headline failure the no-JavaScript contract exists to prevent. */
 [data-beats="on"] [data-beat="hero-copy"] {
-	opacity: var(--beat-copy);
-	transform: translate3d(0, calc((1 - var(--beat-copy)) * 26px), 0);
+	opacity: calc(1 - var(--beat-exit));
+	transform: translate3d(0, calc(var(--beat-exit) * -32px), 0);
 	will-change: transform, opacity;
 }
 
