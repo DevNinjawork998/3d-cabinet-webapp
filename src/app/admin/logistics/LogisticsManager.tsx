@@ -526,6 +526,18 @@ function DeliveryDetail({
 	const [confirming, setConfirming] = useState<QuoteRow | null>(null);
 	const [bookedBy, setBookedBy] = useState("");
 
+	// Read after mount, not in the initial state: `localStorage` does not exist
+	// on the server, and a value read during render would not survive
+	// hydration.
+	useEffect(() => {
+		setBookedBy(localStorage.getItem("ic.logistics.actor") ?? "");
+	}, []);
+
+	const rememberActor = (name: string) => {
+		setBookedBy(name);
+		localStorage.setItem("ic.logistics.actor", name);
+	};
+
 	const read = useCallback(async () => {
 		const res = await fetch(`/api/admin/deliveries/${id}`);
 		if (!res.ok) return;
@@ -611,14 +623,16 @@ function DeliveryDetail({
 	}
 
 	async function advance(status: DeliveryStatusName) {
-		const actor = prompt("Your name, for the record") ?? "";
-		if (actor.trim() === "") return;
+		if (bookedBy.trim() === "") {
+			onError("Put your name in the field above — it goes on the record.");
+			return;
+		}
 		setBusy(status);
 		onError(null);
 		const res = await fetch(`/api/admin/deliveries/${id}/advance`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ status, actor }),
+			body: JSON.stringify({ status, actor: bookedBy }),
 		});
 		setBusy(null);
 		if (!res.ok) {
@@ -658,20 +672,21 @@ function DeliveryDetail({
 						Site pin: {delivery.siteLat}, {delivery.siteLng}
 					</p>
 				)}
-				{(["site", "pickup"] as const).map((stop) => {
-					const state = pinState(
-						stop === "site" ? delivery.siteLat : delivery.pickupLat,
-						geocodingConfigured,
-					);
-					if (state === "located") return null;
-					return (
-						<p key={stop} className="text-amber-700 sm:col-span-2">
-							The {stop} address {PIN_TROUBLE[state]} Vehicle partners price by
-							coordinate, so only own lorry can be booked. Use Edit above to fix
-							the address or paste a pin.
-						</p>
-					);
-				})}
+				{!booked &&
+					(["site", "pickup"] as const).map((stop) => {
+						const state = pinState(
+							stop === "site" ? delivery.siteLat : delivery.pickupLat,
+							geocodingConfigured,
+						);
+						if (state === "located") return null;
+						return (
+							<p key={stop} className="text-amber-700 sm:col-span-2">
+								The {stop} address {PIN_TROUBLE[state]} Vehicle partners price
+								by coordinate, so only own lorry can be booked. Use Edit above
+								to fix the address or paste a pin.
+							</p>
+						);
+					})}
 				<p>
 					{delivery.totalVolumeM3 ?? 0} m³
 					{delivery.totalWeightKg === null
@@ -761,7 +776,7 @@ function DeliveryDetail({
 								<input
 									className={fieldClass(false, "max-w-[260px]")}
 									value={bookedBy}
-									onChange={(e) => setBookedBy(e.target.value)}
+									onChange={(e) => rememberActor(e.target.value)}
 								/>
 							</label>
 							<div className="flex gap-2">
@@ -826,6 +841,15 @@ function DeliveryDetail({
 										: ""
 								}`}
 					</p>
+
+					<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
+						Your name — recorded against every update
+						<input
+							className={fieldClass(false, "max-w-[260px]")}
+							value={bookedBy}
+							onChange={(e) => rememberActor(e.target.value)}
+						/>
+					</label>
 
 					<div className="flex flex-wrap gap-2">
 						<button

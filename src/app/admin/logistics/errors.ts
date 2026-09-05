@@ -16,5 +16,7 @@ const MESSAGE: Record<string, string> = {
 };
 
 export function messageFor(code: unknown, fallback: string): string {
-	return typeof code === "string" && code in MESSAGE ? MESSAGE[code] : fallback;
+	return typeof code === "string" && Object.hasOwn(MESSAGE, code)
+		? MESSAGE[code]
+		: fallback;
 }

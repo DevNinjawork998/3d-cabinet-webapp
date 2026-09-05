@@ -23,4 +23,10 @@ describe("messageFor", () => {
 			"Could not save this delivery",
 		);
 	});
+
+	it("falls back on a prototype-chain member instead of returning a function", () => {
+		expect(messageFor("toString", "Could not save this delivery")).toBe(
+			"Could not save this delivery",
+		);
+	});
 });
