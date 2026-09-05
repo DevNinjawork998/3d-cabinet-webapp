@@ -16,6 +16,7 @@ import {
 	totalWeightKg,
 } from "@/lib/logistics/measure";
 import type { DeliveryStatusName } from "@/lib/logistics/types";
+import { messageFor } from "./errors";
 import {
 	blankForm,
 	type DeliveryEventRow,
@@ -133,11 +134,7 @@ export function LogisticsManager({
 		);
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			setError(
-				body?.error === "already_booked"
-					? "This job is booked with a carrier — change it there instead."
-					: (body?.error ?? "Could not save this delivery"),
-			);
+			setError(messageFor(body?.error, "Could not save this delivery"));
 			return;
 		}
 		setForm(null);
@@ -154,11 +151,7 @@ export function LogisticsManager({
 		});
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			setError(
-				body?.error === "already_booked"
-					? "This job is booked with a carrier — cancel it there first."
-					: "Could not delete this delivery",
-			);
+			setError(messageFor(body?.error, "Could not delete this delivery"));
 			return;
 		}
 		if (openId === row.id) setOpenId(null);
@@ -586,11 +579,13 @@ function DeliveryDetail({
 		setBusy(null);
 		const body = await res.json().catch(() => null);
 		if (!res.ok) {
-			onError(
-				body?.error === "price_moved"
-					? `The price moved to RM ${body.currentPriceRm} — compare again before booking.`
-					: (body?.error ?? "Booking failed"),
-			);
+			if (body?.error === "price_moved") {
+				onError(
+					`The price moved to RM ${body.currentPriceRm} — compare again before booking.`,
+				);
+				return;
+			}
+			onError(messageFor(body?.error, "Booking failed"));
 			return;
 		}
 		setConfirming(null);
@@ -608,7 +603,7 @@ function DeliveryDetail({
 		setBusy(null);
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			onError(body?.error ?? "Could not reach the carrier");
+			onError(messageFor(body?.error, "Could not reach the carrier"));
 			return;
 		}
 		await read();
@@ -628,11 +623,13 @@ function DeliveryDetail({
 		setBusy(null);
 		if (!res.ok) {
 			const body = await res.json().catch(() => null);
-			onError(
-				body?.error === "carrier_refused_cancel"
-					? `The carrier would not cancel this job — ring them. (${body.message})`
-					: "Could not update this job",
-			);
+			if (body?.error === "carrier_refused_cancel") {
+				onError(
+					`The carrier would not cancel this job — ring them. (${body.message})`,
+				);
+				return;
+			}
+			onError(messageFor(body?.error, "Could not update this job"));
 			return;
 		}
 		await read();
