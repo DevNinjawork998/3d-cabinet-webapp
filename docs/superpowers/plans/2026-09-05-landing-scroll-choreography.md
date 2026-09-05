@@ -669,3 +669,52 @@ git add -A && git commit -m "fix(landing): scroll choreography verification fixe
 - **The pinned "how it works" three-step sequence.** A second track, one beat per step, is the natural follow-up once the hero pattern is proven on a real device. The machinery from Tasks 1–3 already supports it: another `ScrollTrack viewports={3}` and three more `--beat-*` slices.
 - **Scrubbed video.** Apple's hero is a `<video preload="none">` scrubbed against scroll with a per-breakpoint source map and a 5-second load timeout. Worth doing when Infinite Cabinet has a door-opening render to scrub; it needs a real asset and a byte budget, not just code.
 - **A WebGL hero** using the R3F stack already in the repo. The planner owns the 3D; putting a WebGL context on the LCP path of the marketing page is a decision to make deliberately, with the `no-gl` fallback pattern, not as a side effect of this work.
+
+---
+
+## Verification results (2026-09-05)
+
+Measured in a real browser at 1440×900 and 390×844 against the dev server, not inferred
+from a passing build.
+
+| `--p` | `--beat-exit` | hero copy opacity | photo scale |
+| --- | --- | --- | --- |
+| 0.0000 | 0 | 1 | 1.0800 |
+| 0.1060 | 0 | 1 | 1.0687 |
+| 0.3553 | 0 | 1 | 1.0421 |
+| 0.6060 | 0.1244 | 0.8756 | 1.0154 |
+| 1.0000 | 1 | 1.11e-16 | 1.0000 |
+
+`--p` first reaches 1.0 at scrollY 805px, at which point the sticky stage still fills the
+viewport (top −6.1px, bottom 990.9px of 997px) — so the copy finishes leaving while the
+visitor is still looking at the hero, which is the intent.
+
+The no-JavaScript contract was proven from the served bytes rather than by toggling
+DevTools: `curl` of `/en`, `/zh` and `/ms` returns HTML already containing the headline,
+the starter-kitchen price, the room headings and the FAQ text, and containing neither
+`data-beats="on"` nor `data-reveal-armed` — both of which only a mounted island's effect
+sets. Reduced motion and a 800px viewport were each confirmed to leave `data-beats` unset.
+Zero console errors.
+
+**One defect was found here and fixed** (`409765d`): the hero copy originally faded IN over
+the first 30% of the track, so at rest the LCP headline computed to `opacity: 0`. That is
+the same blank-headline failure the no-JavaScript contract exists to prevent, arriving one
+frame later with JavaScript enabled. The choreography was inverted — the copy now starts
+resolved and departs — and the `var(--p, …)` fallbacks now differ per beat so that an
+unknown progress value always renders the readable state.
+
+**A second was found by the final review** (`2d011bc`): the `1.7 × 100svh` track height was
+unconditional while the motion was gated, giving a 390×844 phone 591px of pinned hero in
+which nothing happened. The height now lives in CSS behind the same breakpoint and
+reduced-motion conditions as the JavaScript gate.
+
+### Known follow-ups, deliberately not done
+
+- **No scroll cue.** A decorative `aria-hidden` chevron would be new geometry rather than a
+  new string, so it does not violate the no-new-strings constraint. It is left out as a
+  design decision for Infinite Cabinet rather than one to make inside a motion task.
+- **`viewports={1.7}`** buys ~630px of desktop runway whose first 55% holds the copy still.
+  That hold is intentional; the number is worth tuning on a real screen with the client.
+- **`svh` vs `innerHeight`.** The layout is sized in `svh` while `trackProgress` is fed
+  `innerHeight`. They diverge only where mobile browser chrome moves, and no viewport under
+  900px is armed today. Anyone lowering that gate must reconcile them first.
