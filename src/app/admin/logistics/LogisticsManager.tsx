@@ -138,6 +138,12 @@ export function LogisticsManager({
 			return;
 		}
 		setForm(null);
+		// Close the panel before reloading, even if the row was already open:
+		// `setOpenId` to the id it already holds is a no-op re-render, so
+		// `DeliveryDetail` never remounts and keeps showing the pre-edit pin
+		// warning. Splitting the close and the reopen across this `await` forces
+		// two state batches, so the id change on the far side actually remounts it.
+		setOpenId(null);
 		await load();
 		const body = await res.json().catch(() => null);
 		if (body?.delivery?.id) setOpenId(body.delivery.id);
@@ -359,7 +365,7 @@ function DeliveryForm({
 					“3.1509, 101.5931”
 					<input
 						className={fieldClass(false)}
-						placeholder="Found from the address"
+						placeholder={state.sitePinPlaceholder}
 						value={state.siteCoords}
 						onChange={(e) => set("siteCoords", e.target.value)}
 					/>
@@ -385,7 +391,7 @@ function DeliveryForm({
 					Pickup pin
 					<input
 						className={fieldClass(false)}
-						placeholder="Found from the address"
+						placeholder={state.pickupPinPlaceholder}
 						value={state.pickupCoords}
 						onChange={(e) => set("pickupCoords", e.target.value)}
 					/>
@@ -500,12 +506,27 @@ function DeliveryForm({
 	);
 }
 
-/** Why a stop has no pin, in words an admin can act on. */
-const PIN_TROUBLE: Record<Exclude<PinState, "located">, string> = {
-	"geocoder-off":
-		"was not looked up — address lookup is switched off on this deployment.",
-	"not-found":
-		"did not resolve to a map location — the address may be too vague to place.",
+/**
+ * Why a stop has no pin, in words an admin can act on.
+ *
+ * Each carries its own action tail — with the geocoder switched off, fixing
+ * the address can never help, since nothing looks it up, so that case offers
+ * only pasting a pin. `not-found` keeps both options.
+ */
+const PIN_TROUBLE: Record<
+	Exclude<PinState, "located">,
+	{ reason: string; action: string }
+> = {
+	"geocoder-off": {
+		reason:
+			"was not looked up — address lookup is switched off on this deployment.",
+		action: "Paste a pin above.",
+	},
+	"not-found": {
+		reason:
+			"did not resolve to a map location — the address may be too vague to place.",
+		action: "Use Edit above to fix the address or paste a pin.",
+	},
 };
 
 function DeliveryDetail({
@@ -681,9 +702,9 @@ function DeliveryDetail({
 						if (state === "located") return null;
 						return (
 							<p key={stop} className="text-amber-700 sm:col-span-2">
-								The {stop} address {PIN_TROUBLE[state]} Vehicle partners price
-								by coordinate, so only own lorry can be booked. Use Edit above
-								to fix the address or paste a pin.
+								The {stop} address {PIN_TROUBLE[state].reason} Vehicle partners
+								price by coordinate, so only own lorry can be booked.{" "}
+								{PIN_TROUBLE[state].action}
 							</p>
 						);
 					})}
@@ -865,7 +886,7 @@ function DeliveryDetail({
 								type="button"
 								className={chipClass(false)}
 								onClick={() => advance(nextStep)}
-								disabled={busy === nextStep}
+								disabled={bookedBy.trim() === "" || busy === nextStep}
 							>
 								Mark {STATUS_LABEL[nextStep].toLowerCase()}
 							</button>
@@ -875,6 +896,7 @@ function DeliveryDetail({
 								type="button"
 								className={chipClass(false)}
 								onClick={() => advance("CANCELLED")}
+								disabled={bookedBy.trim() === ""}
 							>
 								Cancel job
 							</button>

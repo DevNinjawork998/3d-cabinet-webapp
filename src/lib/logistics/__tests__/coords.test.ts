@@ -55,6 +55,13 @@ describe("parseCoords", () => {
 	it("refuses a lone number", () => {
 		expect(parseCoords("3.1509")).toEqual({ ok: false, reason: "unreadable" });
 	});
+
+	it("does not read a typed address's numbers as a coordinate", () => {
+		expect(parseCoords("Blok 3, 101 Jalan Setia")).toEqual({
+			ok: false,
+			reason: "unreadable",
+		});
+	});
 });
 
 describe("pinState", () => {

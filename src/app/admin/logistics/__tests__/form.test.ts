@@ -46,8 +46,14 @@ describe("formFrom", () => {
 		expect(formFrom(row).id).toBe("d1");
 	});
 
-	it("shows the stored pin in the coords field", () => {
-		expect(formFrom(row).siteCoords).toBe("3.1509, 101.5931");
+	it("leaves the coords field blank even when the row carries a stored pin", () => {
+		// Prefilling it would resend the stored pin as an override on the next
+		// save, which stops a corrected address from ever being re-geocoded.
+		expect(formFrom(row).siteCoords).toBe("");
+	});
+
+	it("shows the stored pin as the placeholder instead", () => {
+		expect(formFrom(row).sitePinPlaceholder).toBe("3.1509, 101.5931");
 	});
 
 	it("leaves the coords field empty when there is no pin", () => {
@@ -81,6 +87,13 @@ describe("toPayload", () => {
 	it("sends the pasted pin as a coordinate override", () => {
 		const state = { ...blankForm("Workshop"), siteCoords: "3.15, 101.59" };
 		expect(toPayload(state)).toMatchObject({ siteLat: 3.15, siteLng: 101.59 });
+	});
+
+	it("sends no override for an edited row whose pin field was left untouched, so a changed address is re-geocoded", () => {
+		expect(toPayload(formFrom(row))).toMatchObject({
+			siteLat: null,
+			siteLng: null,
+		});
 	});
 
 	it("round-trips a scheduled time through the local datetime field", () => {

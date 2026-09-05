@@ -21,7 +21,7 @@ const onEarth = (lat: number, lng: number) =>
 const PAIR = /(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/;
 /** `/@lat,lng,17z` — the map's own viewport, and the pin when one is dropped. */
 const AT = /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/;
-/** `!3dlat!4dlng` — how a shared place url carries the pin. Longitude first. */
+/** `!3dlat!4dlng` — how a shared place url carries the pin. Latitude first. */
 const BANG =
 	/!3d(-?\d+(?:\.\d+)?).*?!4d(-?\d+(?:\.\d+)?)|!4d(-?\d+(?:\.\d+)?).*?!3d(-?\d+(?:\.\d+)?)/;
 
@@ -50,11 +50,13 @@ export function parseCoords(raw: string): ParsedCoords {
 		if (onEarth(lat, lng)) return { ok: true, lat, lng };
 	}
 
-	// Last, and only on the query part of a url, so a street number in a path
-	// cannot be read as a latitude.
-	const pair = PAIR.exec(
-		text.includes("?") ? text.slice(text.indexOf("?")) : text,
-	);
+	// Last. On a url, only the query part — a street number in a path must not
+	// be read as a latitude. On free text there is no query part to narrow to,
+	// so the whole string has to match the bare-pair shape end to end, or a
+	// typed address like "Blok 3, 101 Jalan Setia" reads as a coordinate.
+	const pair = text.includes("?")
+		? PAIR.exec(text.slice(text.indexOf("?")))
+		: /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/.exec(text);
 	if (pair) {
 		const lat = Number(pair[1]);
 		const lng = Number(pair[2]);

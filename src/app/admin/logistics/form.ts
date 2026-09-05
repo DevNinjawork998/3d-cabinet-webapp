@@ -80,6 +80,9 @@ export const emptyItem = (): FormItem => ({
 	weightKg: null,
 });
 
+/** What the pin input shows when the admin has not typed anything into it. */
+const NO_PIN_PLACEHOLDER = "Found from the address";
+
 export const blankForm = (workshopAddress: string) => ({
 	id: null as string | null,
 	customerName: "",
@@ -89,6 +92,8 @@ export const blankForm = (workshopAddress: string) => ({
 	pickupAddress: workshopAddress,
 	siteCoords: "",
 	pickupCoords: "",
+	sitePinPlaceholder: NO_PIN_PLACEHOLDER,
+	pickupPinPlaceholder: NO_PIN_PLACEHOLDER,
 	scheduledAt: "",
 	items: [emptyItem()],
 });
@@ -104,13 +109,19 @@ export function localDateTime(iso: string | null): string {
 		.slice(0, 16);
 }
 
-const pinField = (lat: number | null, lng: number | null) =>
-	lat !== null && lng !== null ? `${lat}, ${lng}` : "";
+const pinPlaceholder = (lat: number | null, lng: number | null) =>
+	lat !== null && lng !== null ? `${lat}, ${lng}` : NO_PIN_PLACEHOLDER;
 
 /**
- * An existing job back into the same form. A pin only shows here if one was
- * pasted or geocoded; either way it is what the next save re-sends, so clearing
- * the field is how an admin asks for the address to be looked up again.
+ * An existing job back into the same form.
+ *
+ * The coords fields start blank, never prefilled with the stored pin — almost
+ * every stored pin is a *geocoded* one, not a pasted override, and prefilling
+ * it would resend it as an override on the next save. `resolveCoordinates`
+ * treats any override as authoritative (rule 1), so a corrected address would
+ * silently keep the old, wrong pin instead of being re-geocoded. The stored
+ * pin still shows, as the input's placeholder, so the admin can see it without
+ * it becoming part of what gets sent.
  */
 export const formFrom = (row: DeliveryRow): FormState => ({
 	id: row.id,
@@ -119,8 +130,10 @@ export const formFrom = (row: DeliveryRow): FormState => ({
 	siteAddress: row.siteAddress,
 	addressNotes: row.addressNotes ?? "",
 	pickupAddress: row.pickupAddress,
-	siteCoords: pinField(row.siteLat, row.siteLng),
-	pickupCoords: pinField(row.pickupLat, row.pickupLng),
+	siteCoords: "",
+	pickupCoords: "",
+	sitePinPlaceholder: pinPlaceholder(row.siteLat, row.siteLng),
+	pickupPinPlaceholder: pinPlaceholder(row.pickupLat, row.pickupLng),
 	scheduledAt: localDateTime(row.scheduledAt),
 	items: row.items.map((item) => ({ ...item, uid: crypto.randomUUID() })),
 });
