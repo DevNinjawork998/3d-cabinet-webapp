@@ -357,14 +357,6 @@ function DeliveryForm({
 					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
-					Access notes — gate codes, unit number, who to call
-					<input
-						className={fieldClass(false)}
-						value={state.addressNotes}
-						onChange={(e) => set("addressNotes", e.target.value)}
-					/>
-				</label>
-				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
 					Site pin — where the customer is. Paste “3.1509, 101.5931” or a Google
 					Maps link
 					<input
@@ -393,6 +385,14 @@ function DeliveryForm({
 							</span>
 						) : null;
 					})()}
+				</label>
+				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
+					Access notes — gate codes, unit number, who to call
+					<input
+						className={fieldClass(false)}
+						value={state.addressNotes}
+						onChange={(e) => set("addressNotes", e.target.value)}
+					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Pickup from

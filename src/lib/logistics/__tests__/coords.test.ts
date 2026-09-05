@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCoords, pinState } from "../coords";
+import { parseCoords, pinFor, pinState } from "../coords";
 
 describe("parseCoords", () => {
 	it("reads the bare pair a long-press copies", () => {
@@ -91,5 +91,29 @@ describe("pinState", () => {
 
 	it("is located even with geocoding off, because the pin was pasted by hand", () => {
 		expect(pinState(3.1509, false)).toBe("located");
+	});
+});
+
+describe("pinFor", () => {
+	it("takes the pasted pin when there is one", () => {
+		expect(pinFor(3.15, 101.59, "12 Jalan Setia")).toEqual({
+			lat: 3.15,
+			lng: 101.59,
+		});
+	});
+
+	it("reads a coordinate pair typed into the address field", () => {
+		// What actually happened on the first real job: the pin went into the
+		// address box, and the delivery was saved with no pin at all.
+		expect(pinFor(null, null, "2.9848922,101.8592321")).toEqual({
+			lat: 2.9848922,
+			lng: 101.8592321,
+		});
+	});
+
+	it("leaves a real address alone, so it still gets geocoded", () => {
+		expect(
+			pinFor(null, null, "No 78, Jalan 1/2, Semenyih, Selangor"),
+		).toBeNull();
 	});
 });

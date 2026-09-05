@@ -74,6 +74,8 @@ export const WORKSHOP_ADDRESS =
  * disagree by about 5 km here, and the viewport is only where the map was
  * scrolled to.
  */
+import { pinFor } from "./coords";
+
 export const WORKSHOP_PIN = { lat: 2.9848868, lng: 101.861807 };
 
 /**
@@ -90,7 +92,10 @@ export function pickupPin(
 	lat: number | null,
 	lng: number | null,
 ): { lat: number; lng: number } | null {
-	if (lat !== null && lng !== null) return { lat, lng };
+	// `pinFor` also covers coordinates typed into the address box, which is
+	// where an admin's pin lands more often than anyone would guess.
+	const given = pinFor(lat, lng, address);
+	if (given) return given;
 	return address.trim() === WORKSHOP_ADDRESS ? WORKSHOP_PIN : null;
 }
 

@@ -89,3 +89,23 @@ export const COORDS_HINT = {
 	unreadable:
 		"That is not a map pin. Paste two numbers — “3.1509, 101.5931” — or a full Google Maps link.",
 } as const;
+
+/**
+ * The pin to use for a stop: the one pasted in the pin field, or the address
+ * itself when someone pasted coordinates where the address goes.
+ *
+ * That second case is not a hypothetical. Three saves in a row on the first
+ * real job put the pin somewhere other than the pin field — once in the pickup
+ * pin, once as the pickup address — and each time the job came back
+ * unquotable. A coordinate pair is never a street address, so reading one as a
+ * pin costs nothing and saves the admin from the field they picked.
+ */
+export function pinFor(
+	lat: number | null,
+	lng: number | null,
+	address: string,
+): { lat: number; lng: number } | null {
+	if (lat !== null && lng !== null) return { lat, lng };
+	const parsed = parseCoords(address);
+	return parsed.ok ? { lat: parsed.lat, lng: parsed.lng } : null;
+}

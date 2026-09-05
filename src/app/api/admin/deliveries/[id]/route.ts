@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
 import { pickupPin } from "@/lib/logistics/carriers";
+import { pinFor } from "@/lib/logistics/coords";
 import { resolveCoordinates } from "@/lib/logistics/geocode";
 import { totalVolumeM3, totalWeightKg } from "@/lib/logistics/measure";
 import { trace } from "@/lib/logistics/trace";
@@ -85,9 +86,7 @@ export async function PATCH(
 				lng: existing.siteLng,
 				geocodedFor: existing.siteGeocodedFor,
 			},
-			siteLat !== null && siteLng !== null
-				? { lat: siteLat, lng: siteLng }
-				: null,
+			pinFor(siteLat, siteLng, rest.siteAddress),
 		),
 		resolveCoordinates(
 			rest.pickupAddress,
