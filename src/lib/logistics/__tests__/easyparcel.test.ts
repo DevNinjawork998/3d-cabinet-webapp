@@ -1,16 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cheapest,
+	collectionDate,
 	EasyParcelNotDeliverable,
 	easyparcelAdapter,
 	mmToCm,
 	parcelOf,
 	quotationBody,
+	submitBody,
 } from "../adapters/easyparcel";
 import { WORKSHOP_ADDRESS } from "../carriers";
 import type { DeliveryItem, DeliveryJob } from "../types";
 import { CarrierNotConfigured } from "../types";
-import { quotationRefusal, quotationReply } from "./fixtures/easyparcel";
+import {
+	cancelReply,
+	detailsReply,
+	quotationRefusal,
+	quotationReply,
+	submitRefusal,
+	submitReply,
+} from "./fixtures/easyparcel";
 
 const door: DeliveryItem = {
 	label: "Spare door 400mm",
@@ -320,5 +329,191 @@ describe("easyparcelAdapter.quote", () => {
 			easyparcelAdapter.quote(job({ items: [strip, box], totalWeightKg: 7 })),
 		).rejects.toBeInstanceOf(EasyParcelNotDeliverable);
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("collectionDate", () => {
+	it("uses the scheduled date, in Kuala Lumpur", () => {
+		// 2026-09-07T17:00Z is already the 8th in Malaysia.
+		expect(collectionDate(new Date("2026-09-07T17:00:00Z"))).toBe("2026-09-08");
+	});
+
+	it("falls back to today when nothing is scheduled", () => {
+		expect(collectionDate(null)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+	});
+});
+
+describe("submitBody", () => {
+	const body = () => submitBody(job(), "EP-CS096");
+
+	it("carries the chosen service and one shipment", () => {
+		expect(body().shipment).toHaveLength(1);
+		expect(body().shipment[0].service_id).toBe("EP-CS096");
+	});
+
+	it("sends the workshop as sender and the customer as receiver", () => {
+		const s = body().shipment[0];
+		expect(s.sender.name).toBe("Infinite Cabinet");
+		expect(s.receiver.name).toBe("Siti");
+		expect(s.receiver.phone_number_country_code).toBe("MY");
+		// E.164 without the +60: EasyParcel takes the country code separately.
+		expect(s.receiver.phone_number).toBe("123456789");
+	});
+
+	it("puts the gate code where a driver reads it, not in the address line", () => {
+		expect(body().shipment[0].receiver.address_2).toBe("Gate code 1234");
+	});
+
+	it("references the job number the staff say out loud", () => {
+		expect(body().shipment[0].reference).toContain("41");
+	});
+
+	it("refuses a phone number no courier can call", () => {
+		expect(() =>
+			submitBody(job({ customerPhone: "not a phone" }), "EP-CS096"),
+		).toThrow(EasyParcelNotDeliverable);
+	});
+
+	it("describes the items rather than sending an empty parcel", () => {
+		expect(body().shipment[0].item[0].content).toContain("Spare door");
+		expect(body().shipment[0].item[0].quantity).toBe(2);
+	});
+
+	it("refuses a receiver with no city we could read", () => {
+		expect(() => submitBody(job({ siteCity: null }), "EP-CS096")).toThrow(
+			EasyParcelNotDeliverable,
+		);
+	});
+});
+
+describe("easyparcelAdapter.book", () => {
+	const chosen = {
+		carrierId: "easyparcel",
+		priceRm: 8.2,
+		etaMinutes: null,
+		quoteRef: "EP-CS09C",
+	};
+
+	it("submits to the orders endpoint with the service the admin chose", async () => {
+		const fetchMock = stubResponses(submitReply);
+
+		await easyparcelAdapter.book(job(), chosen);
+
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(String(url)).toBe(
+			"https://api.easyparcel.com/open_api/2026-06/shipment/submit_orders",
+		);
+		const sent = JSON.parse(init.body as string);
+		expect(sent.shipment[0].service_id).toBe("EP-CS09C");
+		expect(sent.shipment[0].collection_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+	});
+
+	it("returns the shipment number, the tracking page and the label", async () => {
+		stubResponses(submitReply);
+
+		const booking = await easyparcelAdapter.book(job(), chosen);
+
+		// The shipment number, not the AWB — it is what details and cancel take.
+		expect(booking.carrierOrderId).toBe("ES-2602-VC4KV");
+		expect(booking.trackingUrl).toContain("easytrack");
+		expect(booking.labelUrl).toContain("format=A4");
+	});
+
+	it("surfaces an empty wallet as an error rather than a booking", async () => {
+		stubResponses(submitRefusal);
+
+		await expect(easyparcelAdapter.book(job(), chosen)).rejects.toThrow(
+			/Insufficient credit balance/,
+		);
+	});
+
+	it("is never retried — a resubmit deducts the wallet twice", async () => {
+		const fetchMock = vi.fn(async () => new Response("boom", { status: 500 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		await expect(easyparcelAdapter.book(job(), chosen)).rejects.toThrow();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("refuses a quote carrying no service id", async () => {
+		const fetchMock = stubResponses(submitReply);
+
+		await expect(
+			easyparcelAdapter.book(job(), { ...chosen, quoteRef: undefined }),
+		).rejects.toBeInstanceOf(EasyParcelNotDeliverable);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("easyparcelAdapter.track", () => {
+	it("asks details by shipment number and maps the status code", async () => {
+		const fetchMock = stubResponses(detailsReply);
+
+		const update = await easyparcelAdapter.track("ES-2602-VC4KV");
+
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(String(url)).toBe(
+			"https://api.easyparcel.com/open_api/2026-06/shipment/details",
+		);
+		expect(JSON.parse(init.body as string)).toEqual({
+			shipment_number: "ES-2602-VC4KV",
+		});
+		// Code 3 is Collected.
+		expect(update.status).toBe("PICKED_UP");
+		expect(update.message).toContain("Collected");
+		expect(update.raw).toBeTruthy();
+	});
+
+	it("reports no driver, because a parcel network has none", async () => {
+		stubResponses(detailsReply);
+
+		const update = await easyparcelAdapter.track("ES-2602-VC4KV");
+
+		expect(update.driverName).toBeUndefined();
+		expect(update.latitude).toBeUndefined();
+	});
+
+	it("leaves the row alone for a status code we do not map", async () => {
+		stubResponses({
+			data: [
+				{
+					shipment_number: "ES-2602-VC4KV",
+					shipment_details: {
+						shipment_status_code: 8,
+						shipment_status: "On Hold",
+					},
+				},
+			],
+		});
+
+		const update = await easyparcelAdapter.track("ES-2602-VC4KV");
+
+		expect(update.status).toBeNull();
+		expect(update.message).toContain("On Hold");
+	});
+
+	it("says so rather than throwing when EasyParcel knows no such shipment", async () => {
+		stubResponses({ data: [] });
+
+		const update = await easyparcelAdapter.track("ES-0000-XXXXX");
+
+		expect(update.status).toBeNull();
+	});
+});
+
+describe("easyparcelAdapter.cancel", () => {
+	it("sends a cancel list with the required remark", async () => {
+		const fetchMock = stubResponses(cancelReply);
+
+		await easyparcelAdapter.cancel?.("ES-2602-VC4KV");
+
+		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+		expect(String(url)).toBe(
+			"https://api.easyparcel.com/open_api/2026-06/shipment/cancel",
+		);
+		const sent = JSON.parse(init.body as string);
+		expect(sent.cancel_list[0].shipment_number).toBe("ES-2602-VC4KV");
+		// `remark` is required by their API, not optional as it reads.
+		expect(sent.cancel_list[0].remark).toBeTruthy();
 	});
 });

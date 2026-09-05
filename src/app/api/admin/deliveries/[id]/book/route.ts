@@ -77,6 +77,7 @@ export async function POST(
 				quotedPriceRm: quote.priceRm ?? quotedPriceRm,
 				carrierOrderId: booking.carrierOrderId,
 				trackingUrl: booking.trackingUrl,
+				labelUrl: booking.labelUrl ?? null,
 				events: {
 					create: {
 						source: "ADMIN",

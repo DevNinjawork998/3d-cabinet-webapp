@@ -1,12 +1,25 @@
 import "server-only";
 import { z } from "zod";
-import { pickupPlace } from "../carriers";
+import {
+	pickupPlace,
+	WORKSHOP_ADDRESS,
+	WORKSHOP_CITY,
+	WORKSHOP_PHONE,
+} from "../carriers";
 import { carrierFetch } from "../http";
 import { longestEdgeMm } from "../measure";
 import { easyparcelAppConfigured } from "../oauth";
+import { toE164 } from "../phone";
+import { mapCarrierStatus } from "../status";
 import { accessTokenFor } from "../tokens";
 import { trace } from "../trace";
-import type { CarrierAdapter, CarrierQuote, DeliveryJob } from "../types";
+import type {
+	CarrierAdapter,
+	CarrierBooking,
+	CarrierQuote,
+	DeliveryJob,
+	TrackingUpdate,
+} from "../types";
 
 /**
  * EasyParcel — the parcel partner, and the one that fronts every Malaysian
@@ -149,6 +162,27 @@ function endpoint(
 	return { postcode, subdivision_code: state, country: COUNTRY };
 }
 
+/**
+ * A required `city` for `submit_orders`, refused rather than sent empty.
+ *
+ * Asymmetric with `endpoint` on purpose: the quotations payload built by
+ * `quotationBody` below sends no city at all — `shipment/quotations` does not
+ * accept one. Only `submit_orders` marks `sender.city` / `receiver.city` as
+ * required, and an empty string in a required field is refused by EasyParcel
+ * at booking time, which is the worst possible moment — after the admin has
+ * compared partners, picked a courier, and clicked book. Refuse here instead,
+ * before the call goes out.
+ */
+function cityOf(city: string | null, which: string): string {
+	if (city === null || city.trim() === "") {
+		trace("easyparcel.refused", { why: "no city", end: which });
+		throw new EasyParcelNotDeliverable(
+			`The ${which} address has no city we could read — edit it and save again`,
+		);
+	}
+	return city;
+}
+
 /** The workshop's own place when the job leaves from the workshop. */
 function senderPlace(job: DeliveryJob) {
 	return (
@@ -180,6 +214,129 @@ export function quotationBody(job: DeliveryJob) {
 		],
 	};
 }
+
+/**
+ * `collection_date` is required and is a date, not a timestamp — so it has to
+ * be the date in Malaysia, not the date at UTC. `en-CA` is the locale that
+ * formats as YYYY-MM-DD, which is what their API wants.
+ */
+export function collectionDate(scheduledAt: Date | null): string {
+	return new Intl.DateTimeFormat("en-CA", {
+		timeZone: "Asia/Kuala_Lumpur",
+	}).format(scheduledAt ?? new Date());
+}
+
+/**
+ * EasyParcel takes the country code and the national number separately, so
+ * `toE164`'s `+60123456789` is split rather than sent whole.
+ */
+function phoneParts(raw: string, whose: string) {
+	const e164 = toE164(raw);
+	if (e164 === null) {
+		throw new EasyParcelNotDeliverable(
+			`The ${whose} phone number (${raw}) is not a number a courier can call`,
+		);
+	}
+	return {
+		phone_number_country_code: COUNTRY,
+		phone_number: e164.replace(/^\+60/, ""),
+	};
+}
+
+export function submitBody(job: DeliveryJob, serviceId: string) {
+	const parcel = parcelOf(job);
+	const sender = senderPlace(job);
+	const senderEnd = endpoint(sender.postcode, sender.state, "pickup");
+	const receiverEnd = endpoint(job.sitePostcode, job.siteState, "site");
+
+	return {
+		shipment: [
+			{
+				// Ours, echoed back on the shipment and on every webhook — the
+				// fastest way to tie an EasyParcel shipment to a job number staff
+				// say aloud.
+				reference: `Delivery ${job.number}`,
+				service_id: serviceId,
+				collection_date: collectionDate(job.scheduledAt),
+				weight: parcel.weight,
+				length: parcel.length,
+				width: parcel.width,
+				height: parcel.height,
+				item: job.items.map((line) => ({
+					content: line.label,
+					quantity: line.qty,
+					weight: line.weightKg ?? parcel.weight / job.items.length,
+					length: mmToCm(line.widthMm),
+					width: mmToCm(line.depthMm),
+					height: mmToCm(line.heightMm),
+					currency_code: "MYR",
+					value: 1,
+				})),
+				sender: {
+					name: "Infinite Cabinet",
+					company: "Infinite Cabinet Sdn Bhd",
+					// The workshop's own number, emphatically not the customer's:
+					// this is who a courier rings from the loading bay.
+					...phoneParts(WORKSHOP_PHONE, "workshop's"),
+					address_1:
+						job.pickupAddress.trim() === WORKSHOP_ADDRESS
+							? WORKSHOP_ADDRESS
+							: job.pickupAddress,
+					postcode: senderEnd.postcode,
+					city: sender.city ?? WORKSHOP_CITY,
+					subdivision_code: senderEnd.subdivision_code,
+					country_code: COUNTRY,
+				},
+				receiver: {
+					name: job.customerName,
+					...phoneParts(job.customerPhone, "customer's"),
+					address_1: job.siteAddress,
+					// Gate codes and unit numbers are kept out of the address line
+					// precisely so they can go here, where the driver reads them.
+					...(job.addressNotes ? { address_2: job.addressNotes } : {}),
+					postcode: receiverEnd.postcode,
+					// No workshop fallback on this end — an empty string is refused
+					// by EasyParcel's required field, and it is better refused here,
+					// before the money moves, than by their API after it does.
+					city: cityOf(job.siteCity, "site"),
+					subdivision_code: receiverEnd.subdivision_code,
+					country_code: COUNTRY,
+				},
+				// Every add-on costs money per shipment. None are on by default —
+				// turning one on is a price change and belongs in a catalogue-style
+				// decision, not a silent default.
+				feature: {},
+			},
+		],
+	};
+}
+
+const submitSchema = z.object({
+	data: z.array(
+		z.object({
+			status: z.string(),
+			shipment_number: z.string().nullish(),
+			awb_number: z.string().nullish(),
+			awb_url: z.string().nullish(),
+			tracking_url: z.string().nullish(),
+			errors: z.array(z.string()).default([]),
+		}),
+	),
+});
+
+const detailsSchema = z.object({
+	data: z.array(
+		z.object({
+			shipment_number: z.string(),
+			shipment_details: z.looseObject({
+				shipment_status_code: z.number().nullish(),
+				shipment_status: z.string().nullish(),
+				awb_number: z.string().nullish(),
+				tracking_url: z.string().nullish(),
+			}),
+		}),
+	),
+});
 
 const quotationSchema = z.object({
 	status_code: z.number().optional(),
@@ -342,11 +499,85 @@ export const easyparcelAdapter: CarrierAdapter = {
 		};
 	},
 
-	async book(): Promise<never> {
-		throw new Error("not implemented until Task 5");
+	async book(job, quote): Promise<CarrierBooking> {
+		const serviceId = quote.quoteRef ?? "";
+		if (serviceId === "") {
+			throw new EasyParcelNotDeliverable(
+				"This quote is missing its EasyParcel service — compare partners again",
+			);
+		}
+
+		trace("easyparcel.book", {
+			deliveryId: job.id,
+			serviceId,
+			priceRm: quote.priceRm,
+		});
+
+		// Not idempotent, and `carrierFetch` will not retry it: submitting twice
+		// deducts the wallet twice and prints two consignment notes.
+		const parsed = readReply(
+			submitSchema,
+			await call("/shipment/submit_orders", submitBody(job, serviceId)),
+			"submit",
+		);
+
+		const first = parsed.data[0];
+		if (!first || first.status !== "success" || !first.shipment_number) {
+			throw new Error(
+				first?.errors.join("; ") || "EasyParcel refused the shipment",
+			);
+		}
+
+		return {
+			// The shipment number, not the AWB: it is what `details` and `cancel`
+			// are keyed on, and the AWB does not exist yet on some couriers.
+			carrierOrderId: first.shipment_number,
+			trackingUrl: first.tracking_url ?? null,
+			labelUrl: first.awb_url ?? null,
+		};
 	},
 
-	async track(): Promise<never> {
-		throw new Error("not implemented until Task 5");
+	async track(carrierOrderId): Promise<TrackingUpdate> {
+		const parsed = readReply(
+			detailsSchema,
+			await call(
+				"/shipment/details",
+				{ shipment_number: carrierOrderId },
+				true,
+			),
+			"details",
+		);
+
+		const row = parsed.data[0];
+		if (!row) {
+			return { status: null, message: "EasyParcel knows no such shipment" };
+		}
+
+		const code = row.shipment_details.shipment_status_code;
+		const text = row.shipment_details.shipment_status ?? "no status";
+
+		return {
+			// The code, not the text — see the note on the table in `status.ts`.
+			status:
+				code === null || code === undefined
+					? null
+					: mapCarrierStatus("easyparcel", String(code)),
+			message: `EasyParcel reports ${text}`,
+			raw: row,
+		};
+	},
+
+	async cancel(carrierOrderId): Promise<void> {
+		// EasyParcel refuses once a courier has collected. The caller turns that
+		// into a message rather than swallowing it — a shipment that could not be
+		// cancelled is still on its way.
+		await call("/shipment/cancel", {
+			cancel_list: [
+				{
+					shipment_number: carrierOrderId,
+					remark: "Cancelled by Infinite Cabinet",
+				},
+			],
+		});
 	},
 };

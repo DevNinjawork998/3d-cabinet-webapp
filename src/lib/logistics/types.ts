@@ -113,6 +113,13 @@ export type CarrierQuote = {
 export type CarrierBooking = {
 	carrierOrderId: string;
 	trackingUrl: string | null;
+	/**
+	 * The consignment note, when the partner issues one. A parcel courier will
+	 * not collect a box without its AWB taped to it, so for `easyparcel` this is
+	 * the difference between a booking and a shipment. Null for the vehicle
+	 * partners, which have nothing to print.
+	 */
+	labelUrl?: string | null;
 };
 
 /** One reading of where a job is. Every field is optional but the status. */

@@ -64,7 +64,29 @@ export const CARRIER_STATUS_MAPS: Record<
 	},
 	gdex: {},
 	citylink: {},
-	easyparcel: {},
+	/**
+	 * EasyParcel's shipment status *codes*, as strings.
+	 *
+	 * Keyed on the number rather than the text because the text is the courier's,
+	 * not EasyParcel's: the same code arrives as "Parcel been collected at ABC"
+	 * from one courier and "Collected" from another, and their own documented
+	 * sample contains the typo "Deliverd To Suntech". The code is the stable
+	 * half.
+	 *
+	 * 7 ("Schedule In Arrangement") and 2 ("To Be Collected") are both the state
+	 * between booking and pickup, so both map to BOOKED. 8 ("On Hold") and 11
+	 * are deliberately absent: On Hold is not a step along the route, and an
+	 * unmapped status leaves the row alone rather than inventing a transition.
+	 */
+	easyparcel: {
+		"0": "CANCELLED",
+		"2": "BOOKED",
+		"3": "PICKED_UP",
+		"4": "IN_TRANSIT",
+		"5": "DELIVERED",
+		"6": "FAILED",
+		"7": "BOOKED",
+	},
 };
 
 export function mapCarrierStatus(

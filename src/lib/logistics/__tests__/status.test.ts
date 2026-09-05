@@ -79,3 +79,20 @@ describe("lalamove statuses", () => {
 		expect(mapCarrierStatus("lalamove", "TELEPORTED")).toBeNull();
 	});
 });
+
+describe("easyparcel status codes", () => {
+	it("reads the numeric shipment status code", () => {
+		expect(mapCarrierStatus("easyparcel", "2")).toBe("BOOKED");
+		expect(mapCarrierStatus("easyparcel", "3")).toBe("PICKED_UP");
+		expect(mapCarrierStatus("easyparcel", "4")).toBe("IN_TRANSIT");
+		expect(mapCarrierStatus("easyparcel", "5")).toBe("DELIVERED");
+		expect(mapCarrierStatus("easyparcel", "0")).toBe("CANCELLED");
+		expect(mapCarrierStatus("easyparcel", "6")).toBe("FAILED");
+	});
+
+	it("leaves a job alone for a code that is not a transition", () => {
+		// 8 is "On Hold" — a real state, and not a step along the route.
+		expect(mapCarrierStatus("easyparcel", "8")).toBeNull();
+		expect(mapCarrierStatus("easyparcel", "99")).toBeNull();
+	});
+});
