@@ -163,6 +163,9 @@ export function Cabinet({
 		(part) =>
 			part.role !== "doorLeaf" &&
 			part.role !== "drawerFront" &&
+			// A drawer box rides in its front's `Slide`, so it must not also be
+			// drawn here — it would leave a second, stationary copy behind.
+			part.role !== "drawerBox" &&
 			part.role !== "leg",
 	);
 
@@ -212,6 +215,7 @@ export function Cabinet({
 	const legParts = parts.filter((part) => part.role === "leg");
 	const leaves = parts.filter((part) => part.role === "doorLeaf");
 	const drawerFronts = parts.filter((part) => part.role === "drawerFront");
+	const drawerBoxes = parts.filter((part) => part.role === "drawerBox");
 
 	// Overhanging wins over both: a cabinet past the end of the wall is a
 	// problem to fix, and that outranks showing it as hovered or picked. Amber
@@ -312,6 +316,7 @@ export function Cabinet({
 						(drawerFronts.length > 0 ? (
 							<Drawers
 								parts={drawerFronts}
+								boxes={drawerBoxes}
 								open={doorsOpen}
 								travel={m(drawerTravelMm(carcassMm.max.z - carcassMm.min.z))}
 								finishPhoto={finishPhoto}
@@ -627,6 +632,7 @@ function Doors({
 
 function Drawers({
 	parts,
+	boxes,
 	open,
 	travel,
 	door,
@@ -636,6 +642,8 @@ function Drawers({
 	emphasis,
 }: {
 	parts: PartBoxMm[];
+	/** The box panels behind the fronts, `index` matching their drawer. */
+	boxes: PartBoxMm[];
 	/** Runs the drawers out, the same toggle that swings the doors. */
 	open: boolean;
 	/** How far out, in metres. */
@@ -655,6 +663,34 @@ function Drawers({
 
 				return (
 					<Slide key={front.index} travel={travel} open={open}>
+						{boxes
+							.filter((panel) => panel.index === front.index)
+							.map((panel) => (
+								<mesh
+									// Two sides differ in x, the bottom in y, the back in
+									// z — the centre is unique within one drawer.
+									key={`${panel.centreMm.x}-${panel.centreMm.y}-${panel.centreMm.z}`}
+									position={[
+										m(panel.centreMm.x),
+										m(panel.centreMm.y),
+										m(panel.centreMm.z),
+									]}
+								>
+									<boxGeometry
+										args={[
+											m(panel.sizeMm.x),
+											m(panel.sizeMm.y),
+											m(panel.sizeMm.z),
+										]}
+									/>
+									<meshStandardMaterial
+										color={CARCASS_INTERIOR_COLOR}
+										roughness={0.85}
+										emissive={emissive}
+										emissiveIntensity={emphasis}
+									/>
+								</mesh>
+							))}
 						<Front
 							door={door}
 							width={m(front.sizeMm.x)}

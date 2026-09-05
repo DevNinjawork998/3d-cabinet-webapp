@@ -413,3 +413,58 @@ describe("a drawer bank", () => {
 		expect(parts.filter((p) => p.role === "shelf").length).toBeGreaterThan(0);
 	});
 });
+
+describe("a drawer has a box behind its front", () => {
+	const drawerUnit = familyById("base-drawers");
+	const widthMm = drawerUnit.sizes[0].widthMm;
+	const parts = cabinetPartsMm(drawerUnit, widthMm, true, CONSTRUCTION);
+	const fronts = parts.filter((p) => p.role === "drawerFront");
+	const boxes = parts.filter((p) => p.role === "drawerBox");
+
+	const span = (p: (typeof parts)[number], axis: "x" | "y" | "z") => ({
+		min: p.centreMm[axis] - p.sizeMm[axis] / 2,
+		max: p.centreMm[axis] + p.sizeMm[axis] / 2,
+	});
+
+	it("draws two sides, a bottom and a back for every drawer", () => {
+		// Without this an open drawer is a bare front panel with nothing behind
+		// it — which is exactly what the sliding change exposed.
+		expect(fronts.length).toBeGreaterThan(0);
+		expect(boxes).toHaveLength(fronts.length * 4);
+	});
+
+	it("indexes each panel to the drawer it belongs to, so it travels with it", () => {
+		for (const front of fronts) {
+			expect(boxes.filter((b) => b.index === front.index)).toHaveLength(4);
+		}
+	});
+
+	it("keeps the box behind the front and inside the carcass", () => {
+		const carcassSide = parts.find((p) => p.role === "side");
+		if (!carcassSide) throw new Error("no carcass side");
+		const inner = widthMm / 2 - CONSTRUCTION.panelThicknessMm;
+
+		for (const box of boxes) {
+			const z = span(box, "z");
+			const front = fronts.find((f) => f.index === box.index);
+			if (!front) throw new Error("orphan drawer box");
+			// Behind the front's back face, never poking through it.
+			expect(z.max).toBeLessThanOrEqual(span(front, "z").min + 0.001);
+			// Within the carcass sides, with runner clearance to spare.
+			const x = span(box, "x");
+			expect(x.min).toBeGreaterThan(-inner);
+			expect(x.max).toBeLessThan(inner);
+		}
+	});
+
+	it("sits within its own drawer's height, not the one above", () => {
+		for (const box of boxes) {
+			const front = fronts.find((f) => f.index === box.index);
+			if (!front) throw new Error("orphan drawer box");
+			const f = span(front, "y");
+			const b = span(box, "y");
+			expect(b.min).toBeGreaterThanOrEqual(f.min);
+			expect(b.max).toBeLessThanOrEqual(f.max);
+		}
+	});
+});
