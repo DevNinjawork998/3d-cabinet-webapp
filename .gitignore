@@ -54,3 +54,6 @@ skills-lock.json
 
 # Worktrees for isolated agent work — scratch, never committed.
 .claude/worktrees/
+
+# subagent-driven-development scratch — ledger, briefs, review packages
+/.superpowers
