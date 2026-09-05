@@ -1,3 +1,4 @@
+import { parseCoords } from "@/lib/logistics/coords";
 import type { DeliveryItem, DeliveryStatusName } from "@/lib/logistics/types";
 
 /**
@@ -79,22 +80,6 @@ export const emptyItem = (): FormItem => ({
 	weightKg: null,
 });
 
-/**
- * `"3.1509, 101.5931"` as the admin pasted it, or null.
- *
- * Deliberately only a bare pair — a Google Maps share link is a shortened URL
- * that has to be followed server-side to learn anything, and long-pressing the
- * map already puts exactly this on the clipboard.
- */
-function parseCoords(raw: string): { lat: number; lng: number } | null {
-	const match = raw.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
-	if (!match) return null;
-	const lat = Number(match[1]);
-	const lng = Number(match[2]);
-	if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-	return { lat, lng };
-}
-
 export const blankForm = (workshopAddress: string) => ({
 	id: null as string | null,
 	customerName: "",
@@ -142,9 +127,9 @@ export const formFrom = (row: DeliveryRow): FormState => ({
 
 /** The form as the create and edit endpoints want it. */
 export function toPayload(state: FormState) {
-	// Task 2 replaces this with the `{ ok }` result from
-	// `@/lib/logistics/coords`; until then it is the null-returning copy moved
-	// out of the component, and the two `?? null`s below are the same fallback.
+	// A pin that failed to parse sends null, same as an empty field — the hint
+	// under the input is what tells the admin the paste was rejected rather
+	// than just not given.
 	const site = parseCoords(state.siteCoords);
 	const pickup = parseCoords(state.pickupCoords);
 	return {
@@ -153,10 +138,10 @@ export function toPayload(state: FormState) {
 		siteAddress: state.siteAddress,
 		addressNotes: state.addressNotes || null,
 		pickupAddress: state.pickupAddress,
-		siteLat: site?.lat ?? null,
-		siteLng: site?.lng ?? null,
-		pickupLat: pickup?.lat ?? null,
-		pickupLng: pickup?.lng ?? null,
+		siteLat: site.ok ? site.lat : null,
+		siteLng: site.ok ? site.lng : null,
+		pickupLat: pickup.ok ? pickup.lat : null,
+		pickupLng: pickup.ok ? pickup.lng : null,
 		scheduledAt: state.scheduledAt
 			? new Date(state.scheduledAt).toISOString()
 			: null,

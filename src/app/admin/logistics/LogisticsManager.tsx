@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { chipClass, fieldClass } from "@/components/admin/styles";
 import { LABEL } from "@/lib/logistics/carriers";
+import { COORDS_HINT, parseCoords } from "@/lib/logistics/coords";
 import {
 	suggestVehicle,
 	totalVolumeM3,
@@ -343,6 +344,14 @@ function DeliveryForm({
 						value={state.siteCoords}
 						onChange={(e) => set("siteCoords", e.target.value)}
 					/>
+					{(() => {
+						const parsed = parseCoords(state.siteCoords);
+						return parsed.ok || parsed.reason === "empty" ? null : (
+							<span className="text-[11px] text-amber-700">
+								{COORDS_HINT[parsed.reason]}
+							</span>
+						);
+					})()}
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Pickup from
@@ -361,6 +370,14 @@ function DeliveryForm({
 						value={state.pickupCoords}
 						onChange={(e) => set("pickupCoords", e.target.value)}
 					/>
+					{(() => {
+						const parsed = parseCoords(state.pickupCoords);
+						return parsed.ok || parsed.reason === "empty" ? null : (
+							<span className="text-[11px] text-amber-700">
+								{COORDS_HINT[parsed.reason]}
+							</span>
+						);
+					})()}
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Scheduled
