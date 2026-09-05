@@ -25,3 +25,65 @@ body {
 	background: var(--background);
 	color: var(--foreground);
 }
+
+/*
+ * Scroll choreography.
+ *
+ * Every rule here is scoped under `[data-beats="on"]`, which only a mounted
+ * `ScrollTrack` island sets. The unscoped rendering — no JavaScript, before
+ * hydration, reduced motion, or a viewport under 900px — is the finished page.
+ * Nothing below may introduce a state the page cannot be read in.
+ *
+ * `--p` is the track's progress, 0..1, inherited by everything inside it.
+ * A beat is a slice of it: `clamp(0, (var(--p) - start) / (end - start), 1)`.
+ */
+
+[data-beats="on"] {
+	/* The `1` fallback matters: `data-beats` is set in the same frame as the
+	   first write, but if a paint ever landed between them, an undefined `--p`
+	   would make the whole clamp invalid. Falling back to 1 renders the
+	   finished state, which is the only wrong answer this page tolerates. */
+	--beat-copy: clamp(0, calc((var(--p, 1) - 0.02) / 0.28), 1);
+	--beat-photo: clamp(0, calc(var(--p, 1) / 0.75), 1);
+}
+
+[data-beats="on"] [data-beat="hero-copy"] {
+	opacity: var(--beat-copy);
+	transform: translate3d(0, calc((1 - var(--beat-copy)) * 26px), 0);
+	will-change: transform, opacity;
+}
+
+[data-beats="on"] [data-beat="hero-photo"] {
+	/* The photograph settles back as the words arrive. Transform only — the
+	   image box never changes size, so nothing re-lays-out. */
+	transform: scale(calc(1.08 - var(--beat-photo) * 0.08));
+	will-change: transform;
+}
+
+[data-beats="on"] [data-beat="hero-cue"] {
+	opacity: calc(1 - clamp(0, calc(var(--p, 1) / 0.15), 1));
+}
+
+/* Arrive-on-entry, for the sections below the pinned hero. Same contract: the
+   revealed state is the default, and only a mounted observer can take it away
+   and give it back. */
+[data-reveal-armed] [data-reveal] {
+	opacity: 0;
+	transform: translate3d(0, 18px, 0);
+	transition:
+		opacity 620ms cubic-bezier(0.22, 0.61, 0.36, 1),
+		transform 620ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+[data-reveal-armed] [data-reveal][data-revealed] {
+	opacity: 1;
+	transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-reveal-armed] [data-reveal] {
+		opacity: 1;
+		transform: none;
+		transition: none;
+	}
+}
