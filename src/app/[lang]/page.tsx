@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/catalogue/db";
 import {
 	finishSlot,
@@ -7,6 +8,10 @@ import {
 	siteImageSrc,
 } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
+import { getDictionary } from "@/lib/copy/dictionary";
+import type { Dictionary } from "@/lib/copy/en";
+import { fill } from "@/lib/copy/fill";
+import { isLocale } from "@/lib/copy/locales";
 import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { plannerEngine } from "@/lib/planner/layout";
@@ -35,12 +40,12 @@ const rm = (amount: number) =>
 		maximumFractionDigits: 2,
 	});
 
-const ROOM_SUBTITLES: Record<RoomTypeId, string> = {
-	kitchen: "Real Infinite Cabinet sizes",
-	living: "TV ledge & display units",
-	bedroom: "Wardrobes",
-	foyer: "Shoe cabinets & bench",
-};
+const roomSubtitles = (t: Dictionary): Record<RoomTypeId, string> => ({
+	kitchen: t.landing.gallery.roomSubtitle.kitchen,
+	living: t.landing.gallery.roomSubtitle.living,
+	bedroom: t.landing.gallery.roomSubtitle.bedroom,
+	foyer: t.landing.gallery.roomSubtitle.foyer,
+});
 
 /**
  * The tone a room card carries before anyone uploads a photo of it. Kept
@@ -67,45 +72,18 @@ const ROOM_SPAN = [
 	"min-h-[200px] lg:min-h-0",
 ];
 
-const HOW_IT_WORKS = [
-	{
-		title: "Pick your room",
-		detail:
-			"Choose kitchen, living room, bedroom or foyer, and set your real wall dimensions.",
-	},
-	{
-		title: "Drop in cabinets, to scale",
-		detail:
-			"Arrange real Infinite Cabinet units in 3D and swap finishes until it looks right.",
-	},
-	{
-		title: "Get an instant quote",
-		detail:
-			"See a live price as you build, then send your plan straight to our team.",
-	},
+const howItWorks = (t: Dictionary) => [
+	{ title: t.landing.how.step1Title, detail: t.landing.how.step1Detail },
+	{ title: t.landing.how.step2Title, detail: t.landing.how.step2Detail },
+	{ title: t.landing.how.step3Title, detail: t.landing.how.step3Detail },
 ];
 
-const FAQS = [
-	{
-		q: "How long does delivery take?",
-		a: "Most orders arrive within 4-6 weeks of confirming your plan, depending on finish and cabinet size.",
-	},
-	{
-		q: "Can I get cabinets installed too?",
-		a: "Yes. Installation can be added when you send your plan to our team for a final quote.",
-	},
-	{
-		q: "What are the cabinets made of?",
-		a: "Solid carcasses with a choice of veneer, laminate or painted finishes. The full range is in the planner.",
-	},
-	{
-		q: "Can I change my design after ordering?",
-		a: "Changes are free before production starts. Our team will confirm your plan with you first.",
-	},
-	{
-		q: "Do you offer a warranty?",
-		a: "Every cabinet comes with a 5-year warranty on hardware and construction.",
-	},
+const faqs = (t: Dictionary) => [
+	{ q: t.landing.faq.q1, a: t.landing.faq.a1 },
+	{ q: t.landing.faq.q2, a: t.landing.faq.a2 },
+	{ q: t.landing.faq.q3, a: t.landing.faq.a3 },
+	{ q: t.landing.faq.q4, a: t.landing.faq.a4 },
+	{ q: t.landing.faq.q5, a: t.landing.faq.a5 },
 ];
 
 /**
@@ -141,12 +119,20 @@ function Photo({
 	return <img src={src} alt={alt} className={`object-cover ${className}`} />;
 }
 
-export default async function Home() {
+export default async function Home({
+	params,
+}: {
+	params: Promise<{ lang: string }>;
+}) {
+	const { lang } = await params;
+	if (!isLocale(lang)) notFound();
+
 	// Read the live catalogue so the swatch row, the room strip and the hero
 	// price can't drift from what the planner actually offers after a publish.
-	const [{ data: catalogue }, siteImages] = await Promise.all([
+	const [{ data: catalogue }, siteImages, t] = await Promise.all([
 		getPublishedPlannerCatalogue(),
 		prisma.siteImage.findMany(),
+		getDictionary(lang),
 	]);
 	const engine = plannerEngine(catalogue);
 	const photo = new Map(
@@ -165,10 +151,22 @@ export default async function Home() {
 	 * the one thing their sales team would have to walk back on a call.
 	 */
 	const FACTS = [
-		{ value: `RM ${rm(kitchenPrice.totalRm)}`, label: "Starter kitchen run" },
-		{ value: "4-6 weeks", label: "Typical delivery" },
-		{ value: "5 years", label: "Warranty on hardware and build" },
-		{ value: "No account", label: "Needed to plan and price" },
+		{
+			value: `RM ${rm(kitchenPrice.totalRm)}`,
+			label: t.landing.facts.starterKitchenLabel,
+		},
+		{
+			value: t.landing.facts.typicalDeliveryValue,
+			label: t.landing.facts.typicalDeliveryLabel,
+		},
+		{
+			value: t.landing.facts.warrantyValue,
+			label: t.landing.facts.warrantyLabel,
+		},
+		{
+			value: t.landing.facts.noAccountValue,
+			label: t.landing.facts.noAccountLabel,
+		},
 	];
 
 	return (
@@ -183,17 +181,17 @@ export default async function Home() {
 			>
 				<div className="mx-auto flex h-16 max-w-[1180px] items-center justify-between gap-6 px-6 sm:px-8">
 					<span className="shrink-0 font-bold text-[15px] tracking-tight">
-						Infinite Cabinet
+						{t.common.brand}
 					</span>
 					{/* Tight gap, padding on each link instead: the tap target is the
 					    padded box, not just the glyphs. Hidden below lg rather than
 					    wrapped to a second line — the CTA is what matters on mobile. */}
 					<nav className="hidden items-center gap-1 lg:flex">
 						{[
-							["How it works", "#how"],
-							["Gallery", "#gallery"],
-							["Finishes", "#finishes"],
-							["FAQ", "#faq"],
+							[t.landing.nav.howItWorks, "#how"],
+							[t.landing.nav.gallery, "#gallery"],
+							[t.landing.nav.finishes, "#finishes"],
+							[t.landing.nav.faq, "#faq"],
 						].map(([label, href]) => (
 							<a
 								key={href}
@@ -204,18 +202,18 @@ export default async function Home() {
 							</a>
 						))}
 						<Link
-							href="/tutorials"
+							href={`/${lang}/tutorials`}
 							className="rounded-xl px-3 py-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900"
 						>
-							Tutorials
+							{t.landing.nav.tutorials}
 						</Link>
 					</nav>
 					<div className="flex shrink-0 items-center gap-4">
 						<Link
-							href="/planner"
+							href={`/${lang}/planner`}
 							className="rounded-xl bg-neutral-900 px-4.5 py-2.5 font-medium text-[13px] text-white transition-transform active:translate-y-px"
 						>
-							Start planning
+							{t.landing.nav.startPlanning}
 						</Link>
 						<Link
 							href="/admin/login"
@@ -223,7 +221,7 @@ export default async function Home() {
 							className="hidden border-l py-2.5 pl-4 text-[12px] text-neutral-400 transition-colors hover:text-neutral-600 sm:block"
 							style={{ borderColor: RULE }}
 						>
-							Admin
+							{t.landing.nav.admin}
 						</Link>
 					</div>
 				</div>
@@ -246,7 +244,7 @@ export default async function Home() {
 				<div className="absolute inset-0 -z-20 bg-neutral-900">
 					<Photo
 						url={photo.get(HERO_SLOT) ?? null}
-						alt="A finished Infinite Cabinet kitchen"
+						alt={t.landing.hero.alt}
 						fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
 						className="h-full w-full"
 					/>
@@ -276,24 +274,26 @@ export default async function Home() {
 
 				<div className="mx-auto flex min-h-[clamp(460px,68vh,640px)] w-full max-w-[1180px] flex-col justify-center px-6 py-20 sm:px-8 sm:py-24">
 					<p className="mb-5 font-semibold text-[11px] text-white/70 uppercase tracking-[0.16em]">
-						Free to try · no account needed
+						{t.landing.hero.eyebrow}
 					</p>
 					{/* The accent word is the product, not decoration — the template
 					    this follows colours a noun, and the noun worth colouring
 					    here is the thing nobody else in the market offers. */}
 					<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-white leading-[1.02] tracking-[-0.02em]">
-						Design your kitchen <span style={{ color: "#8fc4a8" }}>in 3D</span>
+						{t.landing.hero.titleBeforeAccent}{" "}
+						<span style={{ color: "#8fc4a8" }}>
+							{t.landing.hero.titleAccent}
+						</span>
 					</h1>
 					<p className="mt-6 max-w-[46ch] text-[17px] text-white/75 leading-7">
-						Drop real Infinite Cabinet units into your own room, see the price
-						move as you build, and send us the plan.
+						{t.landing.hero.subtitle}
 					</p>
 					<div className="mt-9 flex flex-wrap items-center gap-3">
 						<Link
-							href="/planner"
+							href={`/${lang}/planner`}
 							className="rounded-xl bg-white px-8 py-4 font-semibold text-[15px] text-neutral-900 transition-transform active:translate-y-px"
 						>
-							Start planning
+							{t.landing.hero.cta}
 						</Link>
 						{/* Ghost, not a second solid button: two equal buttons make the
 						    customer choose, and the choice we want is the planner. */}
@@ -301,7 +301,7 @@ export default async function Home() {
 							href="#how"
 							className="rounded-xl border border-white/30 px-8 py-4 font-medium text-[15px] text-white/90 transition-colors hover:border-white/60 active:translate-y-px"
 						>
-							How it works
+							{t.landing.hero.howItWorks}
 						</a>
 					</div>
 				</div>
@@ -336,10 +336,10 @@ export default async function Home() {
 				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
 			>
 				<h2 className="mb-12 max-w-[520px] font-semibold text-[30px] leading-tight tracking-tight">
-					Three steps from an empty wall to a quote
+					{t.landing.how.heading}
 				</h2>
 				<div className="grid grid-cols-1 gap-10 lg:grid-cols-[1.2fr_1fr_1fr] lg:gap-12">
-					{HOW_IT_WORKS.map((step) => (
+					{howItWorks(t).map((step) => (
 						<div
 							key={step.title}
 							className="border-t pt-5"
@@ -364,23 +364,22 @@ export default async function Home() {
 			>
 				<div className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8">
 					<h2 className="mb-2 font-semibold text-[30px] leading-tight tracking-tight">
-						Explore by room
+						{t.landing.gallery.heading}
 					</h2>
 					<p className="mb-10 max-w-[520px] text-[15px] text-neutral-600 leading-6">
-						Every room starts from real Infinite Cabinet sizes and a layout
-						already on your wall.
+						{t.landing.gallery.subtitle}
 					</p>
 					<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:auto-rows-[224px]">
 						{catalogue.roomTypes.map((room, i) => (
 							<Link
 								key={room.id}
-								href={`/planner?room=${room.id}`}
+								href={`/${lang}/planner?room=${room.id}`}
 								className={`group relative flex flex-col justify-end overflow-hidden rounded-xl border transition-transform active:translate-y-px ${ROOM_SPAN[i] ?? "min-h-[200px] lg:min-h-0"}`}
 								style={{ borderColor: RULE }}
 							>
 								<Photo
 									url={photo.get(roomSlot(room.id)) ?? null}
-									alt={`${room.label} cabinets`}
+									alt={fill(t.landing.gallery.roomAlt, { room: room.label })}
 									className="absolute inset-0 h-full w-full transition-transform duration-300 group-hover:scale-[1.03]"
 									// Flat tone rather than the grain tile: at card scale the
 									// grain reads as brushed metal stripes, and four large
@@ -396,7 +395,7 @@ export default async function Home() {
 										{room.label}
 									</p>
 									<p className="mt-0.5 text-[12px] text-white/75">
-										{ROOM_SUBTITLES[room.id]}
+										{roomSubtitles(t)[room.id]}
 									</p>
 								</div>
 							</Link>
@@ -411,10 +410,10 @@ export default async function Home() {
 				className="mx-auto w-full max-w-[1180px] px-6 py-20 sm:px-8"
 			>
 				<h2 className="mb-2 font-semibold text-[30px] leading-tight tracking-tight">
-					Finishes &amp; materials
+					{t.landing.finishes.heading}
 				</h2>
 				<p className="mb-10 max-w-[520px] text-[15px] text-neutral-600 leading-6">
-					Swap finishes on any cabinet right inside the planner.
+					{t.landing.finishes.subtitle}
 				</p>
 				<div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
 					{catalogue.finishes.map((finish) => {
@@ -462,10 +461,10 @@ export default async function Home() {
 			>
 				<div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-10 px-6 py-20 sm:px-8 lg:grid-cols-[1fr_1.6fr] lg:gap-16">
 					<h2 className="font-semibold text-[30px] leading-tight tracking-tight lg:sticky lg:top-28 lg:self-start">
-						Frequently asked questions
+						{t.landing.faq.heading}
 					</h2>
 					<div className="flex flex-col">
-						{FAQS.map((item) => (
+						{faqs(t).map((item) => (
 							<details
 								key={item.q}
 								className="group border-b py-4.5 [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none"
@@ -495,17 +494,17 @@ export default async function Home() {
 				<div className="mx-auto flex max-w-[1180px] flex-col items-start gap-7 px-6 py-16 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
 					<div>
 						<h2 className="max-w-[520px] text-balance font-semibold text-[30px] text-white leading-tight tracking-tight">
-							Your wall, your sizes, your price. In about five minutes.
+							{t.landing.closing.heading}
 						</h2>
 						<p className="mt-3 max-w-[440px] text-[15px] text-white/70 leading-6">
-							Nothing to install and nothing to sign up for.
+							{t.landing.closing.subtitle}
 						</p>
 					</div>
 					<Link
-						href="/planner"
+						href={`/${lang}/planner`}
 						className="shrink-0 rounded-xl bg-white px-7 py-3.5 font-medium text-[14px] text-neutral-900 transition-transform active:translate-y-px"
 					>
-						Start planning
+						{t.landing.closing.cta}
 					</Link>
 				</div>
 			</section>
@@ -515,67 +514,66 @@ export default async function Home() {
 				<div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-8 px-6 py-14 sm:grid-cols-[2fr_1fr_1fr] sm:px-8">
 					<div>
 						<p className="mb-2 font-bold text-[15px] text-white">
-							Infinite Cabinet
+							{t.common.brand}
 						</p>
 						<p className="max-w-[280px] text-[13px] text-neutral-400 leading-5">
-							Custom cabinets, planned in 3D and built to your room's real
-							dimensions.
+							{t.landing.footer.tagline}
 						</p>
 					</div>
 					<div>
 						<p className="mb-3 font-semibold text-[12px] text-neutral-500 uppercase tracking-[0.06em]">
-							Product
+							{t.landing.footer.productHeading}
 						</p>
 						<div className="flex flex-col gap-2.5">
 							<Link
-								href="/planner"
+								href={`/${lang}/planner`}
 								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
-								Start planning
+								{t.landing.footer.startPlanning}
 							</Link>
 							<a
 								href="#gallery"
 								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
-								Gallery
+								{t.landing.footer.gallery}
 							</a>
 							<a
 								href="#faq"
 								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
-								FAQ
+								{t.landing.footer.faq}
 							</a>
 							<Link
-								href="/tutorials"
+								href={`/${lang}/tutorials`}
 								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
-								Tutorials
+								{t.landing.footer.tutorials}
 							</Link>
 						</div>
 					</div>
 					<div>
 						<p className="mb-3 font-semibold text-[12px] text-neutral-500 uppercase tracking-[0.06em]">
-							Contact
+							{t.landing.footer.contactHeading}
 						</p>
 						<div className="flex flex-col gap-2.5">
 							<a
 								href="mailto:hello@infinitecabinet.com"
 								className="text-[13px] text-neutral-300 transition-colors hover:text-white"
 							>
-								hello@infinitecabinet.com
+								{t.landing.footer.email}
 							</a>
 							<Link
 								href="/admin/login"
 								className="text-[13px] text-neutral-500 transition-colors hover:text-neutral-300"
 							>
-								Admin sign in
+								{t.landing.footer.adminSignIn}
 							</Link>
 						</div>
 					</div>
 				</div>
 				<div className="border-neutral-800 border-t px-6 py-4.5 text-center sm:px-8">
 					<p className="text-[12px] text-neutral-500">
-						© 2026 Infinite Cabinet. All rights reserved.
+						{fill(t.landing.footer.copyright, { brand: t.common.brand })}
 					</p>
 				</div>
 			</footer>

@@ -16,7 +16,7 @@ const at = (dict: unknown, path: string): string =>
 	path.split(".").reduce<never>((v, k) => (v as never)[k], dict as never);
 
 /** Strings that are legitimately identical across locales. */
-const SHARED = new Set(["common.brand"]);
+const SHARED = new Set(["common.brand", "landing.footer.email"]);
 
 describe("dictionaries", () => {
 	it("serves exactly the three locales", () => {
