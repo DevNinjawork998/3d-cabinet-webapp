@@ -1,4 +1,5 @@
 import "server-only";
+import { put } from "@vercel/blob";
 import { z } from "zod";
 import { carrierFetch } from "../http";
 import { suggestVehicle, type VehicleClass } from "../measure";
@@ -468,6 +469,62 @@ async function senderDetails(): Promise<GdexUserDetails> {
 	};
 }
 
+/**
+ * Where a consignment note lives, derived rather than stored.
+ *
+ * The consignment number is already on the delivery row as `carrierOrderId`, so
+ * the serving route can rebuild this path without a second column. Private: the
+ * note carries the customer's name, phone and home address, and a consignment
+ * number is guessable enough that a public object would be a disclosure waiting
+ * to happen. `/api/admin/deliveries/[id]/label` is the only way in, behind the
+ * admin cookie `proxy.ts` already enforces.
+ */
+export function labelPathname(consignmentNumber: string): string {
+	return `logistics/gdex/${consignmentNumber}.pdf`;
+}
+
+/**
+ * Fetch the consignment note and keep a copy.
+ *
+ * GDEX serves the PDF only while the shipment is pending — once it is
+ * collected, cancelled or delivered the endpoint refuses — so this is a
+ * booking-time capture, not a link we can follow later.
+ *
+ * A raw `fetch` rather than `call`: `carrierFetch` parses JSON, and this is a
+ * PDF body. Failure is swallowed on purpose. The consignment is already created
+ * and the e-Wallet already debited by the time this runs, so throwing here
+ * would fail a booking that in fact succeeded; a missing label costs a trip to
+ * GDEX's portal, and a phantom un-booking costs a parcel nobody sent.
+ */
+async function storeLabel(consignmentNumber: string): Promise<string | null> {
+	try {
+		const response = await fetch(
+			`${BASE}/GetConsignmentsImage?ConsignmentNumber=${encodeURIComponent(consignmentNumber)}`,
+			{
+				headers: {
+					"User-Token": USER_TOKEN(),
+					"subscription-key": SUBSCRIPTION_KEY(),
+				},
+				signal: AbortSignal.timeout(10_000),
+			},
+		);
+		if (!response.ok) {
+			trace("gdex.label", { consignmentNumber, status: response.status });
+			return null;
+		}
+		await put(labelPathname(consignmentNumber), await response.blob(), {
+			access: "private",
+			addRandomSuffix: false,
+			contentType: "application/pdf",
+			allowOverwrite: true,
+		});
+		return consignmentNumber;
+	} catch (error) {
+		trace("gdex.label", { consignmentNumber, error: String(error) });
+		return null;
+	}
+}
+
 export const gdexAdapter: CarrierAdapter = {
 	id: "gdex",
 
@@ -534,8 +591,16 @@ export const gdexAdapter: CarrierAdapter = {
 			"consignment",
 		);
 
+		const consignmentNumber = reply.data.ConsignmentNumbers[0];
+		const stored = await storeLabel(consignmentNumber);
+
 		return {
-			carrierOrderId: reply.data.ConsignmentNumbers[0],
+			carrierOrderId: consignmentNumber,
+			// Our route, not a blob URL: the note is private and the admin cookie
+			// is what opens it. Null when the capture failed, so the print link
+			// simply does not render rather than pointing at nothing.
+			labelUrl:
+				stored === null ? null : `/api/admin/deliveries/${job.id}/label`,
 			// GDEX returns no share link. Its public tracking page takes a
 			// consignment number, but the URL is not in the API documentation, so
 			// null is the honest answer rather than a guessed link an admin would

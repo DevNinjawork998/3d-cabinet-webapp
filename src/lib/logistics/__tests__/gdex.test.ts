@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const put = vi.hoisted(() =>
+	vi.fn(async (..._args: unknown[]) => ({ pathname: "p" })),
+);
+vi.mock("@vercel/blob", () => ({ put }));
+
 import {
 	consignmentBody,
 	GdexNotDeliverable,
 	gdexAdapter,
+	labelPathname,
 	pickupInfo,
 	piecesOf,
 	rateBody,
@@ -481,5 +488,71 @@ describe("gdexAdapter", () => {
 			);
 			expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
 		});
+	});
+});
+
+describe("labelPathname", () => {
+	it("is derived from the consignment number, so no column stores it", () => {
+		expect(labelPathname("MY1700012345")).toBe(
+			"logistics/gdex/MY1700012345.pdf",
+		);
+	});
+});
+
+describe("gdexAdapter.book label capture", () => {
+	beforeEach(() => {
+		vi.stubEnv("GDEX_USER_TOKEN", "utok_test_abc");
+		vi.stubEnv("GDEX_PRIMARY_API_KEY", "sub_test_xyz");
+		put.mockClear();
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	it("stores the note privately and links to our own route, not the blob", async () => {
+		const fetchMock = stubResponses(userDetailsResponse, consignmentResponse);
+		fetchMock.mockResolvedValueOnce(
+			new Response("%PDF-1.4", {
+				status: 200,
+				headers: { "content-type": "application/pdf" },
+			}),
+		);
+
+		const booking = await gdexAdapter.book(job(), {
+			carrierId: "gdex",
+			priceRm: 12.4,
+			etaMinutes: null,
+		});
+
+		expect(put).toHaveBeenCalledTimes(1);
+		const [pathname, , options] = put.mock.calls[0] as [
+			string,
+			unknown,
+			{ access: string },
+		];
+		expect(pathname).toBe("logistics/gdex/MY1700012345.pdf");
+		// Private, always. The note carries the customer's home address and the
+		// consignment number in the path is guessable.
+		expect(options.access).toBe("private");
+		expect(booking.labelUrl).toBe("/api/admin/deliveries/dlv_1/label");
+	});
+
+	it("still books when the note cannot be fetched — the wallet is already spent", async () => {
+		const fetchMock = stubResponses(userDetailsResponse, consignmentResponse);
+		fetchMock.mockResolvedValueOnce(new Response("nope", { status: 400 }));
+
+		const booking = await gdexAdapter.book(job(), {
+			carrierId: "gdex",
+			priceRm: 12.4,
+			etaMinutes: null,
+		});
+
+		// The consignment exists and was paid for. Throwing here would fail a
+		// booking that succeeded and leave a parcel nobody knows about.
+		expect(booking.carrierOrderId).toBe("MY1700012345");
+		expect(booking.labelUrl).toBeNull();
+		expect(put).not.toHaveBeenCalled();
 	});
 });
