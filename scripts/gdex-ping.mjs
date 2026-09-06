@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+/**
+ * Talk to GDEX without the app in the way.
+ *
+ * The adapter in `lib/logistics/adapters/gdex.ts` is a stub, so there is no
+ * fixture to compare against yet — this script is how the real request and
+ * reply shapes get established before any of it is written down.
+ *
+ *   node --env-file=.env.local scripts/gdex-ping.mjs
+ *   pnpm gdex:ping
+ *
+ * It reads only: the token's validity, the e-wallet balance, and a shipping
+ * rate for a small parcel between two real Klang Valley postcodes. It never
+ * creates a consignment — that spends credit.
+ *
+ * Auth is two separate credentials, and confusing them is the whole reason this
+ * script exists:
+ *
+ * - `subscription-key` — the Azure APIM key from the developer portal. GDEX
+ *   renamed APIM's default header, so `Ocp-Apim-Subscription-Key` is silently
+ *   ignored and the gateway answers "missing subscription key" while you are
+ *   busy sending one. Primary and secondary are interchangeable; secondary is
+ *   the rotation spare, not a signing secret.
+ * - `User-Token` — the Integration Token from the myGDEX *web application*
+ *   (User Profile), a different system from the developer portal. This is the
+ *   one that says which GDEX account is being billed.
+ *
+ * The two environments are the same host, split by a `/test` path segment, and
+ * a key is only valid for the product it was issued against — a Testing key on
+ * the live path returns "invalid subscription key", which reads like a bad key
+ * and is not.
+ */
+
+const LIVE = "https://myopenapi.gdexpress.com/api/MyGDex";
+const TEST = "https://myopenapi.gdexpress.com/test/api/MyGDex";
+
+const BASE = process.env.GDEX_LIVE === "1" ? LIVE : TEST;
+
+const USER_TOKEN =
+	process.argv[2] ??
+	process.env.GDEX_USER_TOKEN ??
+	process.env.GDEX_PUBLIC_KEY ??
+	"";
+const SUBSCRIPTION_KEY =
+	process.env.GDEX_PRIMARY_API_KEY ?? process.env.GDEX_API_KEY ?? "";
+
+if (USER_TOKEN === "") {
+	console.error(
+		"No user token. Run with `node --env-file=.env.local scripts/gdex-ping.mjs`,\n" +
+			"or pass one: `pnpm gdex:ping <user_token>`.\n" +
+			"The token comes from myGDEX User Profile → Integration Token.",
+	);
+	process.exit(1);
+}
+
+/** Enough of the value to recognise it in a log, never enough to use it. */
+function fingerprint(value) {
+	if (value === "") return "unset";
+	return `${value.length} chars, ${value.slice(0, 4)}…${value.slice(-2)}`;
+}
+
+async function call(method, path, body) {
+	// `subscription-key`, not `Ocp-Apim-Subscription-Key`. Both are accepted as
+	// header names by APIM in general; this instance only reads the renamed one,
+	// and answers "missing subscription key" to the default. A query parameter
+	// works too, but keeps the credential in every access log it passes.
+	const headers = {
+		"User-Token": USER_TOKEN,
+		"subscription-key": SUBSCRIPTION_KEY,
+		accept: "application/json",
+	};
+	if (body !== undefined) headers["content-type"] = "application/json";
+
+	const response = await fetch(`${BASE}/${path}`, {
+		method,
+		headers,
+		body: body === undefined ? undefined : JSON.stringify(body),
+	});
+	const text = await response.text();
+	let parsed = null;
+	try {
+		parsed = JSON.parse(text);
+	} catch {
+		// Left null: a non-JSON body is itself the finding, and the raw text is
+		// printed either way.
+	}
+	return { status: response.status, text, json: parsed };
+}
+
+function report(label, result) {
+	console.log(`\n── ${label} — HTTP ${result.status}`);
+	console.log(result.text.slice(0, 1200) || "(empty body)");
+}
+
+console.log("GDEX ping");
+console.log(`  base             ${BASE}`);
+console.log(`  User-Token       ${fingerprint(USER_TOKEN)}`);
+console.log(`  subscription key ${fingerprint(SUBSCRIPTION_KEY)}`);
+
+const validity = await call("GET", "GetUserTokenValidity");
+report("GetUserTokenValidity", validity);
+
+// The two 401s mean opposite things and point at different people to ask.
+if (validity.status === 401) {
+	const message = validity.json?.message ?? "";
+	console.error(
+		message.includes("subscription")
+			? "\nThe gateway rejected the subscription key, so the request never reached GDEX.\n" +
+					"Check the portal (myopenplatform.gdexpress.com → User profile) that the key\n" +
+					"belongs to an Active subscription for the product this base URL serves:\n" +
+					`  ${BASE}`
+			: "\nThe gateway let the request through and GDEX rejected the User-Token.\n" +
+					"That token is not the portal subscription key — it comes from the myGDEX web\n" +
+					"application, User Profile → Integration Token, and only a verified member can\n" +
+					"subscribe for one.",
+	);
+	process.exit(1);
+}
+
+report("CheckeWalletBalance", await call("GET", "CheckeWalletBalance"));
+
+// Two real Klang Valley postcodes and a 1kg parcel: the smallest request that
+// still proves a number comes back. Note what GetShippingRate does NOT take —
+// no dimensions, so GDEX prices this on actual weight alone.
+const rate = await call("POST", "GetShippingRate", [
+	{
+		ReferenceNumber: 1,
+		FromPostCode: "46050",
+		ToPostCode: "11950",
+		ParcelType: "Parcel",
+		Weight: 1,
+		Country: "MYS",
+	},
+]);
+report("GetShippingRate", rate);
+
+const row = rate.json?.data?.[0];
+if (row?.HasError === true) {
+	console.error(`\nRate refused: ${row.Error}`);
+	process.exit(1);
+}
+if (typeof row?.Rate === "number" && row.Rate > 0) {
+	console.log(`\nRate came back: RM ${row.Rate.toFixed(2)}`);
+} else {
+	console.error("\nNo rate in the reply. The body above is the evidence.");
+	process.exit(1);
+}

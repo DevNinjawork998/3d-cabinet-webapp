@@ -10,6 +10,7 @@
 		"test": "vitest run",
 		"generate:grain": "node scripts/generate-grain-texture.mjs",
 		"lalamove:ping": "node --env-file=.env.local scripts/lalamove-ping.mjs",
+		"gdex:ping": "node --env-file=.env.local scripts/gdex-ping.mjs",
 		"db:up": "docker compose up -d",
 		"db:down": "docker compose down",
 		"db:migrate": "prisma migrate dev",
