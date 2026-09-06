@@ -1,6 +1,7 @@
 import "server-only";
 import { put } from "@vercel/blob";
 import { z } from "zod";
+import { isGeocodingConfigured } from "../geocode";
 import { carrierFetch } from "../http";
 import { suggestVehicle, type VehicleClass } from "../measure";
 import { toE164 } from "../phone";
@@ -137,8 +138,21 @@ export function transportationFor(job: DeliveryJob): string {
 function sitePostcodeOf(job: DeliveryJob): string {
 	if (job.sitePostcode === null || job.sitePostcode === "") {
 		trace("gdex.refused", { why: "no postcode", address: job.siteAddress });
+
+		// "Correct the address" is only advice when re-saving could actually
+		// help. `geocodeAddress` returns null on the first line when there is no
+		// key, so every save leaves the postcode null however the address is
+		// written — and the admin is sent round a loop that cannot terminate,
+		// editing a line that was already right. Same distinction, and the same
+		// reasoning, as `endpoint()` in `easyparcel.ts`.
+		if (!isGeocodingConfigured()) {
+			throw new GdexNotDeliverable(
+				"This deployment has no geocoding key, so no address has a postcode — GDEX prices postcode to postcode and cannot quote until GOOGLE_GEOCODING_API_KEY is set",
+			);
+		}
+
 		throw new GdexNotDeliverable(
-			"The site address did not geocode to a postcode — GDEX prices postcode to postcode, so correct the address and compare again",
+			"The site address has no postcode we could read — edit it and save again",
 		);
 	}
 	return job.sitePostcode;
@@ -435,11 +449,25 @@ const consignmentSchema = envelope(
 	}),
 );
 
+/**
+ * `IsValid` is not in GDEX's documentation, and it is the only thing that makes
+ * this reply readable.
+ *
+ * A consignment number GDEX has never seen comes back **HTTP 200** with
+ * `ConsignmentNoteStatus: "Pending"` and `IsValid: false` — the same status
+ * word a real, freshly created note carries. Found with `pnpm gdex:ping`
+ * against a made-up number; nothing in the docs hints at it.
+ *
+ * `nullish()` rather than required, because a field they do not document is a
+ * field they can stop sending. Absent is treated as valid, which is what the
+ * documented shape implies.
+ */
 const statusSchema = envelope(
 	z.array(
 		z.object({
 			ConsignmentNote: z.string(),
 			ConsignmentNoteStatus: z.string().nullish(),
+			IsValid: z.boolean().nullish(),
 		}),
 	),
 );
@@ -627,6 +655,21 @@ export const gdexAdapter: CarrierAdapter = {
 		const row =
 			reply.data.find((r) => r.ConsignmentNote === carrierOrderId) ??
 			reply.data[0];
+
+		// GDEX answers for a number it has never seen with "Pending" — the same
+		// word a real new consignment carries — and flags it only in `IsValid`.
+		// Reading the status off that row would report a parcel that does not
+		// exist as booked, and keep reporting it, because nothing else in the
+		// reply ever contradicts it.
+		if (row?.IsValid === false) {
+			trace("gdex.unknown_consignment", { carrierOrderId });
+			return {
+				status: null,
+				message: `GDEX does not recognise consignment ${carrierOrderId}`,
+				raw: reply.data,
+			};
+		}
+
 		const status = row?.ConsignmentNoteStatus ?? "";
 
 		return {

@@ -556,3 +556,92 @@ describe("gdexAdapter.book label capture", () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 });
+
+describe("gdexAdapter.track against an unknown consignment", () => {
+	beforeEach(() => {
+		vi.stubEnv("GDEX_USER_TOKEN", "utok_test_abc");
+		vi.stubEnv("GDEX_PRIMARY_API_KEY", "sub_test_xyz");
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	it("does not read a status off a row GDEX flags as not real", async () => {
+		// Verbatim from `pnpm gdex:ping` against a made-up number, 2026-09-06.
+		// HTTP 200, and "Pending" — the same word a real new consignment carries.
+		// `IsValid` is the only thing separating them, and it is undocumented.
+		stubResponses({
+			statusCode: 200,
+			data: [
+				{
+					ConsignmentNote: "MY0000000000",
+					ConsignmentNoteStatus: "Pending",
+					IsValid: false,
+				},
+			],
+			message: null,
+		});
+
+		const update = await gdexAdapter.track("MY0000000000");
+
+		// Not BOOKED. Reporting a parcel that does not exist as booked would
+		// stick, because nothing in a later reply ever contradicts it.
+		expect(update.status).toBeNull();
+		expect(update.message).toMatch(/does not recognise/i);
+	});
+
+	it("reads the status when GDEX says the consignment is real", async () => {
+		stubResponses({
+			statusCode: 200,
+			data: [
+				{
+					ConsignmentNote: "MY1700012345",
+					ConsignmentNoteStatus: "Pending",
+					IsValid: true,
+				},
+			],
+			message: null,
+		});
+
+		expect((await gdexAdapter.track("MY1700012345")).status).toBe("BOOKED");
+	});
+
+	it("treats an absent IsValid as valid — a field they may stop sending", async () => {
+		stubResponses({
+			statusCode: 200,
+			data: [
+				{ ConsignmentNote: "MY1700012345", ConsignmentNoteStatus: "Delivered" },
+			],
+			message: null,
+		});
+
+		expect((await gdexAdapter.track("MY1700012345")).status).toBe("DELIVERED");
+	});
+});
+
+describe("rateBody's refusal when there is no postcode", () => {
+	afterEach(() => {
+		// Assigning `undefined` stores the STRING "undefined", which is non-empty
+		// and reads as a configured key. Delete it. Same note as easyparcel.test.
+		delete process.env.GOOGLE_GEOCODING_API_KEY;
+	});
+
+	it("blames the deployment, not the address, when there is no geocoding key", () => {
+		delete process.env.GOOGLE_GEOCODING_API_KEY;
+		// "Correct the address" is only advice if re-saving could help. With no
+		// key there is nothing to re-read the address with, so every save leaves
+		// the postcode null and the admin loops forever on a line already right.
+		expect(() => rateBody(job({ sitePostcode: null }), "46050")).toThrow(
+			/GOOGLE_GEOCODING_API_KEY/,
+		);
+	});
+
+	it("blames the address when the key is set and it still did not resolve", () => {
+		process.env.GOOGLE_GEOCODING_API_KEY = "k";
+		expect(() => rateBody(job({ sitePostcode: null }), "46050")).toThrow(
+			/edit it and save again/i,
+		);
+	});
+});
