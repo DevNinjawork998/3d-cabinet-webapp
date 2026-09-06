@@ -648,6 +648,30 @@ async function storeLabel(consignmentNumber: string): Promise<string | null> {
 	}
 }
 
+const walletSchema = envelope(z.number());
+
+/**
+ * What GDEX's e-Wallet holds, or null when it cannot be read.
+ *
+ * Null rather than throwing, because every caller is advisory: this is a
+ * courtesy on top of a price, and a wallet endpoint having a bad minute must
+ * never cost the quote it is annotating. `CheckeWalletBalance` returns a bare
+ * number in `data` — 1020.0000, not an object.
+ */
+export async function walletBalance(): Promise<number | null> {
+	try {
+		const reply = readReply(
+			walletSchema,
+			await call("GET", "/CheckeWalletBalance", undefined, true),
+			"wallet balance",
+		);
+		return reply.data;
+	} catch (error) {
+		trace("gdex.wallet", { error: String(error) });
+		return null;
+	}
+}
+
 export const gdexAdapter: CarrierAdapter = {
 	id: "gdex",
 
@@ -691,6 +715,14 @@ export const gdexAdapter: CarrierAdapter = {
 			);
 		}
 
+		// Advisory, and checked after the price rather than before it: booking
+		// debits the wallet, so "Insufficient Credit" is the likeliest way a
+		// GDEX booking fails, and it is the one thing the admin can fix before
+		// spending their time picking this carrier. A warning, not a refusal —
+		// GDEX decides whether it will take the booking, not us.
+		const balance = await walletBalance();
+		const short = balance !== null && balance < row.Rate;
+
 		return {
 			carrierId: "gdex",
 			priceRm: row.Rate,
@@ -699,6 +731,11 @@ export const gdexAdapter: CarrierAdapter = {
 			// screen nobody made.
 			etaMinutes: null,
 			notes: `Parcel, ${weight} kg`,
+			...(short
+				? {
+						warning: `GDEX's wallet holds RM ${(balance as number).toFixed(2)}, less than this booking — top it up or the booking will be refused`,
+					}
+				: {}),
 		};
 	},
 

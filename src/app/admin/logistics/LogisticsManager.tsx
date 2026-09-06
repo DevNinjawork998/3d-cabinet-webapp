@@ -977,6 +977,11 @@ function DeliveryDetail({
 												{quote.notes}
 											</span>
 										)}
+										{quote.warning && (
+											<span className="pl-[18px] text-[11px] text-[#8a6d1f]">
+												{quote.warning}
+											</span>
+										)}
 										<span className="flex items-center gap-2 pl-[18px] text-[11px]">
 											{quote.error ? (
 												<span className="text-red-700">{quote.error}</span>

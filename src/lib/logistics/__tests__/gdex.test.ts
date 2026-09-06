@@ -753,3 +753,53 @@ describe("pickupDays", () => {
 		expect(await pickupDays()).toEqual(["2026-09-08"]);
 	});
 });
+
+describe("gdexAdapter.quote wallet warning", () => {
+	beforeEach(() => {
+		vi.stubEnv("GDEX_USER_TOKEN", "utok_test_abc");
+		vi.stubEnv("GDEX_PRIMARY_API_KEY", "sub_test_xyz");
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	const wallet = (amount: number) => ({
+		statusCode: 200,
+		data: amount,
+		message: null,
+	});
+
+	it("warns when the wallet will not cover the quote, and still quotes", async () => {
+		stubResponses(userDetailsResponse, rateResponse, wallet(4.1));
+		const quote = await gdexAdapter.quote(job());
+		expect(quote.priceRm).toBe(12.4);
+		// Still bookable. GDEX decides whether to take it, not us.
+		expect(quote.warning).toMatch(/RM 4\.10/);
+	});
+
+	it("says nothing when the wallet covers it", async () => {
+		stubResponses(userDetailsResponse, rateResponse, wallet(1020));
+		expect((await gdexAdapter.quote(job())).warning).toBeUndefined();
+	});
+
+	it("still returns the price when the balance cannot be read", async () => {
+		const fetchMock = vi.fn();
+		const json = (body: unknown) =>
+			new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		fetchMock.mockResolvedValueOnce(json(userDetailsResponse));
+		fetchMock.mockResolvedValueOnce(json(rateResponse));
+		fetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 }));
+		vi.stubGlobal("fetch", fetchMock);
+
+		// The wallet read is advisory. Losing it must never cost the price —
+		// that would turn a nicety into an outage.
+		const quote = await gdexAdapter.quote(job());
+		expect(quote.priceRm).toBe(12.4);
+		expect(quote.warning).toBeUndefined();
+	});
+});

@@ -57,6 +57,8 @@ export type QuoteRow = {
 	priceRm: number | null;
 	etaMinutes: number | null;
 	notes?: string;
+	/** Advisory — the row still books. Distinct from `error`, which does not. */
+	warning?: string;
 	error?: string;
 };
 

@@ -107,6 +107,14 @@ export type CarrierQuote = {
 	etaMinutes: number | null;
 	/** Anything the book call needs to reference this exact quote. */
 	quoteRef?: string;
+	/**
+	 * Something the admin should see before booking that is NOT a refusal.
+	 *
+	 * A warned quote is still bookable, and deliberately so: the partner
+	 * decides whether it will take the job, not us. Distinct from `error`,
+	 * which means the quote never happened.
+	 */
+	warning?: string;
 	notes?: string;
 };
 
