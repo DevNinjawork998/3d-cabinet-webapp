@@ -27,39 +27,58 @@ body {
 }
 
 /*
- * The ground under the hero's cabinet stage.
+ * A cabinet frame standing on the page.
  *
- * Not flat paper. The render carries a studio vignette — its own grey runs from
- * #b9bab4 at the frame's corners to #d5d6d0 under the cabinet — so against a
- * flat background the masked stage floats in a visible dark ellipse. This is
- * that vignette continued outward, centred wherever the stage is, so the
- * frame's grey and the page's paper are one wash.
+ * Two rules, used by the landing hero and by the admin sign-in panel. Both are
+ * showing the same render, so both need the same two fixes.
  *
- * It gets DARKER before it resolves to paper, because the render does: its
- * darkest grey is at the frame's edges, not its middle, and a gradient that
- * only lightened outward left the mask dissolving a dark ring into a pale page.
+ * `[data-cabinet-stage]` dissolves the frame's edge. The render carries a
+ * studio vignette — its own grey runs from #b9bab4 at the corners to #d5d6d0
+ * under the cabinet — so a hard boundary reads as a rectangle pasted onto the
+ * page. `closest-side` is load-bearing: the default `farthest-corner` puts the
+ * box's own edges at 71% of the gradient and therefore inside any opaque stop
+ * worth having, which is a mask that leaves four hard edges exactly where it
+ * was added to remove them. The opaque stop clears the cabinet's full width at
+ * full explosion, so only empty studio grey ever fades.
+ *
+ * `[data-cabinet-ground]` is that vignette continued outward, so the frame's
+ * grey and the page's paper are one wash. It gets DARKER before it resolves to
+ * paper, because the render does: its darkest grey is at the frame's edges,
+ * not its middle, and a gradient that only lightened outward left the mask
+ * dissolving a dark ring into a pale page.
  */
-[data-hero-ground] {
-	background: radial-gradient(
-		ellipse 92% 30% at 50% 74%,
-		#d6d7d1 0%,
-		#c8c9c3 66%,
-		#d8d9d3 86%,
-		#e9e7e3 100%
+[data-cabinet-stage] {
+	-webkit-mask-image: radial-gradient(
+		ellipse closest-side at 50% 50%,
+		#000 0 74%,
+		transparent 100%
+	);
+	mask-image: radial-gradient(
+		ellipse closest-side at 50% 50%,
+		#000 0 74%,
+		transparent 100%
 	);
 }
 
-/* Beside the copy rather than under it, so the wash moves with the stage. */
+[data-cabinet-ground] {
+	--ground: #d6d7d1 0%, #c8c9c3 66%, #d8d9d3 86%, #e9e7e3 100%;
+}
+
+/* The hero, where the cabinet sits under the copy on a phone... */
+[data-cabinet-ground="hero"] {
+	background: radial-gradient(ellipse 92% 30% at 50% 74%, var(--ground));
+}
+
+/* ...and beside it once there is room, so the wash moves with the stage. */
 @media (min-width: 1024px) {
-	[data-hero-ground] {
-		background: radial-gradient(
-			ellipse 52% 72% at 66% 50%,
-			#d6d7d1 0%,
-			#c8c9c3 66%,
-			#d8d9d3 86%,
-			#e9e7e3 100%
-		);
+	[data-cabinet-ground="hero"] {
+		background: radial-gradient(ellipse 52% 72% at 66% 50%, var(--ground));
 	}
+}
+
+/* The sign-in panel, where the frame is centred and nothing sits over it. */
+[data-cabinet-ground="panel"] {
+	background: radial-gradient(ellipse 98% 52% at 50% 50%, var(--ground));
 }
 
 /*

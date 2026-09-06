@@ -329,8 +329,11 @@ Three things keep it inside the budget:
 
 The frames carry a studio vignette, so the stage is masked with a
 `closest-side` radial gradient and the section behind it continues that vignette
-outward — `[data-hero-ground]` in `globals.css`. Without both, the hero is a
-grey rectangle pasted onto the page. **There is no `hero` site-image slot any
+outward — `[data-cabinet-stage]` and `[data-cabinet-ground]` in `globals.css`.
+Without both, it is a grey rectangle pasted onto the page. Both rules are
+shared with **`/admin/login`**, whose right-hand panel is the same render
+stopped on its last frame, the cabinet fully apart — one static file, no
+sequence, because nothing scrolls on a sign-in screen. **There is no `hero` site-image slot any
 more**; `HERO_SLOT` survives in `siteImages.ts` only so an already-uploaded row
 stays addressable.
 
@@ -341,7 +344,7 @@ Two features carry the sale: a **doors-open / doors-hidden toggle** so the custo
 | Kind | Home | Why |
 | --- | --- | --- |
 | Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN |
-| Hero scroll frames (`public/hero-frames`) | `/public` | 72 JPEGs, ~1.7 MB, rebuilt from the client's render export by `scripts/build-hero-frames.sh`. Desktop only: `ScrollSequence` refuses under 900px or on reduced motion and never fetches them there |
+| Hero scroll frames (`public/hero-frames`) | `/public` | 72 JPEGs, ~1.7 MB, rebuilt from the client's render export by `scripts/build-hero-frames.sh`. The last one is also the admin sign-in panel. Desktop only: `ScrollSequence` refuses under 900px or on reduced motion and never fetches them there |
 | Palette thumbnails | Inline SVG (`components/planner/thumbs.tsx`) | Drawn from the family's own proportions. Never boot a WebGL context per thumbnail. |
 | Design exports (`.obj`, or `.zip` with textures) | Vercel Blob, **private** | The source file carries the client's module standard, layer structure and part naming. Never public, never in `/public`. Reachable only under `/api/admin`. |
 | Derived render meshes (`.icbmesh`) | Vercel Blob, served **public** via `/api/cabinet-mesh/[id]` | The geometry a customer's browser draws, so it has to get out — but only as triangles, with the drafter's materials and every part name stripped. The store is private-access-only, so the route is the hole, exactly like site images. Regenerable from the source, so it is cache, not record. |

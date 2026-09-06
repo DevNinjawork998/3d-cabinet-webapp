@@ -61,6 +61,11 @@ const BADGE_TONE: Record<DeliveryStatusName, string> = {
 	FAILED: "bg-red-50 text-red-700",
 };
 
+const STOPPED_TONE: Partial<Record<DeliveryStatusName, string>> = {
+	CANCELLED: "border-neutral-200 bg-neutral-50 text-neutral-600",
+	FAILED: "border-red-200 bg-red-50 text-red-700",
+};
+
 const ACTIVE: DeliveryStatusName[] = [
 	"BOOKED",
 	"DRIVER_ASSIGNED",
@@ -814,7 +819,15 @@ function DeliveryDetail({
 	}
 
 	const booked = delivery.carrierOrderId !== null;
-	const nextStep = JOURNEY[JOURNEY.indexOf(delivery.status) + 1];
+	// A cancelled or failed job is off the journey, so there is no next stop to
+	// offer — `indexOf` returning -1 used to make "Mark booked" the next move on
+	// a job the carrier had already cancelled.
+	const onJourney = JOURNEY.indexOf(delivery.status);
+	const nextStep = onJourney === -1 ? undefined : JOURNEY[onJourney + 1];
+	const stopped =
+		delivery.status === "CANCELLED" || delivery.status === "FAILED";
+	const stoppedAt =
+		events.find((event) => event.status === delivery.status)?.at ?? null;
 	const steps = journeySteps(delivery.status, events, delivery.carrierId);
 	const tags = quotes === null ? {} : quoteTags(quotes);
 	const choice = quotes?.find((q) => q.carrierId === selected) ?? null;
@@ -829,15 +842,19 @@ function DeliveryDetail({
 				? 0
 				: 1;
 
-	const guide = booked
-		? "Pickup is booked. Follow the shipment below; refresh from the carrier for a fresh position."
-		: busy === "compare"
-			? "Asking every partner what this job costs. Nothing is booked yet."
-			: quotes === null
-				? "Start by comparing partners. Nothing reaches a carrier until you book."
-				: busy === "book"
-					? `Creating the job with ${carrierLabel(choice?.carrierId)}. Stay on this page until it confirms.`
-					: "Compare the prices below, pick a partner, then book the pickup.";
+	const guide = stopped
+		? delivery.status === "CANCELLED"
+			? "This job was cancelled. Nothing will be collected — the tracker below shows how far it got before it stopped."
+			: "This job failed with the carrier. Nothing will be collected — the tracker below shows how far it got."
+		: booked
+			? "Pickup is booked. Follow the shipment below; refresh from the carrier for a fresh position."
+			: busy === "compare"
+				? "Asking every partner what this job costs. Nothing is booked yet."
+				: quotes === null
+					? "Start by comparing partners. Nothing reaches a carrier until you book."
+					: busy === "book"
+						? `Creating the job with ${carrierLabel(choice?.carrierId)}. Stay on this page until it confirms.`
+						: "Compare the prices below, pick a partner, then book the pickup.";
 
 	const copyLink = async () => {
 		if (delivery.trackingUrl === null) return;
@@ -908,17 +925,23 @@ function DeliveryDetail({
 					})}
 			</div>
 
-			<ProcessSteps stage={stage} />
+			{!stopped && <ProcessSteps stage={stage} />}
 
 			<p
 				className={`flex items-start gap-2.5 rounded-[10px] border px-3.5 py-2.5 text-[12px] leading-[18px] ${
-					booked
-						? "border-[#bcd0c3] bg-[#f2f7f4] text-[#17402c]"
-						: "border-neutral-200 bg-[#f8f7f4] text-neutral-700"
+					stopped
+						? STOPPED_TONE[delivery.status]
+						: booked
+							? "border-[#bcd0c3] bg-[#f2f7f4] text-[#17402c]"
+							: "border-neutral-200 bg-[#f8f7f4] text-neutral-700"
 				}`}
 			>
 				<span className="shrink-0 font-bold">
-					{booked ? "Done" : `Step ${stage + 1} of 3`}
+					{stopped
+						? STATUS_LABEL[delivery.status]
+						: booked
+							? "Done"
+							: `Step ${stage + 1} of 3`}
 				</span>
 				<span>{guide}</span>
 			</p>
@@ -1083,7 +1106,7 @@ function DeliveryDetail({
 						</div>
 					</div>
 
-					<div className="flex">
+					<div className={`flex ${stopped ? "opacity-60" : ""}`}>
 						{steps.map((step, i) => (
 							<div
 								key={step.status}
@@ -1134,6 +1157,17 @@ function DeliveryDetail({
 						))}
 					</div>
 
+					{stopped && (
+						<p
+							className={`rounded-[9px] border px-3 py-2.5 text-[12px] ${STOPPED_TONE[delivery.status]}`}
+						>
+							{STATUS_LABEL[delivery.status]}
+							{stoppedAt ? ` ${shortTime(stoppedAt)}` : ""} — the stops above
+							are where it got to. No further updates will come from{" "}
+							{carrierLabel(delivery.carrierId)}.
+						</p>
+					)}
+
 					<div className="flex flex-wrap items-center gap-3 text-[12px] text-neutral-500">
 						{delivery.quotedPriceRm !== null && (
 							<span>RM {delivery.quotedPriceRm}</span>
@@ -1177,7 +1211,7 @@ function DeliveryDetail({
 						</div>
 					)}
 
-					{delivery.carrierId === "gdex" && (
+					{delivery.carrierId === "gdex" && !stopped && (
 						<div className="flex items-center gap-2.5 rounded-[9px] border border-[#cddcd3] bg-[#f2f7f4] px-3 py-2.5">
 							<span className="flex-1 text-[12px] text-[#1a4a33]">
 								{pickup === null
