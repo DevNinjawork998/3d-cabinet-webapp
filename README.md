@@ -64,14 +64,23 @@ carrier integration exists.
 | `CRON_SECRET` | The tracking sweep at `/api/cron/track-deliveries`. Vercel sends it as `Authorization: Bearer`; without it the route refuses to run. |
 | `LALAMOVE_API_KEY`, `LALAMOVE_API_SECRET` | Lalamove — vehicle class, the one that moves cabinets. A `pk_test…` key selects the sandbox host, anything else production. |
 | `GOOGLE_GEOCODING_API_KEY` | Turns a delivery's address into the pin Lalamove prices against. Without it no vehicle partner can quote. |
-| `EASYPARCEL_API_KEY` | EasyParcel — parcels |
-| `GDEX_API_KEY` | GDEX — parcels |
+| `EASYPARCEL_CLIENT_ID`, `EASYPARCEL_CLIENT_SECRET` | EasyParcel — parcels. OAuth app credentials; an admin links an account at `/admin/logistics`. |
+| `GDEX_PRIMARY_API_KEY` | GDEX — the Azure APIM subscription key from the developer portal, sent as the `subscription-key` header. **Not** `Ocp-Apim-Subscription-Key`: GDEX renamed APIM's default, so the standard header is ignored and the gateway reports a missing key while a valid one is being sent. `GDEX_SECONDARY_API_SECRET` is that key's rotation spare, not a signing secret, and nothing reads it. |
+| `GDEX_USER_TOKEN` | GDEX — the myGDEX account's Integration Token, sent as `User-Token`. From the myGDEX **web application** (User Profile → Integration Token), a different system from the developer portal. |
 | `CITYLINK_API_KEY` | City-Link — parcels |
 | `<CARRIER>_WEBHOOK_SECRET` | Verifying callbacks from a partner that signs them |
 
-Lalamove is implemented. The other three adapters in `lib/logistics/adapters/`
-are stubs, and each is a single file plus its statuses in
-`lib/logistics/status.ts` — nothing else changes when one is written.
+Lalamove, EasyParcel and GDEX are implemented; City-Link is still a stub, and
+it is a single file plus its statuses in `lib/logistics/status.ts` — nothing
+else changes when one is written. A partner with no credentials is not hidden:
+it appears in the comparison as a row saying so, because "switched off" and
+"refused this job" must not be the same blank screen.
+
+**GDEX talks to the sandbox only.** The account holds no active subscription to
+the live `myGDEX` product, so the base URL is a constant rather than a flag —
+see `adapters/gdex.ts`. `pnpm gdex:ping` is the one thing that checks GDEX's
+real API shape; like `easyparcel:ping` it needs credentials and is deliberately
+kept out of PR CI. Its own `GDEX_LIVE=1` switches that script, not the app.
 
 A delivery is geocoded when it is **saved**, not when it is quoted, so an
 address Google cannot place shows as a warning on the job rather than as a

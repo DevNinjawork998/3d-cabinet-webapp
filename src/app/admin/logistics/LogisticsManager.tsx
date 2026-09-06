@@ -533,9 +533,9 @@ function DeliveryForm({
 			<p className="text-[12px] text-neutral-500">
 				{totalVolumeM3(items)} m³
 				{weight === null ? ", weight not given" : `, ${weight} kg`} —{" "}
-				<span className="text-neutral-900">{suggestion.label}</span>. Weight is
-				optional; the catalogue does not carry any, and a guessed figure would
-				be quoted against.
+				<span className="text-neutral-900">{suggestion.label}</span>. The
+				vehicle partners price by distance and do not need a weight. The parcel
+				partners price by the kilogram and cannot quote without one.
 			</p>
 
 			<button
