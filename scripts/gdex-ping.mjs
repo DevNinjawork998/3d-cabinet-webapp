@@ -2,9 +2,9 @@
 /**
  * Talk to GDEX without the app in the way.
  *
- * The adapter in `lib/logistics/adapters/gdex.ts` is a stub, so there is no
- * fixture to compare against yet — this script is how the real request and
- * reply shapes get established before any of it is written down.
+ * CI runs `adapters/gdex.ts` against the portal's documented payloads, which is
+ * our *belief* about GDEX rather than GDEX. A renamed field passes every test
+ * and fails the first real booking. This is what notices.
  *
  *   node --env-file=.env.local scripts/gdex-ping.mjs
  *   pnpm gdex:ping
@@ -21,9 +21,17 @@
  *   ignored and the gateway answers "missing subscription key" while you are
  *   busy sending one. Primary and secondary are interchangeable; secondary is
  *   the rotation spare, not a signing secret.
- * - `User-Token` — the Integration Token from the myGDEX *web application*
- *   (User Profile), a different system from the developer portal. This is the
- *   one that says which GDEX account is being billed.
+ * - `User-Token` — the User Access Token from the myGDEX *customer portal*, a
+ *   different system from the developer portal. This is the one that says which
+ *   GDEX account is being billed, and **each environment has its own portal**:
+ *
+ *     test → https://my-openapi.gdexpress.com/dashboard/MyProfile
+ *     live → https://my.gdexpress.com/dashboard/MyProfile
+ *
+ *   The developer portal's own guide links to both under the same link text,
+ *   "myGDEX Portal", which is how you end up holding a production token that
+ *   the sandbox has never heard of. It answers "Invalid User Token", which
+ *   reads like a bad token and is not — it is a token for the other estate.
  *
  * The two environments are the same host, split by a `/test` path segment, and
  * a key is only valid for the product it was issued against — a Testing key on
@@ -34,7 +42,12 @@
 const LIVE = "https://myopenapi.gdexpress.com/api/MyGDex";
 const TEST = "https://myopenapi.gdexpress.com/test/api/MyGDex";
 
-const BASE = process.env.GDEX_LIVE === "1" ? LIVE : TEST;
+const LIVE_PORTAL = "https://my.gdexpress.com/dashboard/MyProfile";
+const TEST_PORTAL = "https://my-openapi.gdexpress.com/dashboard/MyProfile";
+
+const live = process.env.GDEX_LIVE === "1";
+const BASE = live ? LIVE : TEST;
+const TOKEN_PORTAL = live ? LIVE_PORTAL : TEST_PORTAL;
 
 const USER_TOKEN =
 	process.argv[2] ??
@@ -48,7 +61,7 @@ if (USER_TOKEN === "") {
 	console.error(
 		"No user token. Run with `node --env-file=.env.local scripts/gdex-ping.mjs`,\n" +
 			"or pass one: `pnpm gdex:ping <user_token>`.\n" +
-			"The token comes from myGDEX User Profile → Integration Token.",
+			`The token comes from ${TOKEN_PORTAL} → User Profile.`,
 	);
 	process.exit(1);
 }
@@ -110,9 +123,13 @@ if (validity.status === 401) {
 					"belongs to an Active subscription for the product this base URL serves:\n" +
 					`  ${BASE}`
 			: "\nThe gateway let the request through and GDEX rejected the User-Token.\n" +
-					"That token is not the portal subscription key — it comes from the myGDEX web\n" +
-					"application, User Profile → Integration Token, and only a verified member can\n" +
-					"subscribe for one.",
+					"\nEach environment has its own customer portal, and they are separate\n" +
+					"accounts. A token from one is invalid on the other. This run used:\n" +
+					`  ${BASE}\n` +
+					`so the token must come from ${TOKEN_PORTAL}\n` +
+					"  → log in, User Profile, generate the User Access token.\n" +
+					"\nThe developer portal links to both estates' portals under the same words,\n" +
+					'"myGDEX Portal", so a production token here is the usual cause.',
 	);
 	process.exit(1);
 }

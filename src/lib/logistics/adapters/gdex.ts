@@ -331,9 +331,16 @@ export function consignmentBody(job: DeliveryJob, sender: GdexUserDetails) {
 }
 
 /**
- * The myGDEX account's Integration Token, from the web application's User
- * Profile page — not the developer portal. Read per call, not at import, so a
- * test can stub it.
+ * The myGDEX account's User Access Token, from the customer portal's User
+ * Profile page — not the developer portal, which issues the subscription key.
+ *
+ * **Each estate has its own portal and its own accounts**, and a token from one
+ * is rejected by the other with "Invalid User Token" — which reads like a bad
+ * token and is not. `BASE` below is the sandbox, so this must be a token from
+ * https://my-openapi.gdexpress.com, not https://my.gdexpress.com. GDEX's own
+ * guide links to both under the same words, "myGDEX Portal".
+ *
+ * Read per call, not at import, so a test can stub it.
  */
 const USER_TOKEN = () => process.env.GDEX_USER_TOKEN ?? "";
 
