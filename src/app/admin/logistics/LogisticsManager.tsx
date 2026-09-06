@@ -815,7 +815,7 @@ function DeliveryDetail({
 
 	const booked = delivery.carrierOrderId !== null;
 	const nextStep = JOURNEY[JOURNEY.indexOf(delivery.status) + 1];
-	const steps = journeySteps(delivery.status, events);
+	const steps = journeySteps(delivery.status, events, delivery.carrierId);
 	const tags = quotes === null ? {} : quoteTags(quotes);
 	const choice = quotes?.find((q) => q.carrierId === selected) ?? null;
 

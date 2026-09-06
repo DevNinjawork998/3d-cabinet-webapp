@@ -123,3 +123,49 @@ describe("defaultChoice", () => {
 		expect(defaultChoice([quote("a", 10, 30, "timed out")])).toBeNull();
 	});
 });
+
+describe("journeySteps for a carrier that never names a driver", () => {
+	it("drops the driver stop for a parcel carrier", () => {
+		// GDEX reports where the parcel is, never who is holding it — its
+		// status table has no entry mapping to DRIVER_ASSIGNED. Showing the
+		// stop anyway leaves one that can never be reached.
+		const steps = journeySteps("BOOKED", [], "gdex");
+		expect(steps.map((s) => s.status)).toEqual([
+			"BOOKED",
+			"PICKED_UP",
+			"IN_TRANSIT",
+			"DELIVERED",
+		]);
+	});
+
+	it("keeps it for a carrier that does report one", () => {
+		const steps = journeySteps("BOOKED", [], "lalamove");
+		expect(steps.map((s) => s.status)).toContain("DRIVER_ASSIGNED");
+	});
+
+	it("drops in-transit for Lalamove, which never reports it either", () => {
+		// The rule is not "parcel carriers lose the driver stop" — it is that a
+		// carrier only shows the stops its own status table can reach. A
+		// Lalamove driver who has collected stays PICKED_UP until COMPLETED, so
+		// IN_TRANSIT is a stop that carrier can never occupy. See status.ts.
+		expect(journeySteps("BOOKED", [], "lalamove").map((s) => s.status)).toEqual(
+			["BOOKED", "DRIVER_ASSIGNED", "PICKED_UP", "DELIVERED"],
+		);
+	});
+
+	it("keeps the full journey when the carrier is not known yet", () => {
+		// A draft has no carrier. Hiding a stop on a guess would be worse than
+		// showing one that may not apply.
+		expect(journeySteps("DRAFT", [], null)).toHaveLength(5);
+	});
+
+	it("still marks progress correctly on the shortened journey", () => {
+		const steps = journeySteps("IN_TRANSIT", [], "gdex");
+		expect(steps.map((s) => s.state)).toEqual([
+			"done",
+			"done",
+			"active",
+			"pending",
+		]);
+	});
+});

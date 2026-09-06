@@ -1,3 +1,4 @@
+import { CARRIER_STATUS_MAPS } from "@/lib/logistics/status";
 import type { DeliveryStatusName } from "@/lib/logistics/types";
 import type { DeliveryEventRow, QuoteRow } from "./form";
 
@@ -47,12 +48,36 @@ export type JourneyStep = {
  * to mark — those fall back to the timeline, showing as reached exactly the
  * stops that actually happened before it stopped.
  */
+/**
+ * The stops this carrier can actually reach.
+ *
+ * A parcel network reports where the parcel is and never who is holding it, so
+ * a GDEX job can never be DRIVER_ASSIGNED — and a stop that can never be
+ * reached reads as a stalled job rather than a fact about parcel networks.
+ *
+ * Derived from the carrier's own status table rather than hardcoded per
+ * carrier: a partner that starts reporting drivers gets the stop back the day
+ * its table gains an entry, with no change here. An unknown carrier keeps the
+ * full journey — a draft has no carrier yet, and hiding a stop on a guess is
+ * worse than showing one that may not apply.
+ */
+function journeyFor(carrierId: string | null): DeliveryStatusName[] {
+	const table = carrierId === null ? null : CARRIER_STATUS_MAPS[carrierId];
+	if (!table) return JOURNEY;
+	const reported = new Set(Object.values(table));
+	return JOURNEY.filter(
+		(step) => step === "BOOKED" || step === "DELIVERED" || reported.has(step),
+	);
+}
+
 export function journeySteps(
 	status: DeliveryStatusName,
 	events: DeliveryEventRow[],
+	carrierId: string | null = null,
 ): JourneyStep[] {
-	const reached = JOURNEY.indexOf(status);
-	return JOURNEY.map((step, i) => {
+	const journey = journeyFor(carrierId);
+	const reached = journey.indexOf(status);
+	return journey.map((step, i) => {
 		// Events arrive newest first, so the first match is the latest time the
 		// job entered this state — the one worth showing after a re-book.
 		const at = events.find((event) => event.status === step)?.at ?? null;
