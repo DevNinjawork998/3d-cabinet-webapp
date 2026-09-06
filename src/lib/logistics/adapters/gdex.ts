@@ -672,6 +672,85 @@ export async function walletBalance(): Promise<number | null> {
 	}
 }
 
+/**
+ * One consignment's collection, as GDEX has it on their board.
+ *
+ * This is the answer to "did the booking actually reach GDEX", which nothing
+ * else in the app can give: our own success only proves we sent a request.
+ *
+ * `GetPickUpReference` takes **`ConsignmentNo`** — not `ConsignmentNumber`,
+ * which every other operation in this file takes and which this one answers
+ * with "Consignment Number Not Found", blaming the consignment for a
+ * misspelled query string. Verified against the sandbox 2026-09-06; do not
+ * "correct" it to match its siblings.
+ *
+ * A refusal is information, not a failure: a cancelled consignment answers
+ * "Pickup Is Already Cancelled", which is a true and useful thing to show. So
+ * the carrier's own sentence comes back rather than an exception, and the
+ * caller renders it.
+ */
+export type PickupConfirmation = {
+	/** GDEX's pickup number — what staff quote to their support. */
+	reference: string | null;
+	status: string | null;
+	/** The day GDEX will collect, `YYYY-MM-DD`. */
+	collectingOn: string | null;
+	message: string;
+};
+
+const pickupSchema = envelope(
+	z
+		.object({
+			PickupNo: z.string().nullish(),
+			Status: z.string().nullish(),
+			PickupTime: z.string().nullish(),
+		})
+		.nullish(),
+);
+
+export async function pickupConfirmation(
+	carrierOrderId: string,
+): Promise<PickupConfirmation> {
+	const none = (message: string): PickupConfirmation => ({
+		reference: null,
+		status: null,
+		collectingOn: null,
+		message,
+	});
+
+	let payload: unknown;
+	try {
+		payload = await call(
+			"GET",
+			`/GetPickUpReference?ConsignmentNo=${encodeURIComponent(carrierOrderId)}`,
+			undefined,
+			true,
+		);
+	} catch (error) {
+		// A 400 here carries GDEX's reason — "Pickup Is Already Cancelled" is
+		// the common one and is worth showing verbatim.
+		trace("gdex.pickup", { carrierOrderId, error: String(error) });
+		return none(
+			(error as Error).message.replace(/^gdex responded \d+: /, "") ||
+				"GDEX did not answer about this collection",
+		);
+	}
+
+	const reply = readReply(pickupSchema, payload, "pickup reference");
+	const row = reply.data;
+	if (!row || !row.PickupNo) {
+		return none("GDEX has no collection recorded against this consignment");
+	}
+
+	return {
+		reference: row.PickupNo,
+		status: row.Status ?? null,
+		// Naive local, midnight, exactly as GetPickUpDateListing returns it.
+		collectingOn: row.PickupTime ? row.PickupTime.slice(0, 10) : null,
+		message: `GDEX has this collection on their board as ${row.PickupNo}`,
+	};
+}
+
 export const gdexAdapter: CarrierAdapter = {
 	id: "gdex",
 

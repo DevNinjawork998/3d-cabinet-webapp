@@ -14,6 +14,8 @@ const MESSAGE: Record<string, string> = {
 	carrier_not_configured:
 		"That partner has no credentials on this deployment yet.",
 	carrier_refused: "The partner refused this booking.",
+	no_pickup_board: "Only GDEX schedules a collection we can check.",
+	pickup_check_failed: "Could not reach GDEX to check the collection.",
 	app_url_not_set:
 		"This deployment does not know its own address, so a partner cannot redirect back to it.",
 };

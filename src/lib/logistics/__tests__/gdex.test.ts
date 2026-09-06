@@ -10,6 +10,7 @@ import {
 	GdexNotDeliverable,
 	gdexAdapter,
 	labelPathname,
+	pickupConfirmation,
 	pickupDays,
 	pickupInfo,
 	piecesOf,
@@ -22,6 +23,7 @@ import {
 	type DeliveryItem,
 	type DeliveryJob,
 } from "../types";
+import { pickupCancelledRefusal, pickupReferenceReply } from "./fixtures/gdex";
 
 const carton: DeliveryItem = {
 	label: "Handle set",
@@ -801,5 +803,48 @@ describe("gdexAdapter.quote wallet warning", () => {
 		const quote = await gdexAdapter.quote(job());
 		expect(quote.priceRm).toBe(12.4);
 		expect(quote.warning).toBeUndefined();
+	});
+});
+
+describe("pickupConfirmation", () => {
+	beforeEach(() => {
+		vi.stubEnv("GDEX_USER_TOKEN", "utok_test_abc");
+		vi.stubEnv("GDEX_PRIMARY_API_KEY", "sub_test_xyz");
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	it("reports the collection GDEX has on its board", async () => {
+		const fetchMock = stubResponses(pickupReferenceReply);
+		const confirmed = await pickupConfirmation("TCN170001588");
+
+		expect(confirmed.reference).toBe("CPAA166526");
+		expect(confirmed.status).toBe("Pending");
+		expect(confirmed.collectingOn).toBe("2026-09-08");
+		// ConsignmentNo, not ConsignmentNumber. The sibling operations take the
+		// long name and this one answers "Consignment Number Not Found" to it.
+		expect(String(fetchMock.mock.calls[0][0])).toContain(
+			"ConsignmentNo=TCN170001588",
+		);
+	});
+
+	it("shows GDEX's own words when there is no collection any more", async () => {
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(JSON.stringify(pickupCancelledRefusal), {
+					status: 400,
+					headers: { "content-type": "application/json" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		// A refusal is information here, not an error: cancelling a consignment
+		// cancels its collection, and saying so is the useful answer.
+		const confirmed = await pickupConfirmation("TCN170001588");
+		expect(confirmed.reference).toBeNull();
+		expect(confirmed.message).toMatch(/Already Cancelled/i);
 	});
 });

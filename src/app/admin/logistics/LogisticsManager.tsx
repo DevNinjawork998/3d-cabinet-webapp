@@ -644,6 +644,14 @@ function DeliveryDetail({
 	const [busy, setBusy] = useState<string | null>(null);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	// Null until asked. A collection takes a moment to reach GDEX's board, so
+	// "not checked yet" and "not there" must not look the same.
+	const [pickup, setPickup] = useState<{
+		reference: string | null;
+		status: string | null;
+		collectingOn: string | null;
+		message: string;
+	} | null>(null);
 	const [bookedBy, setBookedBy] = useState("");
 
 	// Read after mount, not in the initial state: `localStorage` does not exist
@@ -735,6 +743,22 @@ function DeliveryDetail({
 		setQuotes(null);
 		await read();
 		await onChanged();
+	}
+
+	/** Ask GDEX what it has scheduled, rather than trusting our own success. */
+	async function checkPickup() {
+		setBusy("pickup");
+		onError(null);
+		const res = await fetch(`/api/admin/deliveries/${id}/pickup`, {
+			method: "POST",
+		});
+		setBusy(null);
+		const body = await res.json().catch(() => null);
+		if (!res.ok) {
+			onError(messageFor(body?.error, "Could not check the collection"));
+			return;
+		}
+		setPickup(body.pickup);
 	}
 
 	async function refreshFromCarrier() {
@@ -1149,6 +1173,31 @@ function DeliveryDetail({
 								onClick={copyLink}
 							>
 								{copied ? "Copied" : "Copy"}
+							</button>
+						</div>
+					)}
+
+					{delivery.carrierId === "gdex" && (
+						<div className="flex items-center gap-2.5 rounded-[9px] border border-[#cddcd3] bg-[#f2f7f4] px-3 py-2.5">
+							<span className="flex-1 text-[12px] text-[#1a4a33]">
+								{pickup === null
+									? "GDEX schedules the collection on their own board. Check that it landed."
+									: pickup.message}
+								{pickup?.collectingOn
+									? ` · collecting ${pickup.collectingOn}`
+									: ""}
+							</span>
+							<button
+								type="button"
+								className="shrink-0 font-semibold text-[12px] text-[#1f5138]"
+								onClick={checkPickup}
+								disabled={busy !== null}
+							>
+								{busy === "pickup"
+									? "Checking…"
+									: pickup === null
+										? "Check collection"
+										: "Check again"}
 							</button>
 						</div>
 					)}
