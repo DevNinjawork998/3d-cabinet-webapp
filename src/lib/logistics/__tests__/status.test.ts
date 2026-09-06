@@ -26,7 +26,8 @@ describe("mapCarrierStatus", () => {
 	});
 
 	it("returns null for a carrier with no table yet", () => {
-		expect(mapCarrierStatus("gdex", "COMPLETED")).toBeNull();
+		// citylink is the remaining empty table; gdex gained one with its adapter.
+		expect(mapCarrierStatus("citylink", "COMPLETED")).toBeNull();
 	});
 
 	it("returns null for a carrier that does not exist", () => {
@@ -94,5 +95,30 @@ describe("easyparcel status codes", () => {
 		// 8 is "On Hold" — a real state, and not a step along the route.
 		expect(mapCarrierStatus("easyparcel", "8")).toBeNull();
 		expect(mapCarrierStatus("easyparcel", "99")).toBeNull();
+	});
+});
+
+describe("gdex statuses", () => {
+	it("maps a freshly created consignment to booked", () => {
+		expect(mapCarrierStatus("gdex", "Pending")).toBe("BOOKED");
+	});
+
+	it("normalises spacing and case the way every other carrier's table is", () => {
+		expect(mapCarrierStatus("gdex", "IN TRANSIT")).toBe("IN_TRANSIT");
+		expect(mapCarrierStatus("gdex", "in-transit")).toBe("IN_TRANSIT");
+	});
+
+	it("maps collection and delivery", () => {
+		expect(mapCarrierStatus("gdex", "Picked Up")).toBe("PICKED_UP");
+		expect(mapCarrierStatus("gdex", "Delivered")).toBe("DELIVERED");
+	});
+
+	it("maps the two ways a parcel ends badly", () => {
+		expect(mapCarrierStatus("gdex", "Cancelled")).toBe("CANCELLED");
+		expect(mapCarrierStatus("gdex", "Returned")).toBe("FAILED");
+	});
+
+	it("returns null for a word we have not seen, rather than inventing a move", () => {
+		expect(mapCarrierStatus("gdex", "Bagged")).toBeNull();
 	});
 });

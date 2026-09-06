@@ -23,9 +23,9 @@ export function normaliseStatusKey(raw: string): string {
 /**
  * Per-carrier translation tables, keyed by normalised status.
  *
- * Only `manual` is filled in. The four real partners stay empty until their API
- * documentation arrives — a guessed table would map a status nobody sends and
- * silently fail to map the ones they do.
+ * `manual`, `lalamove` and `easyparcel` are filled in; `gdex` and `citylink`
+ * stay empty until their API documentation arrives — a guessed table would
+ * map a status nobody sends and silently fail to map the ones they do.
  *
  * ponytail: empty tables until the carrier docs land; add each partner's real
  * statuses with its adapter, in the same commit.
@@ -62,7 +62,34 @@ export const CARRIER_STATUS_MAPS: Record<
 		rejected: "FAILED",
 		expired: "FAILED",
 	},
-	gdex: {},
+	/**
+	 * GDEX's consignment-note statuses.
+	 *
+	 * `Pending` is a note that exists and has not been collected — our `BOOKED`,
+	 * not our `DRAFT`, because the money has already left the e-Wallet.
+	 *
+	 * There is no driver-assigned state: a parcel network does not tell us which
+	 * courier has the job, so a GDEX delivery never reaches `DRIVER_ASSIGNED`,
+	 * and the journey tracker showing that stop as skipped is the truth rather
+	 * than a hole in this table.
+	 *
+	 * `Returned` is a `FAILED`: the parcel came back and somebody has to phone
+	 * the customer. It is not a `CANCELLED`, which is a decision we made.
+	 *
+	 * Extend this from `scripts/gdex-ping.mjs` output rather than from guesses —
+	 * an unmapped word returns null and leaves the row alone, which is safe.
+	 */
+	gdex: {
+		pending: "BOOKED",
+		picked_up: "PICKED_UP",
+		collected: "PICKED_UP",
+		in_transit: "IN_TRANSIT",
+		out_for_delivery: "IN_TRANSIT",
+		delivered: "DELIVERED",
+		cancelled: "CANCELLED",
+		canceled: "CANCELLED",
+		returned: "FAILED",
+	},
 	citylink: {},
 	/**
 	 * EasyParcel's shipment status *codes*, as strings.
