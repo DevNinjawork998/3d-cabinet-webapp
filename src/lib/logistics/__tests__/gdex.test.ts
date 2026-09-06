@@ -166,10 +166,12 @@ describe("pickupInfo", () => {
 			Transportation: "Motorbike",
 			// 08:00 UTC is 16:00 in Malaysia, and Malaysia is where the driver is.
 			ParcelReadyTime: "16:00:00",
-			// Naive local, no `Z`: the instant is 08:00Z, so a trailing `Z` here
-			// would be a lie, and sending 08:00Z to a timezone-naive reader books
-			// a collection eight hours early.
-			PickupDate: "2026-09-10T16:00:00",
+			// Midnight, and naive local. GetPickUpDateListing returns the days
+			// GDEX will collect as "2026-09-10T00:00:00" and CreateConsignment
+			// matches PickupDate against that list — sending 16:00:00 here is
+			// refused as "Pick Up Day Unavailable" on a day it is offering.
+			// Verified against the sandbox 2026-09-06.
+			PickupDate: "2026-09-10T00:00:00",
 			PickupRemark: "Guard house, ask for block C",
 			IsTrolleyRequired: false,
 		});

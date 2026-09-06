@@ -246,12 +246,16 @@ export function pickupInfo(job: DeliveryJob): PickupInfo {
 		// `Asia/Kuala_Lumpur` — a driver reads a clock on a wall in Dengkil, not
 		// a UTC offset, and a job scheduled 08:00 UTC is a 16:00 collection.
 		ParcelReadyTime: time,
-		// Deliberately not `toISOString()`. Sending the true instant would have a
-		// timezone-naive reader collect eight hours early; stamping local time
-		// with a `Z` would assert a moment that is false. A naive local date-time
-		// is the one of the three that claims nothing untrue — see the open
-		// question, which is for GDEX to settle.
-		PickupDate: `${date}T${time}`,
+		// Midnight, not the ready time. `GetPickUpDateListing` returns the days it
+		// will collect as `2026-09-08T00:00:00` — naive local, no `Z`, and always
+		// at midnight — and `CreateConsignment` matches `PickupDate` against that
+		// list. Sending the collection *time* here refuses a day GDEX is offering,
+		// with "Pick Up Day Unavailable", which reads as a closed depot rather
+		// than a malformed field. The time of day is `ParcelReadyTime`'s job.
+		//
+		// The format also settles the open question this once carried: GDEX's own
+		// replies are naive Malaysian local, so that is what it is sent.
+		PickupDate: `${date}T00:00:00`,
 		...(job.addressNotes ? { PickupRemark: job.addressNotes } : {}),
 		// Nothing in this app knows whether a trolley is wanted, and a wrong
 		// `true` sends a trolley to a job that is two door handles.
