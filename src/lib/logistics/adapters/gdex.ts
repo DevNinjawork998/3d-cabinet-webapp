@@ -544,6 +544,40 @@ function readReply<T>(schema: z.ZodType<T>, payload: unknown, what: string): T {
  * GET, it changes when someone edits the account, and a stale `LocationId` is a
  * parcel collected from an address the workshop moved out of.
  */
+const pickupDaysSchema = envelope(z.array(z.string()));
+
+/**
+ * The days GDEX will actually collect on, soonest first, as `YYYY-MM-DD`.
+ *
+ * Authoritative where `MAX_PICKUP_DAYS` only guesses: this list already
+ * excludes weekends and public holidays, which "five days" does not. The local
+ * check stays as the cheap guard that needs no round trip — this is what the
+ * admin gets offered.
+ *
+ * The dates arrive as `2026-09-08T00:00:00`: naive Malaysian local, always
+ * midnight. Sliced rather than parsed, because `Date.parse` reads that string
+ * as UTC and hands back the previous day for everyone east of Greenwich, which
+ * is everyone this app serves.
+ *
+ * The postcode is the GDEX account's own, not the job's — this asks where a
+ * driver would be collecting FROM. Without it the endpoint answers 400
+ * "Please Provide PostCode".
+ */
+export async function pickupDays(): Promise<string[]> {
+	const sender = await senderDetails();
+	const reply = readReply(
+		pickupDaysSchema,
+		await call(
+			"GET",
+			`/GetPickUpDateListing?PostCode=${encodeURIComponent(sender.PostalCode)}`,
+			undefined,
+			true,
+		),
+		"pickup day listing",
+	);
+	return reply.data.map((day) => day.slice(0, 10)).sort();
+}
+
 async function senderDetails(): Promise<GdexUserDetails> {
 	const reply = readReply(
 		userDetailsSchema,

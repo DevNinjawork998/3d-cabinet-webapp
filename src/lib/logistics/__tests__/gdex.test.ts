@@ -10,6 +10,7 @@ import {
 	GdexNotDeliverable,
 	gdexAdapter,
 	labelPathname,
+	pickupDays,
 	pickupInfo,
 	piecesOf,
 	rateBody,
@@ -697,5 +698,58 @@ describe("the pickup window", () => {
 		const far = job({ scheduledAt: new Date("2026-09-30T02:00:00.000Z") });
 		expect(() => rateBody(far, "46050")).toThrow(/5 days/);
 		expect(() => pickupInfo(far)).toThrow(/5 days/);
+	});
+});
+
+describe("pickupDays", () => {
+	beforeEach(() => {
+		vi.stubEnv("GDEX_USER_TOKEN", "utok_test_abc");
+		vi.stubEnv("GDEX_PRIMARY_API_KEY", "sub_test_xyz");
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	it("returns the days GDEX offers, as plain dates", async () => {
+		// Verbatim from the sandbox, 2026-09-06: naive local, always midnight.
+		stubResponses(userDetailsResponse, {
+			statusCode: 200,
+			data: [
+				"2026-09-07T00:00:00",
+				"2026-09-08T00:00:00",
+				"2026-09-09T00:00:00",
+			],
+			message: null,
+		});
+		expect(await pickupDays()).toEqual([
+			"2026-09-07",
+			"2026-09-08",
+			"2026-09-09",
+		]);
+	});
+
+	it("asks against the sender's own postcode, which the endpoint requires", async () => {
+		const fetchMock = stubResponses(userDetailsResponse, {
+			statusCode: 200,
+			data: [],
+			message: null,
+		});
+		await pickupDays();
+		// Without it: 400 "Please Provide PostCode".
+		expect(String(fetchMock.mock.calls[1][0])).toContain("PostCode=46050");
+	});
+
+	it("slices the date rather than parsing it", async () => {
+		// `new Date("2026-09-08T00:00:00")` is read as UTC by Date.parse, which
+		// moves the day backwards for everyone east of Greenwich — Malaysia
+		// included. The string already carries the day GDEX means.
+		stubResponses(userDetailsResponse, {
+			statusCode: 200,
+			data: ["2026-09-08T00:00:00"],
+			message: null,
+		});
+		expect(await pickupDays()).toEqual(["2026-09-08"]);
 	});
 });
