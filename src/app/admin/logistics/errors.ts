@@ -13,6 +13,7 @@ const MESSAGE: Record<string, string> = {
 		"Something in the form is not right — check the phone number and the item sizes.",
 	carrier_not_configured:
 		"That partner has no credentials on this deployment yet.",
+	carrier_refused: "The partner refused this booking.",
 };
 
 export function messageFor(code: unknown, fallback: string): string {

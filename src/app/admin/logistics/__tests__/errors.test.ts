@@ -29,4 +29,10 @@ describe("messageFor", () => {
 			"Could not save this delivery",
 		);
 	});
+
+	it("passes a refused booking through with the carrier's own words", () => {
+		expect(messageFor("carrier_refused", "Booking failed")).toBe(
+			"The partner refused this booking.",
+		);
+	});
 });

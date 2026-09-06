@@ -82,16 +82,26 @@ export function LogisticsManager({
 	initial,
 	workshopAddress,
 	geocodingConfigured,
+	easyparcel,
 }: {
 	initial: DeliveryRow[];
 	workshopAddress: string;
 	geocodingConfigured: boolean;
+	easyparcel: { appConfigured: boolean; connected: boolean };
 }) {
 	const router = useRouter();
 	const [rows, setRows] = useState<DeliveryRow[]>(initial);
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [form, setForm] = useState<FormState | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// Read after mount, not during render: the OAuth callback's redirect is the
+	// only source of this, and `location.search` doesn't exist on the server.
+	const [easyparcelResult, setEasyparcelResult] = useState<string | null>(null);
+	useEffect(() => {
+		setEasyparcelResult(
+			new URLSearchParams(window.location.search).get("easyparcel"),
+		);
+	}, []);
 
 	const load = useCallback(async () => {
 		const res = await fetch("/api/admin/deliveries");
@@ -164,6 +174,36 @@ export function LogisticsManager({
 					Addresses are not looked up here, so every job needs a pin pasted into
 					the Site pin field. Vehicle partners price by coordinate and cannot
 					quote without one.
+				</p>
+			)}
+
+			{!easyparcel.appConfigured && (
+				<p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+					EasyParcel is not set up on this deployment.
+				</p>
+			)}
+
+			{easyparcel.appConfigured && !easyparcel.connected && (
+				<p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+					EasyParcel is not connected — parcel jobs cannot be quoted.{" "}
+					<a
+						href="/api/admin/logistics/easyparcel/connect"
+						className="font-semibold underline"
+					>
+						Connect EasyParcel account
+					</a>
+				</p>
+			)}
+
+			{easyparcelResult === "connected" && (
+				<p className="rounded-lg bg-[#e7f0ea] px-3 py-2 text-[13px] text-[#1f5138]">
+					EasyParcel account connected.
+				</p>
+			)}
+
+			{easyparcelResult === "failed" && (
+				<p className="rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-700">
+					Connecting the EasyParcel account failed — try again.
 				</p>
 			)}
 
@@ -686,7 +726,10 @@ function DeliveryDetail({
 				);
 				return;
 			}
-			onError(messageFor(body?.error, "Booking failed"));
+			// Append rather than replace: an unreadable carrier reply must still
+			// leave our own sentence on screen. Same shape as the cancel path.
+			const said = messageFor(body?.error, "Booking failed");
+			onError(body?.message ? `${said} (${body.message})` : said);
 			return;
 		}
 		setQuotes(null);
@@ -929,6 +972,11 @@ function DeliveryDetail({
 														: `RM ${quote.priceRm}`}
 											</span>
 										</span>
+										{quote.notes && (
+											<span className="pl-[18px] text-[11px] text-[#8a857c]">
+												{quote.notes}
+											</span>
+										)}
 										<span className="flex items-center gap-2 pl-[18px] text-[11px]">
 											{quote.error ? (
 												<span className="text-red-700">{quote.error}</span>
@@ -1098,6 +1146,17 @@ function DeliveryDetail({
 								{copied ? "Copied" : "Copy"}
 							</button>
 						</div>
+					)}
+
+					{delivery.labelUrl && (
+						<a
+							className="text-[12px] font-semibold text-[#1f5138] underline"
+							href={delivery.labelUrl}
+							target="_blank"
+							rel="noreferrer"
+						>
+							Print AWB label
+						</a>
 					)}
 
 					<label className="flex flex-col gap-1 text-[12px] text-neutral-500">

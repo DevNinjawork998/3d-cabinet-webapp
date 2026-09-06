@@ -9,14 +9,22 @@ export const runtime = "nodejs";
 /**
  * Book the pickup. The only call in the app that spends money.
  *
- * Three guards, in order of how much they cost to get wrong:
+ * Four guards, in order of how much they cost to get wrong:
  *
  * 1. Already booked → return what exists. A double-submitted form, a retried
- *    request or an impatient second click must not buy a second lorry. The
- *    unique index on `carrierOrderId` is the backstop; this is the polite path.
- * 2. The booking call is never retried. `carrierFetch` only retries calls the
+ *    request or an impatient second click must not buy a second lorry.
+ * 2. The row is claimed — `carrierOrderId: null` flipped to a `bookedBy` row
+ *    — before the adapter is ever called. `@unique` on `carrierOrderId` only
+ *    stops two *different* deliveries from sharing one order id; it does
+ *    nothing for two concurrent POSTs on the *same* delivery, which both read
+ *    null and would otherwise both reach `submit_orders`, double-spending the
+ *    wallet and leaving one order id orphaned when the second write
+ *    overwrites the first. The `updateMany` below is the actual backstop: it
+ *    only touches a row still `carrierOrderId: null`, so only the first of two
+ *    racing requests can claim it.
+ * 3. The booking call is never retried. `carrierFetch` only retries calls the
  *    adapter marks idempotent, and booking is not one of them.
- * 3. `bookedBy` is required. Admin auth is a single shared password, so the
+ * 4. `bookedBy` is required. Admin auth is a single shared password, so the
  *    name typed on the confirm step plus the event row is the entire record of
  *    who committed the spend.
  */
@@ -42,6 +50,20 @@ export async function POST(
 		);
 	}
 	const { carrierId, bookedBy, quotedPriceRm } = parsed.data;
+
+	// Claim the row before any money moves. If the adapter call below throws,
+	// `bookedBy` stays set but `carrierOrderId` stays null, so a retry still
+	// finds the row claimable and proceeds — this only ever blocks a second
+	// request that arrives while the first is still in flight.
+	const claimed = await prisma.delivery.updateMany({
+		where: { id, carrierOrderId: null },
+		data: { bookedBy },
+	});
+	if (claimed.count === 0) {
+		// Someone else claimed it between our read above and here.
+		const existing = await prisma.delivery.findUnique({ where: { id } });
+		return NextResponse.json({ delivery: existing, alreadyBooked: true });
+	}
 
 	const job = toJob(delivery);
 
@@ -112,8 +134,11 @@ export async function POST(
 				message: `Booking with ${carrierId} failed: ${(error as Error).message}`,
 			},
 		});
+		// A code rather than a sentence, so `messageFor` can translate it — and
+		// the carrier's own words alongside, because "Insufficient Credit" is
+		// something the admin can act on and the generic fallback is not.
 		return NextResponse.json(
-			{ error: `booking failed: ${(error as Error).message}` },
+			{ error: "carrier_refused", message: (error as Error).message },
 			{ status: 502 },
 		);
 	}
