@@ -647,3 +647,55 @@ describe("rateBody's refusal when there is no postcode", () => {
 		);
 	});
 });
+
+describe("the pickup window", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		// 2026-09-06 10:00 in Malaysia. GDEX's own GetPickUpDateListing on this
+		// day offered 09-07 through 09-11 — five days, and not today.
+		vi.setSystemTime(new Date("2026-09-06T02:00:00.000Z"));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("refuses a day past the five GDEX will collect within, before calling out", () => {
+		const fetchMock = stubResponses(userDetailsResponse, rateResponse);
+		// The real failure: booking a job scheduled for the 12th came back
+		// "Pick Up Day Unavailable" — a message that names no window at all.
+		expect(() =>
+			rateBody(
+				job({ scheduledAt: new Date("2026-09-12T02:00:00.000Z") }),
+				"46050",
+			),
+		).toThrow(/5 days/);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses a day already gone", () => {
+		expect(() =>
+			rateBody(
+				job({ scheduledAt: new Date("2026-09-05T02:00:00.000Z") }),
+				"46050",
+			),
+		).toThrow(/past/i);
+	});
+
+	it("allows the last day inside the window", () => {
+		expect(
+			rateBody(
+				job({ scheduledAt: new Date("2026-09-11T02:00:00.000Z") }),
+				"46050",
+			),
+		).toHaveLength(1);
+	});
+
+	it("quotes and books off the same window, so a price is never unbookable", () => {
+		// pickupInfo used to be the only caller, which meant quote() succeeded on
+		// a job book() would refuse — the admin picks a partner, then cannot use it.
+		const far = job({ scheduledAt: new Date("2026-09-30T02:00:00.000Z") });
+		expect(() => rateBody(far, "46050")).toThrow(/5 days/);
+		expect(() => pickupInfo(far)).toThrow(/5 days/);
+	});
+});

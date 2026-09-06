@@ -177,6 +177,10 @@ export function rateBody(
 	job: DeliveryJob,
 	fromPostcode: string,
 ): RateRequest[] {
+	// Validated here too, so a price is never offered for a day GDEX will not
+	// collect on. The return is unused — this is called for its refusal.
+	pickupDay(job);
+
 	return [
 		{
 			ReferenceNumber: job.number,
@@ -213,6 +217,57 @@ export function kualaLumpur(at: Date): { date: string; time: string } {
 	};
 }
 
+/**
+ * The day GDEX will collect on, as `YYYY-MM-DD` in Malaysian local time.
+ *
+ * `GetPickUpDateListing?PostCode=` is the authoritative list and it is short:
+ * asked on 2026-09-06 it returned the 7th to the 11th. Five days, and not
+ * today. Rather than spend a round trip per quote, the documented cap is
+ * enforced here — the common mistake is a job scheduled weeks out, and a
+ * refusal is cheaper than a booking that fails.
+ *
+ * Called from `rateBody` as well as `pickupInfo`. When only the booking path
+ * checked, a job outside the window quoted a price nobody could act on: the
+ * admin picked GDEX, pressed book, and got "Pick Up Day Unavailable" — a
+ * sentence naming neither the window nor the fix.
+ *
+ * ponytail: the documented five-day cap, not the live listing. A weekend or
+ * public holiday inside the window still refuses at GDEX, and their message is
+ * what surfaces. Call GetPickUpDateListing here if that starts costing time.
+ */
+export function pickupDay(job: DeliveryJob): string {
+	const at = job.scheduledAt;
+	if (at === null) {
+		throw new GdexNotDeliverable(
+			"This job has no scheduled date — GDEX needs a day to send a driver, so set Scheduled and compare again",
+		);
+	}
+
+	// Compared as calendar days in Malaysia, not as elapsed hours: "five days
+	// ahead" is a date on a wall calendar, and an instant subtraction would make
+	// the answer depend on the time of day the admin happens to be working.
+	const day = kualaLumpur(at).date;
+	const today = kualaLumpur(new Date()).date;
+	const ahead = Math.round(
+		(Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) /
+			86_400_000,
+	);
+
+	if (ahead < 0) {
+		trace("gdex.refused", { why: "pickup in the past", day, today });
+		throw new GdexNotDeliverable(
+			`This job is scheduled for ${day}, which is past — GDEX cannot collect on a day that has gone, so pick a new date`,
+		);
+	}
+	if (ahead > MAX_PICKUP_DAYS) {
+		trace("gdex.refused", { why: "pickup too far out", day, today, ahead });
+		throw new GdexNotDeliverable(
+			`GDEX collects within ${MAX_PICKUP_DAYS} days and this job is scheduled for ${day}, ${ahead} days out — bring the date forward or send it by lorry`,
+		);
+	}
+	return day;
+}
+
 export type PickupInfo = {
 	Transportation: string;
 	ParcelReadyTime: string;
@@ -231,13 +286,8 @@ export type PickupInfo = {
  * gate actually needs.
  */
 export function pickupInfo(job: DeliveryJob): PickupInfo {
-	const at = job.scheduledAt;
-	if (at === null) {
-		throw new GdexNotDeliverable(
-			"This job has no scheduled date — GDEX needs a day to send a driver, so set Scheduled and compare again",
-		);
-	}
-	const { date, time } = kualaLumpur(at);
+	const date = pickupDay(job);
+	const { time } = kualaLumpur(job.scheduledAt as Date);
 	return {
 		Transportation: transportationFor(job),
 		// GDEX takes the moment twice: the day to collect, and the wall-clock
