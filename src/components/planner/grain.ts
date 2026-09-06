@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import {
 	NoColorSpace,
 	RepeatWrapping,
@@ -6,24 +6,27 @@ import {
 	type Texture,
 	TextureLoader,
 } from "three";
+import { PHOTO_SHEET_MM } from "@/lib/planner/finishTextures";
 
 /**
- * The one grain texture, shared by every surface in the scene.
+ * The one grain texture, shared by every surface in the scene — as *sheen*,
+ * never as figure.
  *
- * CLAUDE.md's rule, finally implemented: *one* greyscale tile tinted per finish
- * by the material colour, never a PBR set per finish. `public/grain.png` is
- * 22-53KB and every door, carcass, shelf and worktop is that same file — so a
- * catalogue of twenty finishes still costs one request.
+ * `public/grain.png` is 53KB and every door, carcass, shelf and worktop is that
+ * same file, so a catalogue of twenty finishes still costs one request.
  *
- * It is applied twice on each material: as `map`, where it multiplies the
- * finish colour, and as `roughnessMap`, where it varies the sheen. Both read
- * the same image, so the second costs nothing on the wire and very little on
- * the GPU — clones share a `Texture.source`, which is one upload.
+ * **It is a roughness map and nothing else.** It used to double as `map`,
+ * multiplying the finish colour, which drew woodgrain onto every finish in the
+ * catalogue — including the three that are paint (`dulux-tapestry-beige`,
+ * `color-soft-gray`, `color-knoxville-green`, whose ids say so). A generated
+ * grain pattern is not a material Infinite Cabinet sells: the admin decides
+ * what is on offer, and a customer must never be shown a board that does not
+ * exist. So figure now comes only from a real supplier scan, in
+ * `useFrontSurface`, and this tile only ever varies how the light catches.
  *
- * Grain direction carries most of the realism, which is why this takes an
- * orientation rather than handing out one texture: a door is veneered with the
- * grain running up it and a drawer front with the grain running across, and
- * getting that backwards looks wrong even to someone who could not say why.
+ * Grain direction still matters for the sheen: a door is veneered with the
+ * grain running up it and a drawer front with it running across, and getting
+ * that backwards looks wrong even to someone who could not say why.
  */
 
 /**
@@ -57,10 +60,36 @@ function grainSource(): Texture {
  */
 const photos = new Map<string, Texture>();
 
+/**
+ * Each loaded scan's height ÷ width.
+ *
+ * Kept beside the texture cache and published through `useSyncExternalStore`,
+ * because the ratio is not known until the image lands: a door sized before
+ * then uses the 1:1 placeholder, and has to re-size once the truth arrives.
+ * React has a primitive for external mutable state several components read, so
+ * this is that rather than an effect per door.
+ */
+const aspects = new Map<string, number>();
+const aspectListeners = new Set<() => void>();
+
+function subscribeAspects(listener: () => void) {
+	aspectListeners.add(listener);
+	return () => {
+		aspectListeners.delete(listener);
+	};
+}
+
 function photoSource(url: string): Texture {
 	let texture = photos.get(url);
 	if (!texture) {
-		texture = new TextureLoader().load(url);
+		texture = new TextureLoader().load(url, (loaded) => {
+			const image = loaded.image as
+				| { width?: number; height?: number }
+				| undefined;
+			if (!image?.width || !image?.height) return;
+			aspects.set(url, image.height / image.width);
+			for (const listener of aspectListeners) listener();
+		});
 		texture.wrapS = RepeatWrapping;
 		texture.wrapT = RepeatWrapping;
 		photos.set(url, texture);
@@ -69,35 +98,62 @@ function photoSource(url: string): Texture {
 }
 
 /**
- * How much wall one decor scan covers.
+ * How wide a stretch of board one decor scan covers.
  *
  * A supplier scan is a photograph of a real sheet, not a seamless tile: repeat
  * it and the join shows as a hard line straight across the door. So the sheet
  * is treated as its true size — a laminate sheet runs 1220mm wide — and every
  * door is cut *out of* it rather than papered with copies of it. A 900mm door
  * shows about three quarters of the scan and never reaches an edge.
+ *
+ * **Width only.** The height follows the image's own aspect ratio, because a
+ * scan is a photograph and its pixels are square. Max World's swatch for
+ * MW 13526 NW (Alorra Palermo Walnut) is 369 × 800, so measuring the vertical
+ * against this same constant would show 2.17× too much board down the door and
+ * squash the figure by that factor — a stretched photograph, which is the exact
+ * artefact a real scan is here to avoid.
+ *
+ * ponytail: one width for every supplier. Make it a per-finish field if a
+ * second supplier's scans ever land at a visibly different scale.
  */
-const PHOTO_SHEET_M = 1.22;
+const PHOTO_SHEET_M = PHOTO_SHEET_MM / 1000;
 
 export type GrainDirection = "vertical" | "horizontal";
 
 /**
- * How much of the tile a surface wears.
+ * How much of the scan one front wears, as texture repeats.
  *
- * `figure` puts it on the colour as well as the sheen — a veneered front, where
- * the grain is the point. `sheen` uses it only as a roughness map, so the
- * surface catches light unevenly but keeps its flat colour: melamine carcass
- * board and a honed worktop both look wrong with visible figure, and reading
- * as timber is exactly the failure there.
+ * `u` runs across the image — the sheet's width; `v` runs down it — that width
+ * times the image's aspect. A horizontal grain is the same photograph turned a
+ * quarter turn, so the door's two dimensions swap which axis of the sheet they
+ * are measured against.
+ *
+ * Never above 1: a repeat of 1.5 would show the seam, and a door wider than the
+ * sheet is not a door the client can make from one piece anyway.
  */
-export type GrainStrength = "figure" | "sheen";
+export function photoRepeat(
+	direction: GrainDirection,
+	width: number,
+	height: number,
+	/** Image height ÷ width. 1 until the photo has loaded. */
+	aspect: number,
+): { u: number; v: number } {
+	const sheetV = PHOTO_SHEET_M * Math.max(aspect, 0.01);
+	const across = Math.max(width, 0.01);
+	const along = Math.max(height, 0.01);
+	const [u, v] =
+		direction === "horizontal"
+			? [along / PHOTO_SHEET_M, across / sheetV]
+			: [across / PHOTO_SHEET_M, along / sheetV];
+	return { u: Math.min(u, 1), v: Math.min(v, 1) };
+}
 
 /**
- * Material props to spread onto a `meshStandardMaterial`. The `color` the
- * material already sets keeps doing the tinting — this only adds the figure.
+ * Material props to spread onto a `meshStandardMaterial`: the sheen variation,
+ * and nothing that touches colour.
  *
  * `width` and `height` are the surface's own size in metres, the unit the rest
- * of the scene works in, so the grain stays the same physical scale whether it
+ * of the scene works in, so the sheen stays the same physical scale whether it
  * is on a 400 drawer front or a 900 door. Tiling to the mesh instead would
  * stretch it, which is the exact artefact CLAUDE.md rejects baked meshes for.
  */
@@ -105,7 +161,6 @@ export function useGrain(
 	direction: GrainDirection,
 	width: number,
 	height: number,
-	strength: GrainStrength = "figure",
 ) {
 	return useMemo(() => {
 		const across = Math.max(width, 0.01) / TILE_M;
@@ -117,21 +172,17 @@ export function useGrain(
 		const repeat: [number, number] =
 			direction === "horizontal" ? [along, across] : [across, along];
 
-		const map = grainSource().clone();
-		map.colorSpace = SRGBColorSpace;
-		map.rotation = rotation;
-		map.center.set(0.5, 0.5);
-		map.repeat.set(repeat[0], repeat[1]);
-		map.needsUpdate = true;
-
-		// Roughness is data, not colour, so it must stay linear — tagging it sRGB
+		// Roughness is data, not colour, so it stays linear — tagging it sRGB
 		// would push every surface toward the same sheen.
-		const roughnessMap = map.clone();
+		const roughnessMap = grainSource().clone();
 		roughnessMap.colorSpace = NoColorSpace;
+		roughnessMap.rotation = rotation;
+		roughnessMap.center.set(0.5, 0.5);
+		roughnessMap.repeat.set(repeat[0], repeat[1]);
 		roughnessMap.needsUpdate = true;
 
-		return strength === "figure" ? { map, roughnessMap } : { roughnessMap };
-	}, [direction, width, height, strength]);
+		return { roughnessMap };
+	}, [direction, width, height]);
 }
 
 /**
@@ -143,8 +194,11 @@ export function useGrain(
  * tinting it a second time. The procedural grain stays on as the roughness map,
  * which is what stops a flat photo reading as a printed sticker.
  *
- * With no photo it falls back to the generated grain tinted by the finish
- * colour, so a catalogue nobody has photographed still looks like something.
+ * With no photo it is the flat finish colour, with the grain tile still
+ * varying the sheen so it does not read as plastic. Deliberately *not* a
+ * tinted grain pattern: an invented woodgrain is a material the client cannot
+ * sell, and the swatch strip, the planner's picker and the door all show the
+ * same flat colour for it so nobody is promised a board that does not exist.
  */
 export function useFrontSurface(
 	photoUrl: string | null,
@@ -158,6 +212,12 @@ export function useFrontSurface(
 	offset = 0,
 ) {
 	const figure = useGrain(direction, width, height);
+	// 1 until the image lands, then its real ratio — see `aspects`.
+	const aspect = useSyncExternalStore(
+		subscribeAspects,
+		() => (photoUrl ? (aspects.get(photoUrl) ?? 1) : 1),
+		() => 1,
+	);
 
 	return useMemo(() => {
 		if (!photoUrl) return { color: finishHex, ...figure };
@@ -167,24 +227,15 @@ export function useFrontSurface(
 		map.center.set(0.5, 0.5);
 		map.rotation = direction === "horizontal" ? Math.PI / 2 : 0;
 
-		// Never above 1: a repeat of 1.5 would show the seam. A door wider than
-		// the sheet is not a door the client can make from one piece anyway.
-		const across = Math.min(Math.max(width, 0.01) / PHOTO_SHEET_M, 1);
-		const along = Math.min(Math.max(height, 0.01) / PHOTO_SHEET_M, 1);
-		map.repeat.set(
-			direction === "horizontal" ? along : across,
-			direction === "horizontal" ? across : along,
-		);
+		const { u, v } = photoRepeat(direction, width, height, aspect);
+		map.repeat.set(u, v);
 
 		// Each door takes its piece from a different part of the sheet, the way
 		// a run really is cut. Without this every door in a row is the same
 		// photograph and the repetition is the first thing the eye finds.
-		map.offset.set(
-			offset % (1 - across || 1),
-			(offset * 0.618) % (1 - along || 1),
-		);
+		map.offset.set(offset % (1 - u || 1), (offset * 0.618) % (1 - v || 1));
 		map.needsUpdate = true;
 
 		return { color: "#ffffff", map, roughnessMap: figure.roughnessMap };
-	}, [photoUrl, direction, width, height, offset, finishHex, figure]);
+	}, [photoUrl, direction, width, height, offset, finishHex, figure, aspect]);
 }

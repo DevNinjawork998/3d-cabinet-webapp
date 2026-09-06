@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { chipClass, fieldClass } from "@/components/admin/styles";
-import { LABEL } from "@/lib/logistics/carriers";
+import { CARRIERS, KIND, LABEL } from "@/lib/logistics/carriers";
 import {
 	COORDS_HINT,
 	type PinState,
@@ -15,7 +15,12 @@ import {
 	totalVolumeM3,
 	totalWeightKg,
 } from "@/lib/logistics/measure";
-import type { DeliveryStatusName } from "@/lib/logistics/types";
+import {
+	canGoByParcel,
+	parcelCandidates,
+	splitItems,
+} from "@/lib/logistics/split";
+import type { DeliveryItem, DeliveryStatusName } from "@/lib/logistics/types";
 import { messageFor } from "./errors";
 import {
 	blankForm,
@@ -32,6 +37,7 @@ import {
 } from "./form";
 import {
 	defaultChoice,
+	etaLabel,
 	JOURNEY,
 	journeySteps,
 	quoteTags,
@@ -99,6 +105,11 @@ export function LogisticsManager({
 	const [openId, setOpenId] = useState<string | null>(null);
 	const [form, setForm] = useState<FormState | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// What a split just produced. The two halves are ordinary rows in the list
+	// below, so this is only the sentence that says which ones they are — the
+	// job that was open a moment ago is gone, and without it the list looks
+	// like something was deleted.
+	const [splitNotice, setSplitNotice] = useState<string | null>(null);
 	// Read after mount, not during render: the OAuth callback's redirect is the
 	// only source of this, and `location.search` doesn't exist on the server.
 	const [easyparcelResult, setEasyparcelResult] = useState<string | null>(null);
@@ -124,6 +135,7 @@ export function LogisticsManager({
 
 	async function save(state: FormState) {
 		setError(null);
+		setSplitNotice(null);
 		const res = await fetch(
 			state.id === null
 				? "/api/admin/deliveries"
@@ -154,6 +166,7 @@ export function LogisticsManager({
 	async function remove(row: DeliveryRow) {
 		if (!confirm(`Delete delivery ${row.number} for ${row.customerName}?`))
 			return;
+		setSplitNotice(null);
 		const res = await fetch(`/api/admin/deliveries/${row.id}`, {
 			method: "DELETE",
 		});
@@ -212,6 +225,13 @@ export function LogisticsManager({
 				</p>
 			)}
 
+			{splitNotice && (
+				<p className="rounded-lg bg-[#f2f7f4] px-3 py-2 text-[13px] text-[#1f5138]">
+					{splitNotice} Two ordinary jobs now, each quoted and booked on its
+					own. Neither has reached a carrier.
+				</p>
+			)}
+
 			<div className="flex items-center justify-between">
 				<p className="text-[13px] text-neutral-500">
 					{rows.length} {rows.length === 1 ? "delivery" : "deliveries"}
@@ -257,6 +277,11 @@ export function LogisticsManager({
 										{row.siteAddress}
 									</p>
 								</div>
+								{row.splitFromNumber !== null && (
+									<span className="text-[12px] text-neutral-500">
+										Split from #{row.splitFromNumber}
+									</span>
+								)}
 								<span className="text-[12px] text-neutral-500">
 									{row.carrierId ? LABEL[row.carrierId] : "No partner yet"}
 								</span>
@@ -307,6 +332,14 @@ export function LogisticsManager({
 									id={row.id}
 									onChanged={load}
 									onError={setError}
+									onSplit={(halves) => {
+										setOpenId(null);
+										setSplitNotice(
+											`Split #${row.number} into ${halves
+												.map((half) => `#${half.number}`)
+												.join(" and ")}.`,
+										);
+									}}
 									geocodingConfigured={geocodingConfigured}
 								/>
 							)}
@@ -589,6 +622,39 @@ const shortTime = (iso: string) =>
 		minute: "2-digit",
 	});
 
+/**
+ * What the load is and what it needs, as one line.
+ *
+ * The vehicle class is the half of it an admin acts on: "0.9 m³, 148 kg" is
+ * two numbers, and "1-tonne lorry" is the thing to go and book. Computed from
+ * the items rather than read off the stored totals so the split preview can
+ * say the same sentence about a half that does not exist yet.
+ */
+const loadLine = (items: DeliveryItem[]) => {
+	const weight = totalWeightKg(items);
+	return `${totalVolumeM3(items)} m³${
+		weight === null ? ", weight not given" : `, ${weight} kg`
+	} — ${suggestVehicle(items).label}`;
+};
+
+/** The partners in one class, as a person lists them out loud. */
+const partnersOfKind = (kind: "vehicle" | "parcel") =>
+	CARRIERS.filter((carrier) => carrier.kind === kind)
+		.map((carrier) => carrier.label)
+		.join(", ");
+
+/**
+ * Which partners could quote this half at all — the whole reason a job is
+ * being split, said once per card rather than left for the admin to work out
+ * from a refusal after the fact.
+ */
+const partnerSentence = (items: DeliveryItem[]) => {
+	if (items.length === 0) return "";
+	return canGoByParcel(items)
+		? `Parcel partners can quote this: ${partnersOfKind("parcel")}.`
+		: `Vehicle partners only: ${partnersOfKind("vehicle")}.`;
+};
+
 const Spinner = () => (
 	<span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-[#1f5138]" />
 );
@@ -636,11 +702,13 @@ function DeliveryDetail({
 	id,
 	onChanged,
 	onError,
+	onSplit,
 	geocodingConfigured,
 }: {
 	id: string;
 	onChanged: () => Promise<void>;
 	onError: (message: string | null) => void;
+	onSplit: (halves: DeliveryRow[]) => void;
 	geocodingConfigured: boolean;
 }) {
 	const [delivery, setDelivery] = useState<DeliveryRow | null>(null);
@@ -658,6 +726,11 @@ function DeliveryDetail({
 		message: string;
 	} | null>(null);
 	const [bookedBy, setBookedBy] = useState("");
+	// Which rows would move to the new job, and whether the preview is up.
+	const [ticked, setTicked] = useState<number[]>([]);
+	const [splitting, setSplitting] = useState(false);
+	// The note the carrier gave us, as an element we can ask to print itself.
+	const labelFrame = useRef<HTMLIFrameElement>(null);
 
 	// Read after mount, not in the initial state: `localStorage` does not exist
 	// on the server, and a value read during render would not survive
@@ -782,6 +855,35 @@ function DeliveryDetail({
 		await onChanged();
 	}
 
+	/**
+	 * Cut the job in two and hand the halves back to the list.
+	 *
+	 * The panel is looking at a row the endpoint deletes, so there is nothing
+	 * to re-read afterwards — `onSplit` closes it and names the two jobs that
+	 * replaced it.
+	 */
+	async function commitSplit() {
+		setBusy("split");
+		onError(null);
+		const res = await fetch(`/api/admin/deliveries/${id}/split`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				itemIndexes: ticked,
+				actor: bookedBy.trim() === "" ? "Admin" : bookedBy,
+			}),
+		});
+		setBusy(null);
+		const body = await res.json().catch(() => null);
+		if (!res.ok) {
+			onError(messageFor(body?.error, "Could not split this job"));
+			return;
+		}
+		setSplitting(false);
+		await onChanged();
+		onSplit(body.deliveries as DeliveryRow[]);
+	}
+
 	async function advance(status: DeliveryStatusName) {
 		if (bookedBy.trim() === "") {
 			onError("Put your name in the field above — it goes on the record.");
@@ -832,6 +934,32 @@ function DeliveryDetail({
 	const tags = quotes === null ? {} : quoteTags(quotes);
 	const choice = quotes?.find((q) => q.carrierId === selected) ?? null;
 
+	// A job worth splitting has more than one thing on it and has not been
+	// bought yet. A half is splittable again for the same reasons — nothing
+	// about being one makes a second cut wrong.
+	const splittable = !booked && delivery.items.length > 1;
+	const { moved, kept } = splitItems(delivery.items, ticked);
+	// Some of the load would go by parcel and some would not — the shape that
+	// makes splitting the answer rather than a bigger lorry.
+	const mixedLoad =
+		splittable &&
+		!canGoByParcel(delivery.items) &&
+		parcelCandidates(delivery.items).length > 0;
+	// A parcel partner said no to a load a parcel partner could take half of.
+	const parcelRefused =
+		mixedLoad &&
+		(quotes ?? []).some(
+			(quote) =>
+				quote.error !== undefined && KIND[quote.carrierId] === "parcel",
+		);
+	const startSplit = () => {
+		// Nothing ticked yet: propose the pieces a parcel network could take,
+		// which is the split anyone opening this panel meant to make.
+		if (ticked.length === 0) setTicked(parcelCandidates(delivery.items));
+		setSplitting(true);
+		onError(null);
+	};
+
 	// Which of the three moves is being made now — the stepper and the sentence
 	// under it are the same fact said twice, so they read it from one place.
 	const stage = booked
@@ -854,7 +982,9 @@ function DeliveryDetail({
 					? "Start by comparing partners. Nothing reaches a carrier until you book."
 					: busy === "book"
 						? `Creating the job with ${carrierLabel(choice?.carrierId)}. Stay on this page until it confirms.`
-						: "Compare the prices below, pick a partner, then book the pickup.";
+						: parcelRefused
+							? "The parcel partners refused on size — the carcasses are over their girth limit. Split the job to send the hardware by parcel, or book a lorry for the whole load."
+							: "Compare the prices below, pick a partner, then book the pickup.";
 
 	const copyLink = async () => {
 		if (delivery.trackingUrl === null) return;
@@ -866,38 +996,164 @@ function DeliveryDetail({
 	return (
 		<div className="flex flex-col gap-5 border-neutral-200 border-t px-4 py-4">
 			<section className="flex flex-col rounded-xl border border-neutral-200 bg-white px-5 py-4">
-				<p className="mb-2.5 font-semibold text-[12px] text-neutral-600 uppercase tracking-[.06em]">
-					On the lorry
-				</p>
+				<div className="mb-2 flex items-baseline justify-between gap-3">
+					<p className="font-semibold text-[12px] text-neutral-600 uppercase tracking-[.06em]">
+						On the lorry
+					</p>
+					{splittable && (
+						<p className="text-[12px] text-neutral-500">
+							Tick what should travel separately
+						</p>
+					)}
+				</div>
 				{delivery.items.length === 0 ? (
 					<p className="text-[13px] text-neutral-500">Nothing listed yet.</p>
 				) : (
-					delivery.items.map((item) => (
-						<div
-							key={`${item.label}-${item.widthMm}-${item.heightMm}-${item.depthMm}`}
-							className="flex justify-between gap-3 py-1.5 text-[13px]"
-						>
-							<span>
-								{item.label}{" "}
-								<span className="text-[#8a857c]">× {item.qty}</span>
-							</span>
-							<span className="shrink-0 text-neutral-500 tabular-nums">
-								{item.widthMm} × {item.heightMm} × {item.depthMm} mm
-								{item.weightKg === null ? "" : ` · ${item.weightKg} kg`}
-							</span>
-						</div>
-					))
+					delivery.items.map((item, index) => {
+						const checked = ticked.includes(index);
+						const size = `${item.widthMm} × ${item.heightMm} × ${item.depthMm} mm${
+							item.weightKg === null ? "" : ` · ${item.weightKg} kg`
+						}`;
+						const key = `${item.label}-${item.widthMm}-${item.heightMm}-${item.depthMm}`;
+						if (!splittable) {
+							return (
+								<div
+									key={key}
+									className="flex justify-between gap-3 py-1.5 text-[13px]"
+								>
+									<span>
+										{item.label}{" "}
+										<span className="text-[#8a857c]">× {item.qty}</span>
+									</span>
+									<span className="shrink-0 text-neutral-500 tabular-nums">
+										{size}
+									</span>
+								</div>
+							);
+						}
+						return (
+							<label
+								key={key}
+								className={`-mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] ${
+									checked ? "bg-[#f2f7f4]" : ""
+								}`}
+							>
+								<input
+									type="checkbox"
+									className="h-4 w-4 shrink-0 accent-[#1f5138]"
+									checked={checked}
+									onChange={() =>
+										setTicked(
+											checked
+												? ticked.filter((i) => i !== index)
+												: [...ticked, index],
+										)
+									}
+								/>
+								<span className="min-w-0 flex-1">
+									{item.label}{" "}
+									<span className="text-[#8a857c]">× {item.qty}</span>
+								</span>
+								<span className="shrink-0 text-neutral-500 tabular-nums">
+									{size}
+								</span>
+							</label>
+						);
+					})
 				)}
-				<p className="mt-1.5 border-[#ecebe7] border-t pt-2.5 text-[13px] font-semibold">
-					{delivery.totalVolumeM3 ?? 0} m³
-					{delivery.totalWeightKg === null
-						? ", weight not given"
-						: `, ${delivery.totalWeightKg} kg`}
+				<p className="mt-1.5 border-[#ecebe7] border-t pt-2.5 font-semibold text-[13px]">
+					{loadLine(delivery.items)}
 				</p>
 				<p className="mt-2.5 text-[12px] text-[#5c574e]">
 					Deliver to: {delivery.siteAddress}
 				</p>
+				{splittable && !splitting && (
+					<div className="mt-3.5 flex flex-wrap items-center gap-3 border-[#ecebe7] border-t pt-3.5">
+						<button
+							type="button"
+							className={chipClass(false)}
+							onClick={startSplit}
+							disabled={busy !== null}
+						>
+							Split this job
+						</button>
+						<span className="text-[12px] text-neutral-500">
+							{ticked.length} of {delivery.items.length} items would move to a
+							new job
+						</span>
+					</div>
+				)}
 			</section>
+
+			{splitting && (
+				<section className="flex flex-col gap-4 rounded-xl border-[1.5px] border-[#1f5138] bg-white px-5 py-5">
+					<div>
+						<p className="mb-1 font-semibold text-[13px]">
+							Split #{delivery.number} into two jobs
+						</p>
+						<p className="text-[12px] text-neutral-500 leading-[18px]">
+							Each half is quoted and booked on its own. Nothing is sent to a
+							carrier by splitting, and #{delivery.number} itself goes away — it
+							never reached one.
+						</p>
+					</div>
+					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+						{[
+							{ title: "Moves to a new job", items: moved },
+							{ title: "Stays on this one", items: kept },
+						].map((half) => (
+							<div
+								key={half.title}
+								className="rounded-xl border border-neutral-200 bg-[#faf9f7] px-4 py-3.5"
+							>
+								<p className="font-semibold text-[13px]">{half.title}</p>
+								<p className="mt-0.5 mb-2.5 text-[11px] text-[#8a857c]">
+									Split from #{delivery.number}
+								</p>
+								{half.items.map((item) => (
+									<p
+										key={`${item.label}-${item.widthMm}-${item.heightMm}`}
+										className="mb-1 text-[12px] text-neutral-700"
+									>
+										{item.label}{" "}
+										<span className="text-[#8a857c]">× {item.qty}</span>
+									</p>
+								))}
+								{half.items.length === 0 && (
+									<p className="mb-1 text-[12px] text-amber-700">
+										Nothing on this half — tick fewer items, or more.
+									</p>
+								)}
+								<p className="mt-2.5 border-[#ecebe7] border-t pt-2.5 font-semibold text-[12px]">
+									{half.items.length === 0 ? "—" : loadLine(half.items)}
+								</p>
+								<p className="mt-1 text-[12px] text-neutral-500 leading-[17px]">
+									{partnerSentence(half.items)}
+								</p>
+							</div>
+						))}
+					</div>
+					<div className="flex flex-wrap items-center gap-2.5">
+						<button
+							type="button"
+							className="rounded-full bg-[#1f5138] px-4 py-2.5 font-semibold text-[12px] text-white disabled:opacity-40"
+							disabled={
+								moved.length === 0 || kept.length === 0 || busy !== null
+							}
+							onClick={commitSplit}
+						>
+							{busy === "split" ? "Splitting…" : "Split into two jobs"}
+						</button>
+						<button
+							type="button"
+							className={chipClass(false)}
+							onClick={() => setSplitting(false)}
+						>
+							Cancel
+						</button>
+					</div>
+				</section>
+			)}
 
 			<div className="grid grid-cols-1 gap-1 text-[12px] text-neutral-500 sm:grid-cols-2">
 				<p>Phone: {delivery.customerPhone}</p>
@@ -980,70 +1236,97 @@ function DeliveryDetail({
 								const active = selected === quote.carrierId;
 								const failed = quote.error !== undefined;
 								const tag = tags[quote.carrierId];
+								// This partner could take part of the load but refused the
+								// whole of it — the one row where splitting is the answer,
+								// so the offer belongs here rather than only in the guide.
+								const offerSplit =
+									failed &&
+									mixedLoad &&
+									!splitting &&
+									KIND[quote.carrierId] === "parcel";
 								return (
-									<button
+									<div
 										key={quote.carrierId}
-										type="button"
-										aria-pressed={active}
-										disabled={failed || busy !== null}
-										onClick={() => setSelected(quote.carrierId)}
-										className={`flex flex-col gap-1 rounded-xl border-[1.5px] px-4 py-3 text-left ${
+										className={`flex flex-col rounded-xl border-[1.5px] ${
 											active
 												? "border-[#1f5138] bg-[#f2f7f4]"
 												: "border-neutral-200 bg-white"
-										} ${failed ? "opacity-70" : ""}`}
+										} ${failed && !offerSplit ? "opacity-70" : ""}`}
 									>
-										<span className="flex w-full items-center gap-2">
-											<span
-												className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[#1f5138]" : "bg-neutral-300"}`}
-											/>
-											<span className="font-semibold text-[13px]">
-												{carrierLabel(quote.carrierId)}
-											</span>
-											{tag && (
+										<button
+											type="button"
+											aria-pressed={active}
+											disabled={failed || busy !== null}
+											onClick={() => setSelected(quote.carrierId)}
+											className="flex flex-col gap-1 px-4 py-3 text-left"
+										>
+											<span className="flex w-full items-center gap-2">
 												<span
-													className={`shrink-0 rounded-full px-2 py-0.5 font-bold text-[10px] ${
-														tag === "Cheapest"
-															? "bg-[#eef3ef] text-[#1f5138]"
-															: "bg-[#f2efe6] text-[#6b5f2e]"
-													}`}
+													className={`h-2 w-2 shrink-0 rounded-full ${active ? "bg-[#1f5138]" : "bg-neutral-300"}`}
+												/>
+												<span className="font-semibold text-[13px]">
+													{carrierLabel(quote.carrierId)}
+												</span>
+												{tag && (
+													<span
+														className={`shrink-0 rounded-full px-2 py-0.5 font-bold text-[10px] ${
+															tag === "Cheapest"
+																? "bg-[#eef3ef] text-[#1f5138]"
+																: "bg-[#f2efe6] text-[#6b5f2e]"
+														}`}
+													>
+														{tag}
+													</span>
+												)}
+												<span className="ml-auto shrink-0 font-semibold text-[13px] tabular-nums">
+													{failed
+														? "—"
+														: quote.priceRm === null
+															? "Price agreed by phone"
+															: `RM ${quote.priceRm}`}
+												</span>
+											</span>
+											{quote.notes && (
+												<span className="pl-[18px] text-[11px] text-[#8a857c]">
+													{quote.notes}
+												</span>
+											)}
+											{quote.warning && (
+												<span className="pl-[18px] text-[11px] text-[#8a6d1f]">
+													{quote.warning}
+												</span>
+											)}
+											<span className="flex items-center gap-2 pl-[18px] text-[11px]">
+												{quote.error ? (
+													<span className="text-red-700">{quote.error}</span>
+												) : etaLabel(quote.etaMinutes) !== null ? (
+													<span className="text-[#8a857c]">
+														{etaLabel(quote.etaMinutes)}
+													</span>
+												) : null}
+												{active && (
+													<span className="font-semibold text-[#1f5138]">
+														Selected
+													</span>
+												)}
+											</span>
+										</button>
+										{offerSplit && (
+											<div className="mx-4 mb-3 flex flex-wrap items-center gap-2.5 pl-[18px]">
+												<button
+													type="button"
+													className={chipClass(false)}
+													onClick={startSplit}
 												>
-													{tag}
+													Split this job
+												</button>
+												<span className="text-[11px] text-[#8a857c]">
+													Send the hardware by parcel and keep the carcasses on
+													a lorry.
 												</span>
-											)}
-											<span className="ml-auto shrink-0 font-semibold text-[13px] tabular-nums">
-												{failed
-													? "—"
-													: quote.priceRm === null
-														? "Price agreed by phone"
-														: `RM ${quote.priceRm}`}
-											</span>
-										</span>
-										{quote.notes && (
-											<span className="pl-[18px] text-[11px] text-[#8a857c]">
-												{quote.notes}
-											</span>
+											</div>
 										)}
-										{quote.warning && (
-											<span className="pl-[18px] text-[11px] text-[#8a6d1f]">
-												{quote.warning}
-											</span>
-										)}
-										<span className="flex items-center gap-2 pl-[18px] text-[11px]">
-											{quote.error ? (
-												<span className="text-red-700">{quote.error}</span>
-											) : quote.etaMinutes !== null ? (
-												<span className="text-[#8a857c]">
-													~{quote.etaMinutes} min
-												</span>
-											) : null}
-											{active && (
-												<span className="font-semibold text-[#1f5138]">
-													Selected
-												</span>
-											)}
-										</span>
-									</button>
+									</div>
 								);
 							})}
 						</div>
@@ -1173,21 +1456,29 @@ function DeliveryDetail({
 							<span>RM {delivery.quotedPriceRm}</span>
 						)}
 						{delivery.bookedBy && <span>Booked by {delivery.bookedBy}</span>}
-						{(delivery.driverName || delivery.vehiclePlate) && (
-							<span className="text-neutral-900">
-								Driver {delivery.driverName ?? "—"}
-								{delivery.driverPhone ? ` · ${delivery.driverPhone}` : ""}
-								{delivery.vehiclePlate ? ` · ${delivery.vehiclePlate}` : ""}
-							</span>
-						)}
+						{/* A parcel network reports where the parcel is and never who is
+						    carrying it, so "no driver yet" would be a wait that never
+						    ends. Only a vehicle partner gets the line at all. */}
+						{KIND[delivery.carrierId ?? ""] === "vehicle" &&
+							(delivery.driverName || delivery.vehiclePlate ? (
+								<span className="text-neutral-900">
+									Driver {delivery.driverName ?? "—"}
+									{delivery.driverPhone ? ` · ${delivery.driverPhone}` : ""}
+									{delivery.vehiclePlate ? ` · ${delivery.vehiclePlate}` : ""}
+								</span>
+							) : (
+								<span>No driver assigned yet</span>
+							))}
 						<span>
-							{delivery.lastLatitude === null
-								? "No position reported yet."
-								: `Last seen ${delivery.lastLatitude}, ${delivery.lastLongitude}${
-										delivery.lastLocationAt
-											? ` at ${new Date(delivery.lastLocationAt).toLocaleTimeString()}`
-											: ""
-									}`}
+							{KIND[delivery.carrierId ?? ""] !== "vehicle"
+								? "This partner does not report a position."
+								: delivery.lastLatitude === null
+									? "No position reported yet."
+									: `Last seen ${delivery.lastLatitude}, ${delivery.lastLongitude}${
+											delivery.lastLocationAt
+												? ` at ${new Date(delivery.lastLocationAt).toLocaleTimeString()}`
+												: ""
+										}`}
 						</span>
 					</div>
 
@@ -1236,15 +1527,52 @@ function DeliveryDetail({
 						</div>
 					)}
 
+					{/* The note has to be on the box before the driver arrives, so it
+					    is shown here rather than behind a link someone has to think to
+					    click. GDEX serves the PDF only while the shipment is pending —
+					    what is rendered is the copy taken at booking time. */}
 					{delivery.labelUrl && (
-						<a
-							className="text-[12px] font-semibold text-[#1f5138] underline"
-							href={delivery.labelUrl}
-							target="_blank"
-							rel="noreferrer"
-						>
-							Print AWB label
-						</a>
+						<div className="flex flex-col gap-3 rounded-xl border border-[#ecebe7] bg-[#faf9f7] px-4 py-3.5">
+							<div className="flex flex-wrap items-baseline justify-between gap-3">
+								<p className="font-semibold text-[12px] text-neutral-600 uppercase tracking-[.06em]">
+									Consignment note
+								</p>
+								<p className="font-mono text-[11px] text-[#8a857c]">
+									{delivery.carrierOrderId}.pdf
+								</p>
+							</div>
+							<iframe
+								ref={labelFrame}
+								title={`Consignment note ${delivery.carrierOrderId}`}
+								src={delivery.labelUrl}
+								className="h-[230px] w-full rounded-lg border border-neutral-200 bg-white"
+							/>
+							<div className="flex flex-wrap gap-2">
+								<button
+									type="button"
+									className="rounded-full bg-[#1f5138] px-4 py-2.5 font-semibold text-[12px] text-white"
+									onClick={() => labelFrame.current?.contentWindow?.print()}
+								>
+									Print note
+								</button>
+								<a
+									className={chipClass(false)}
+									href={delivery.labelUrl}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Open in new tab
+								</a>
+							</div>
+						</div>
+					)}
+
+					{delivery.carrierId === "gdex" && delivery.labelUrl === null && (
+						<p className="rounded-[10px] bg-amber-50 px-3.5 py-2.5 text-[12px] text-amber-800 leading-[18px]">
+							The consignment note was not captured when this job was booked, so
+							it cannot be shown here. Print it from the GDEX portal — GDEX only
+							serves the PDF while the shipment is pending.
+						</p>
 					)}
 
 					<label className="flex flex-col gap-1 text-[12px] text-neutral-500">

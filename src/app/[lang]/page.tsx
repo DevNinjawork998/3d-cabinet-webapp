@@ -11,7 +11,10 @@ import type { Dictionary } from "@/lib/copy/en";
 import { fill } from "@/lib/copy/fill";
 import { isLocale } from "@/lib/copy/locales";
 import type { RoomTypeId } from "@/lib/planner/catalogue";
-import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
+import {
+	DEFAULT_FINISH_TEXTURES,
+	SWATCH_ZOOM,
+} from "@/lib/planner/finishTextures";
 import { plannerEngine } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
 import { HERO_POSTER_FRAME, heroFrameSrc } from "@/lib/scroll/sequence";
@@ -433,34 +436,31 @@ export default async function Home({
 				</p>
 				<div className="grid grid-cols-3 gap-4 sm:grid-cols-6">
 					{catalogue.finishes.map((finish) => {
-						// A swatch photo if one's been uploaded, otherwise the
-						// catalogue's flat colour — which is a perfectly good swatch,
-						// so an empty slot is a fallback rather than a hole.
-						const swatch =
+						// The supplier's board scan if there is one, otherwise the flat
+						// catalogue colour. Never a generated grain pattern: this strip
+						// is a promise about what the client will cut, and a finish
+						// nobody has photographed is a colour, not a timber.
+						const board =
 							photo.get(finishSlot(finish.id)) ??
 							DEFAULT_FINISH_TEXTURES[finish.id];
 						return (
 							<div key={finish.id}>
-								{swatch ? (
-									<Photo
-										url={swatch}
-										alt={finish.label}
-										className="mb-2.5 h-24 w-full rounded-xl border"
-									/>
-								) : (
-									<div
-										className="mb-2.5 h-24 rounded-xl border"
-										style={{
-											borderColor: RULE,
-											backgroundColor: finish.hex,
-											backgroundImage: "url(/grain.png)",
-											// One tile per ~56px keeps the grain fine at swatch
-											// scale; larger and it reads as wide stripes.
-											backgroundSize: "56px",
-											backgroundBlendMode: "multiply",
-										}}
-									/>
-								)}
+								<div
+									className="mb-2.5 h-24 rounded-xl border bg-center"
+									style={{
+										borderColor: RULE,
+										backgroundColor: finish.hex,
+										// Zoomed to one door's width of board, which is the
+										// scale the planner draws it at — the strip and the
+										// cabinet have to look like the same material.
+										...(board && {
+											backgroundImage: `url(${board})`,
+											backgroundSize: SWATCH_ZOOM,
+										}),
+									}}
+									// Decorative: the label sits right below it in text.
+									aria-hidden
+								/>
 								<p className="text-[12px] text-neutral-600">{finish.label}</p>
 							</div>
 						);

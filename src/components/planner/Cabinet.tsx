@@ -275,6 +275,7 @@ export function Cabinet({
 					sheetOffset={sheetOffset}
 					selected={selected}
 					highlighted={highlighted}
+					exposed={exposed}
 				/>
 			) : (
 				<>
@@ -395,7 +396,7 @@ function Carcass({
 	// Melamine board takes the grain as sheen only. With the figure on, the
 	// inside of an open carcass reads as slatted timber, which is both wrong and
 	// louder than the doors it sits behind.
-	const figure = useGrain("vertical", width, height, "sheen");
+	const figure = useGrain("vertical", width, height);
 
 	// The end of a run is veneered to match the doors — it is the one carcass
 	// panel anyone ever sees, and in the default 3/4 view it faces the camera.

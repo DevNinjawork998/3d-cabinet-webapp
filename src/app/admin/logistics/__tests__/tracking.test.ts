@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DeliveryEventRow, QuoteRow } from "../form";
-import { defaultChoice, journeySteps, quoteTags } from "../tracking";
+import { defaultChoice, etaLabel, journeySteps, quoteTags } from "../tracking";
 
 const event = (
 	status: DeliveryEventRow["status"],
@@ -167,5 +167,22 @@ describe("journeySteps for a carrier that never names a driver", () => {
 			"active",
 			"pending",
 		]);
+	});
+});
+
+describe("etaLabel", () => {
+	it("keeps a vehicle partner's answer in minutes", () => {
+		expect(etaLabel(55)).toBe("~55 min");
+	});
+
+	// A parcel network answers in days and says so in minutes; 4320 read as
+	// minutes sits next to "~55 min" as if the two were comparable.
+	it("says a parcel partner's answer in days", () => {
+		expect(etaLabel(1440)).toBe("~1 day");
+		expect(etaLabel(4320)).toBe("~3 days");
+	});
+
+	it("has nothing to say when the partner gave no ETA", () => {
+		expect(etaLabel(null)).toBeNull();
 	});
 });

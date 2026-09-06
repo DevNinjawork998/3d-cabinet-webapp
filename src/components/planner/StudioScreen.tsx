@@ -1127,9 +1127,18 @@ export function StudioScreen({
 									onClick={() => setFinishAction(option.id)}
 									aria-pressed={option.id === finish}
 									title={option.label}
-									className="h-[26px] w-[26px] rounded-md"
+									className="h-[26px] w-[26px] rounded-md bg-center bg-cover"
 									style={{
 										backgroundColor: option.hex,
+										// The board itself where the client has one. Without it
+										// the chip showed the catalogue hex while the door beside
+										// it rendered the real scan — and a finish added from a
+										// supplier sheet keeps the picker's #cccccc default until
+										// somebody remembers to correct it, so the chip was
+										// grey for a walnut.
+										...(finishTextures[option.id] && {
+											backgroundImage: `url(${finishTextures[option.id]})`,
+										}),
 										boxShadow:
 											option.id === finish
 												? "0 0 0 2px #171717, 0 0 0 3px #fff"

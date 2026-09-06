@@ -132,3 +132,17 @@ export function defaultChoice(quotes: QuoteRow[]): string | null {
 	}
 	return usable[0]?.carrierId ?? null;
 }
+
+/**
+ * A quote's ETA as an admin reads it.
+ *
+ * A parcel network answers in days and says so in minutes — "~4320 min" is a
+ * number nobody converts in their head, and next to a Lalamove "~55 min" it
+ * reads as the same order of magnitude.
+ */
+export function etaLabel(minutes: number | null): string | null {
+	if (minutes === null) return null;
+	if (minutes < 1440) return `~${minutes} min`;
+	const days = Math.round(minutes / 1440);
+	return `~${days} day${days === 1 ? "" : "s"}`;
+}

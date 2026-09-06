@@ -39,6 +39,7 @@ const row: DeliveryRow = {
 	lastLongitude: null,
 	lastLocationAt: null,
 	bookedBy: null,
+	splitFromNumber: null,
 	createdAt: "2026-09-05T13:28:14.000Z",
 };
 

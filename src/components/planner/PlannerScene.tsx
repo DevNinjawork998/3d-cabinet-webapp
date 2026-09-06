@@ -929,7 +929,7 @@ function TrimPiece({
  * uneven catch of light along the run, which is what honed stone does.
  */
 function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
-	const figure = useGrain("horizontal", width, depth, "sheen");
+	const figure = useGrain("horizontal", width, depth);
 	return (
 		<meshStandardMaterial color={WORKTOP_COLOR} roughness={0.4} {...figure} />
 	);

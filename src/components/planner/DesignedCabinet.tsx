@@ -12,6 +12,7 @@ import {
 	type DoorStyle,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
+import type { ExposedSides } from "@/lib/planner/exposure";
 import { type SideGaps, UNBOUNDED_GAPS } from "@/lib/planner/exposure";
 import type { HingeSide } from "@/lib/planner/layout";
 import type { DesignPartBox } from "@/lib/planner/measure";
@@ -155,9 +156,10 @@ export function useDesignMesh(
 	return groups;
 }
 
-/** Millimetres in, metres out — the scene's unit — and normals computed here
- * because the format carries none. Without `computeVertexNormals` every
- * surface renders unlit black. */
+/** Millimetres in, metres out — the scene's unit — with normals and texture
+ * coordinates computed here because the format carries neither. Without
+ * `computeVertexNormals` every surface renders unlit black; without UVs, see
+ * below. */
 function geometryOf(group: MeshGroup): BufferGeometry {
 	const geometry = new BufferGeometry();
 	const scaled = new Float32Array(group.positions.length);
@@ -165,9 +167,62 @@ function geometryOf(group: MeshGroup): BufferGeometry {
 		scaled[i] = group.positions[i] / 1000;
 	}
 	geometry.setAttribute("position", new BufferAttribute(scaled, 3));
+	geometry.setAttribute("uv", new BufferAttribute(planarUv(scaled), 2));
 	geometry.setIndex(new BufferAttribute(group.indices, 1));
 	geometry.computeVertexNormals();
 	return geometry;
+}
+
+/**
+ * Texture coordinates, planar-projected onto the group's own face.
+ *
+ * `ICBMESH1` carries positions and indices and nothing else, so a drafted
+ * group had no coordinates to sample a texture at. Three.js then reads uv
+ * (0, 0) for every fragment and the whole door comes out a single flat colour
+ * — the scan's corner pixel. That is why a drafted cabinet showed no woodgrain
+ * while the procedural one beside it did: `boxGeometry` ships UVs and this did
+ * not.
+ *
+ * Projecting onto the two widest axes is exact for the flat panels this draws
+ * — a door, a drawer front, a shelf — and those are the only groups a decor
+ * scan ever reaches. Hardware gets nonsense coordinates and does not care: it
+ * is a solid colour with no map. The thin axis is the one dropped, so a door
+ * is measured across its width and up its height, which is what
+ * `useFrontSurface` then scales against the sheet.
+ *
+ * Done here rather than at intake so every mesh already in the Blob store is
+ * fixed by this deploy — regenerating them all would be a migration for
+ * something the browser can derive in a single pass.
+ */
+function planarUv(scaled: Float32Array): Float32Array {
+	const count = scaled.length / 3;
+	const min = [
+		Number.POSITIVE_INFINITY,
+		Number.POSITIVE_INFINITY,
+		Number.POSITIVE_INFINITY,
+	];
+	const max = [
+		Number.NEGATIVE_INFINITY,
+		Number.NEGATIVE_INFINITY,
+		Number.NEGATIVE_INFINITY,
+	];
+	for (let i = 0; i < count; i++) {
+		for (let axis = 0; axis < 3; axis++) {
+			const v = scaled[i * 3 + axis];
+			if (v < min[axis]) min[axis] = v;
+			if (v > max[axis]) max[axis] = v;
+		}
+	}
+	const span = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+	// The thinnest axis is the panel's thickness — project along it.
+	const thin = span.indexOf(Math.min(...span));
+	const [u, v] = [0, 1, 2].filter((axis) => axis !== thin);
+	const uv = new Float32Array(count * 2);
+	for (let i = 0; i < count; i++) {
+		uv[i * 2] = span[u] === 0 ? 0 : (scaled[i * 3 + u] - min[u]) / span[u];
+		uv[i * 2 + 1] = span[v] === 0 ? 0 : (scaled[i * 3 + v] - min[v]) / span[v];
+	}
+	return uv;
 }
 
 const isFront = (role: MeshGroupRole) =>
@@ -210,7 +265,7 @@ function Group({
 	);
 	// Melamine board takes the grain as sheen only. With the figure on, a
 	// carcass reads as timber, which is exactly the wrong answer.
-	const carcass = useGrain("vertical", m(sizeMm.x), m(sizeMm.y), "sheen");
+	const carcass = useGrain("vertical", m(sizeMm.x), m(sizeMm.y));
 
 	const material =
 		isFront(group.role) && door
@@ -234,6 +289,80 @@ function Group({
 	);
 }
 
+/**
+ * The veneered skin over a drafted cabinet's exposed end.
+ *
+ * `exposure.ts` answers which outer sides have nothing against them, and the
+ * procedural path has always veneered those — it is the one carcass panel
+ * anyone sees, and in the default 3/4 view it faces the camera. The drafted
+ * path never did: `Cabinet.tsx` renders `DesignedCabinet` *instead of*
+ * `Carcass`, and `Carcass` is where `isVeneered` lives, so a run whose base
+ * units are drafted showed a grey melamine end beside a veneered wall unit in
+ * the same finish.
+ *
+ * Sized off the carcass group's own bounding box rather than `parts.ts`, so it
+ * lines up with the geometry actually on screen instead of the idealised
+ * cabinet — the same reason `snapToCabinet` prefers the drawn mesh.
+ *
+ * ponytail: a skin, not a modelled 16mm board. A real end panel is screwed
+ * over the carcass side and would make the run wider than the layout says it
+ * is; a thin overlay reads identically at planner distance and moves nothing.
+ * Split the carcass role at intake if a drafter ever needs the true board.
+ */
+function EndPanel({
+	carcassMm,
+	side,
+	finishHex,
+	finishPhoto,
+	sheetOffset,
+	emissive,
+	emphasis,
+}: {
+	carcassMm: BoxMm;
+	side: "left" | "right";
+	finishHex: string;
+	finishPhoto: string | null;
+	sheetOffset: number;
+	emissive: string;
+	emphasis: number;
+}) {
+	const depth = carcassMm.max.z - carcassMm.min.z;
+	const height = carcassMm.max.y - carcassMm.min.y;
+	// Seen across its depth and up its height, so those are the dimensions the
+	// sheet is cut to — not the cabinet's width.
+	const surface = useFrontSurface(
+		finishPhoto,
+		"vertical",
+		m(depth),
+		m(height),
+		finishHex,
+		sheetOffset,
+	);
+
+	const x = side === "left" ? carcassMm.min.x : carcassMm.max.x;
+	return (
+		<mesh
+			position={[
+				m(x) + (side === "left" ? -SKIN_M / 2 : SKIN_M / 2),
+				m((carcassMm.min.y + carcassMm.max.y) / 2),
+				m((carcassMm.min.z + carcassMm.max.z) / 2),
+			]}
+		>
+			<boxGeometry args={[SKIN_M, m(height), m(depth)]} />
+			<meshStandardMaterial
+				roughness={0.45}
+				{...surface}
+				emissive={emissive}
+				emissiveIntensity={emphasis}
+			/>
+		</mesh>
+	);
+}
+
+/** Thin enough to add no measurable width to the run, thick enough not to
+ * z-fight with the carcass side it sits on. */
+const SKIN_M = 0.002;
+
 export function DesignedCabinet({
 	groups,
 	door,
@@ -246,6 +375,7 @@ export function DesignedCabinet({
 	sheetOffset,
 	selected,
 	highlighted,
+	exposed,
 }: {
 	groups: MeshGroup[];
 	/** `null` while it is still a bare carcass — the fronts are not drawn. */
@@ -267,6 +397,10 @@ export function DesignedCabinet({
 	sheetOffset: number;
 	selected: boolean;
 	highlighted?: boolean;
+	/** Which outer sides have nothing against them. Omitted means neither — a
+	 * cabinet mid-run — which is the safe default: veneer nobody asked for is
+	 * a charge on the quote for a face nobody can see. */
+	exposed?: ExposedSides;
 }) {
 	// The doors arrive as one merged group — triangles are bucketed by role at
 	// intake — so a pair has to be cut back into leaves before either of them can
@@ -309,6 +443,24 @@ export function DesignedCabinet({
 
 	return (
 		<>
+			{/* The exposed ends, veneered to match the doors. Drawn before the
+			    groups so a selection highlight reads over them the same way. */}
+			{carcassMm !== null &&
+				(["left", "right"] as const).map((side) =>
+					exposed?.[side] ? (
+						<EndPanel
+							key={`end-${side}`}
+							carcassMm={carcassMm}
+							side={side}
+							finishHex={finishHex}
+							finishPhoto={finishPhoto}
+							sheetOffset={sheetOffset}
+							emissive={emissive}
+							emphasis={emphasis}
+						/>
+					) : null,
+				)}
+
 			{drawn.map((group, i) => {
 				// A doorless carcass is a real state — the customer has placed a
 				// unit but not chosen a front — and it has to read as an open box.

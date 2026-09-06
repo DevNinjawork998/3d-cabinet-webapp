@@ -240,6 +240,56 @@ function Text({
 	);
 }
 
+const HEX = /^#[0-9a-f]{6}$/i;
+
+/**
+ * The finish colour as something you can paste into.
+ *
+ * `<input type="color">` alone can only be *picked*. A supplier gives the
+ * colour as a number — Max World's MW 13526 NW is #cc9168 — and the OS colour
+ * panel was the only way in: open it, find its own hex field, type it there.
+ * The swatch keeps the picker for eyeballing; this is the typed path, and it
+ * takes a pasted "cc9168" without the hash because that is how they arrive.
+ *
+ * Typing is held locally so a half-finished "#cc9" never reaches the draft —
+ * only a complete hex commits. The draft can still change underneath (undo,
+ * or opening another version), so the local copy follows it back.
+ */
+function HexField({
+	value,
+	label,
+	onChange,
+}: {
+	value: string;
+	label: string;
+	onChange: (hex: string) => void;
+}) {
+	const [text, setText] = useState(value);
+	useEffect(() => setText(value), [value]);
+	const valid = HEX.test(text);
+	return (
+		<input
+			value={text}
+			aria-label={`${label} hex colour`}
+			spellCheck={false}
+			placeholder="#cc9168"
+			onChange={(e) => {
+				const typed = e.target.value.trim();
+				const hex = typed === "" || typed.startsWith("#") ? typed : `#${typed}`;
+				setText(hex);
+				if (HEX.test(hex)) onChange(hex.toLowerCase());
+			}}
+			// Red rather than silently ignored: the colour on screen is still the
+			// last good one, so without this the field looks accepted and is not.
+			className={`w-24 rounded border px-2 py-1.5 font-mono text-[12px] ${
+				valid
+					? "border-neutral-300 text-neutral-500"
+					: "border-red-400 text-red-600"
+			}`}
+		/>
+	);
+}
+
 function Select<T extends string>({
 	label,
 	value,
@@ -990,73 +1040,93 @@ function CatalogueEditor() {
 								<p className="mb-3 text-[12px] text-neutral-500">
 									Drop the supplier&rsquo;s board scan on a swatch to use the
 									real material: it becomes the door and end-panel surface in
-									3D, and the swatch on the homepage. Without one, the flat
-									colour is used. Photos go live immediately — they are not part
-									of the draft. Removing an upload falls back to the board
-									shipped with the app, if there is one.
+									3D, the chip in the planner&rsquo;s finish picker, and the
+									swatch on the homepage. Without one the finish is drawn as its
+									flat colour everywhere — never as a stand-in woodgrain,
+									because a customer must not be shown a board nobody sells.
+									Photos go live immediately — they are not part of the draft.
+									Removing an upload falls back to the board shipped with the
+									app, if there is one.
 								</p>
 								<div className="flex flex-col gap-2">
-									{draft.finishes.map((finish, i) => (
-										<div key={finish.id} className="flex items-center gap-2">
-											<div className="w-[54px] shrink-0">
-												{/* An upload wins, but a finish can also have a board
+									{draft.finishes.map((finish, i) => {
+										const board =
+											finishPhotos[finishSlot(finish.id)] ??
+											DEFAULT_FINISH_TEXTURES[finish.id] ??
+											null;
+										return (
+											<div key={finish.id} className="flex items-center gap-2">
+												<div className="w-[54px] shrink-0">
+													{/* An upload wins, but a finish can also have a board
 												    shipped in the repo — Rhone Oak does. Showing only
 												    uploads left that slot looking empty while the
 												    planner was busy rendering with it. Layered the same
 												    way `app/planner/page.tsx` layers them, so this
 												    shows what the 3D is actually using. */}
-												<ImageSlot
-													slotKey={finishSlot(finish.id)}
-													placeholder="Board"
-													url={
-														finishPhotos[finishSlot(finish.id)] ??
-														DEFAULT_FINISH_TEXTURES[finish.id] ??
-														null
-													}
-													height={40}
-													radius={6}
-													onChangeAction={loadFinishPhotos}
-												/>
-											</div>
-											<input
-												type="color"
-												aria-label={`${finish.label} colour`}
-												value={finish.hex}
-												onChange={(e) =>
-													edit((n) => {
-														n.finishes[i].hex = e.target.value;
-													})
-												}
-												className="h-9 w-12 cursor-pointer rounded border border-neutral-300"
-											/>
-											<Text
-												width="w-52"
-												placeholder="Name"
-												value={finish.label}
-												onChange={(v) =>
-													edit((n) => {
-														n.finishes[i].label = v;
-													})
-												}
-											/>
-											<code className="text-[12px] text-neutral-400">
-												{finish.hex}
-											</code>
-											{draft.finishes.length > 1 && (
-												<button
-													type="button"
-													onClick={() =>
+													<ImageSlot
+														slotKey={finishSlot(finish.id)}
+														placeholder="Board"
+														url={board}
+														height={40}
+														radius={6}
+														onChangeAction={loadFinishPhotos}
+													/>
+												</div>
+												<input
+													type="color"
+													aria-label={`${finish.label} colour`}
+													value={finish.hex}
+													onChange={(e) =>
 														edit((n) => {
-															n.finishes.splice(i, 1);
+															n.finishes[i].hex = e.target.value;
 														})
 													}
-													className="text-[12px] text-neutral-400 hover:text-red-600"
-												>
-													Remove
-												</button>
-											)}
-										</div>
-									))}
+													className="h-9 w-12 cursor-pointer rounded border border-neutral-300"
+												/>
+												<Text
+													width="w-52"
+													placeholder="Name"
+													value={finish.label}
+													onChange={(v) =>
+														edit((n) => {
+															n.finishes[i].label = v;
+														})
+													}
+												/>
+												<HexField
+													value={finish.hex}
+													label={finish.label}
+													onChange={(hex) =>
+														edit((n) => {
+															n.finishes[i].hex = hex;
+														})
+													}
+												/>
+												{/* Coverage, said out loud. A finish with no board is
+											    perfectly sellable — it is a painted door — but which
+											    ones those are is otherwise invisible until you look
+											    at the homepage and wonder why one swatch is flat. */}
+												{!board && (
+													<span className="text-[11px] text-neutral-400">
+														no board · flat colour
+													</span>
+												)}
+												{draft.finishes.length > 1 && (
+													<button
+														type="button"
+														onClick={() =>
+															edit((n) => {
+																n.finishes.splice(i, 1);
+															})
+														}
+														className="text-[12px] text-neutral-400 hover:text-red-600"
+													>
+														Remove
+													</button>
+												)}
+											</div>
+										);
+									})}
 									<button
 										type="button"
 										onClick={() =>

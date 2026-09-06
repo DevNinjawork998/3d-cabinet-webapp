@@ -40,6 +40,8 @@ export type DeliveryRow = {
 	lastLongitude: number | null;
 	lastLocationAt: string | null;
 	bookedBy: string | null;
+	/** The job this one was cut out of, when it was — see `Delivery`. */
+	splitFromNumber: number | null;
 	createdAt: string;
 };
 

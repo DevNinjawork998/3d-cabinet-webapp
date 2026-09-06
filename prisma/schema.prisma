@@ -285,6 +285,13 @@ model Delivery {
   /// per-user identity, so this plus DeliveryEvent is the whole audit story
   /// until accounts exist.
   bookedBy          String?
+  /// The job this one was cut out of, as the number staff say out loud.
+  ///
+  /// A bare number rather than a relation: splitting consumes the original —
+  /// it never reached a carrier, so there is nothing to keep — and a foreign
+  /// key would point at a deleted row. The number is also the only thing any
+  /// screen renders of it.
+  splitFromNumber   Int?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
