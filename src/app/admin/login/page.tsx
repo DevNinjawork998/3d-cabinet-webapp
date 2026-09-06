@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { HERO_EXPLODED_FRAME, heroFrameSrc } from "@/lib/scroll/sequence";
 
 export default function AdminLoginPage() {
 	const router = useRouter();
@@ -103,7 +104,32 @@ export default function AdminLoginPage() {
 				</form>
 			</div>
 
-			<div className="relative hidden flex-1 items-center justify-center overflow-hidden bg-[#e9e7e3] md:flex">
+			{/* The panel was an empty grey half-screen. It now carries the same
+			    render the homepage scrubs through, stopped on its last frame — the
+			    cabinet fully apart. That is the honest picture of what is behind
+			    this password: not a kitchen, a catalogue of parts.
+
+			    Static, and one file. There is no sequence here — nothing scrolls
+			    on a sign-in screen, and the other seventy-one frames would be
+			    1.7 MB spent on a page three people ever see. */}
+			<div
+				data-cabinet-ground="panel"
+				className="relative hidden flex-1 items-center justify-center overflow-hidden md:flex"
+			>
+				<div
+					data-cabinet-stage
+					className="-translate-x-1/2 -translate-y-1/2 pointer-events-none absolute top-1/2 left-1/2 aspect-[16/9] w-[128%] max-w-none"
+				>
+					{/* biome-ignore lint/performance/noImgElement: ships in the repo,
+					    and next/image would only re-encode a JPEG that is already
+					    sized for exactly this box */}
+					<img
+						src={heroFrameSrc(HERO_EXPLODED_FRAME)}
+						alt=""
+						className="h-full w-full object-contain"
+					/>
+				</div>
+
 				<div className="absolute bottom-8 left-8 max-w-[320px] rounded-[10px] bg-white/90 px-4 py-3.5">
 					<p className="font-semibold text-sm">One catalogue, every planner</p>
 					<p className="mt-1 text-[12px] text-neutral-600 leading-[17px]">

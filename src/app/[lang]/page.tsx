@@ -33,19 +33,6 @@ const PAPER = "#e9e7e3";
 const RAISED = "#fdfcfb";
 const RULE = "#d9d5cd";
 
-/**
- * How the hero's cabinet stage meets the page. See the stage's own comment —
- * the frames are vignetted, so the edge has to dissolve rather than stop, into
- * the `data-hero-ground` wash in `globals.css`.
- *
- * `closest-side` is load-bearing: the default sizing is `farthest-corner`,
- * which puts the box's own edges at 71% of the gradient and therefore inside
- * any opaque stop worth having — a mask that leaves four hard edges exactly
- * where it was added to remove them.
- */
-const HERO_STAGE_MASK =
-	"radial-gradient(ellipse closest-side at 50% 50%, #000 0 74%, transparent 100%)";
-
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
 		minimumFractionDigits: 2,
@@ -256,11 +243,12 @@ export default async function Home({
 			    there. Underneath is a plain `<img>` of frame 0, the cabinet assembled
 			    — which is the honest still, and the LCP element. */}
 			<ScrollTrack viewports={3}>
-				{/* `data-hero-ground` is a gradient in `globals.css` rather than a
-				    style here, because it has to follow the stage across the
-				    breakpoint and an inline style cannot hold a media query. */}
+				{/* The ground and the stage's mask are both in `globals.css`: they
+				    are shared with the admin sign-in panel, and the ground has to
+				    follow the stage across a breakpoint, which an inline style
+				    cannot express. */}
 				<section
-					data-hero-ground
+					data-cabinet-ground="hero"
 					className="relative isolate flex h-full w-full items-center overflow-hidden"
 				>
 					{/* The stage. Full width where the copy sits over it, the right
@@ -272,21 +260,14 @@ export default async function Home({
 					    it exactly and its edge and the box's are the same edge — which
 					    is what lets one mask handle both.
 
-					    That mask is structural, not decoration. The render carries a
-					    studio vignette, so the frame's grey is several shades off
-					    the section's at its corners and any hard boundary reads as a
-					    rectangle pasted onto the page. It stays fully opaque across
-					    the cabinet's own width at full explosion and only dissolves
-					    in the empty studio margin outside it. The
+					    The mask on it is structural, not decoration — see
+					    `[data-cabinet-stage]` in `globals.css`. The
 					    poster and the canvas share this one box so the still and the
 					    sequence land in exactly the same place — otherwise the
 					    cabinet would jump the moment the first frame decoded. */}
 					<div
+						data-cabinet-stage
 						className="-z-20 -right-[18%] absolute bottom-[14%] aspect-[16/9] w-[136%] lg:-translate-y-1/2 lg:top-1/2 lg:right-0 lg:bottom-auto lg:w-[68%]"
-						style={{
-							maskImage: HERO_STAGE_MASK,
-							WebkitMaskImage: HERO_STAGE_MASK,
-						}}
 					>
 						{/* biome-ignore lint/performance/noImgElement: ships in the repo,
 						    and it has to share a box with a canvas next/image can't size */}

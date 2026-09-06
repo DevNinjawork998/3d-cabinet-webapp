@@ -27,6 +27,13 @@ export const HERO_FRAME_WIDTH = 960;
  */
 export const HERO_POSTER_FRAME = 0;
 
+/**
+ * The last frame — the cabinet fully apart, every door, hinge and drawer box
+ * hanging in the air. It is the still the admin surface signs in against,
+ * because a catalogue of parts is exactly what is behind that door.
+ */
+export const HERO_EXPLODED_FRAME = HERO_FRAME_COUNT - 1;
+
 export const heroFrameSrc = (index: number): string =>
 	`/hero-frames/${String(index).padStart(3, "0")}.jpg`;
 
