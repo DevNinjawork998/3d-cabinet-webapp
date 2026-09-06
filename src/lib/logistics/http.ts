@@ -137,6 +137,12 @@ export async function carrierFetch<T>(
 				throw error;
 			}
 
+			// A 204, or any 2xx with an empty body, is a success with nothing to
+			// say — Lalamove's `DELETE /v3/orders/{id}` answers that way. Parsing
+			// "" threw, so an order that really had been cancelled reached the
+			// admin as "lalamove responded 204" and the row stayed booked.
+			if (text.trim() === "") return undefined as T;
+
 			try {
 				return JSON.parse(text) as T;
 			} catch {

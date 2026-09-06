@@ -1,17 +1,17 @@
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ImageSlot } from "@/components/admin/ImageSlot";
 import { prisma } from "@/lib/catalogue/db";
-import {
-	finishSlot,
-	HERO_SLOT,
-	roomSlot,
-	siteImageSrc,
-} from "@/lib/catalogue/siteImages";
+import { finishSlot, roomSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 
 /**
  * The photos on the public homepage. No publish step — a dropped photo is
  * live immediately, so the write endpoint purges `/` on the way out.
+ *
+ * There is no hero slot: the homepage hero is the scroll-scrubbed cabinet
+ * sequence in `public/hero-frames`, which is code, not content. `HERO_SLOT`
+ * still exists in `siteImages.ts` so any row already uploaded under it stays
+ * addressable rather than orphaned.
  *
  * Room and finish slots come from the published catalogue rather than a
  * fixed list: the design mocks six finish slots with invented names, but
@@ -42,22 +42,6 @@ export default async function SiteContentPage() {
 						publish step. Drag an image onto any slot below, or click to browse.
 					</p>
 				</div>
-
-				<section>
-					<p className="mb-1 font-semibold text-[12px] text-neutral-600 uppercase tracking-[0.06em]">
-						Hero photo
-					</p>
-					<p className="mb-3 text-[12px] text-neutral-500">
-						Shown at the top of the homepage.
-					</p>
-					<ImageSlot
-						slotKey={HERO_SLOT}
-						placeholder="Drop a photo of a finished kitchen"
-						url={urlFor(HERO_SLOT)}
-						height={280}
-						radius={14}
-					/>
-				</section>
 
 				<section>
 					<p className="mb-1 font-semibold text-[12px] text-neutral-600 uppercase tracking-[0.06em]">

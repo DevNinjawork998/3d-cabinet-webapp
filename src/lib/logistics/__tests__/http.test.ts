@@ -79,6 +79,20 @@ describe("carrierFetch", () => {
 		).rejects.toThrow(/maintenance/);
 	});
 
+	it("takes an empty 2xx as success — Lalamove's cancel answers 204", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(null, { status: 204 })),
+		);
+
+		await expect(
+			carrierFetch("https://example.test/x", {
+				carrierId: "test",
+				method: "DELETE",
+			}),
+		).resolves.toBeUndefined();
+	});
+
 	it("does not retry a call that is not marked idempotent", async () => {
 		const fetchMock = stubFetch(500);
 

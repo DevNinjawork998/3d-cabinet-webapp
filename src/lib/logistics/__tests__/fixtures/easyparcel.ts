@@ -172,6 +172,20 @@ export const cancelReply = {
 	],
 };
 
+/** Same HTTP-200-carries-an-error shape as `submitRefusal` — already collected. */
+export const cancelRefusal = {
+	status_code: 200,
+	message: "0 request success, 1 request error.",
+	data: [
+		{
+			status: "error",
+			message: null,
+			shipment_number: "ES-2602-VC4KV",
+			errors: ["Shipment has been collected and cannot be cancelled"],
+		},
+	],
+};
+
 /** The five webhook topics, from their sample block. */
 export const webhooks = {
 	statusUpdate: {

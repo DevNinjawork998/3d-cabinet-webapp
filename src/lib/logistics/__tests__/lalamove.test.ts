@@ -397,6 +397,7 @@ describe("lalamoveAdapter.track", () => {
 
 describe("lalamoveAdapter.verifyWebhook", () => {
 	const headers = new Headers();
+	const url = new URL("https://example.com/api/webhooks/lalamove");
 
 	it("accepts a payload carrying our api key", () => {
 		const body = JSON.stringify({
@@ -405,7 +406,7 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 			data: { order: { orderId: "9", status: "PICKED_UP" } },
 		});
 
-		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toMatchObject({
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers, url)).toMatchObject({
 			kind: "order",
 			carrierOrderId: "9",
 			update: { status: "PICKED_UP" },
@@ -426,7 +427,7 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 			},
 		});
 
-		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toMatchObject({
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers, url)).toMatchObject({
 			kind: "order",
 			carrierOrderId: "9",
 			update: { driverName: "Ah Meng", vehiclePlate: "W** 12*4" },
@@ -443,7 +444,7 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 			data: { wallet: { balance: "125.40", currency: "MYR" } },
 		});
 
-		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toEqual({
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers, url)).toEqual({
 			kind: "ignored",
 			eventType: "WALLET_BALANCE_CHANGED",
 		});
@@ -455,7 +456,7 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 			eventType: "WALLET_BALANCE_CHANGED",
 			data: { wallet: { balance: "125.40" } },
 		});
-		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toBeNull();
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers, url)).toBeNull();
 	});
 
 	it("rejects a payload carrying someone else's api key", () => {
@@ -463,11 +464,13 @@ describe("lalamoveAdapter.verifyWebhook", () => {
 			apiKey: "pk_test_someone_else",
 			data: { order: { orderId: "9", status: "PICKED_UP" } },
 		});
-		expect(lalamoveAdapter.verifyWebhook?.(body, headers)).toBeNull();
+		expect(lalamoveAdapter.verifyWebhook?.(body, headers, url)).toBeNull();
 	});
 
 	it("rejects junk", () => {
-		expect(lalamoveAdapter.verifyWebhook?.("not json", headers)).toBeNull();
-		expect(lalamoveAdapter.verifyWebhook?.("{}", headers)).toBeNull();
+		expect(
+			lalamoveAdapter.verifyWebhook?.("not json", headers, url),
+		).toBeNull();
+		expect(lalamoveAdapter.verifyWebhook?.("{}", headers, url)).toBeNull();
 	});
 });

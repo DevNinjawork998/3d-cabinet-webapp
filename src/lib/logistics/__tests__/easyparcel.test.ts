@@ -13,12 +13,14 @@ import { WORKSHOP_ADDRESS } from "../carriers";
 import type { DeliveryItem, DeliveryJob } from "../types";
 import { CarrierNotConfigured } from "../types";
 import {
+	cancelRefusal,
 	cancelReply,
 	detailsReply,
 	quotationRefusal,
 	quotationReply,
 	submitRefusal,
 	submitReply,
+	webhooks,
 } from "./fixtures/easyparcel";
 
 const door: DeliveryItem = {
@@ -82,18 +84,21 @@ describe("parcelOf", () => {
 		);
 	});
 
-	it("refuses a carcass — that is a lorry job, not a parcel", () => {
+	it("prices a heavy consignment rather than guessing a courier's cap", () => {
+		// EasyParcel documents no weight limit — caps are each courier's own and
+		// are not published, so the only honest answer to "will a courier take
+		// 500 kg?" comes from their quotation endpoint. This used to throw.
 		const carcass: DeliveryItem = {
 			label: "BC 800mm",
 			qty: 1,
 			widthMm: 800,
 			heightMm: 720,
 			depthMm: 560,
-			weightKg: 45,
+			weightKg: 500,
 		};
-		expect(() =>
-			parcelOf(job({ items: [carcass], totalWeightKg: 45 })),
-		).toThrow(EasyParcelNotDeliverable);
+		expect(
+			parcelOf(job({ items: [carcass], totalWeightKg: 500 })),
+		).toMatchObject({ weight: 500, length: 80, width: 72, height: 56 });
 	});
 
 	it("refuses a job with no items at all", () => {
@@ -374,6 +379,18 @@ describe("submitBody", () => {
 		).toThrow(EasyParcelNotDeliverable);
 	});
 
+	it("refuses a non-Malaysian number rather than mislabelling it MY", () => {
+		// toE164 resolves this to +6591234567 — a real, dialable E.164 number,
+		// so the null-check alone would let it through labelled MY when it is a
+		// Singapore number. This is the guard that catches that.
+		expect(() =>
+			submitBody(job({ customerPhone: "+65 9123 4567" }), "EP-CS096"),
+		).toThrow(EasyParcelNotDeliverable);
+		expect(() =>
+			submitBody(job({ customerPhone: "+65 9123 4567" }), "EP-CS096"),
+		).toThrow(/\+65 9123 4567/);
+	});
+
 	it("describes the items rather than sending an empty parcel", () => {
 		expect(body().shipment[0].item[0].content).toContain("Spare door");
 		expect(body().shipment[0].item[0].quantity).toBe(2);
@@ -383,6 +400,23 @@ describe("submitBody", () => {
 		expect(() => submitBody(job({ siteCity: null }), "EP-CS096")).toThrow(
 			EasyParcelNotDeliverable,
 		);
+	});
+
+	it("refuses a non-workshop pickup with no city, rather than guessing the workshop's", () => {
+		// A real collection address whose city Google's geocode dropped must not
+		// be sent to EasyParcel labelled "Dengkil" — that is the workshop's town,
+		// not this pickup's.
+		expect(() =>
+			submitBody(
+				job({
+					pickupAddress: "12 Jalan Bunga Raya, Subang Jaya",
+					pickupPostcode: "47500",
+					pickupCity: null,
+					pickupState: "MY-10",
+				}),
+				"EP-CS096",
+			),
+		).toThrow(EasyParcelNotDeliverable);
 	});
 });
 
@@ -427,12 +461,31 @@ describe("easyparcelAdapter.book", () => {
 		);
 	});
 
+	it("reports a spent wallet with no shipment number as its own case, not a refusal", async () => {
+		// `status: "success"` but no `shipment_number` — the wallet is spent and
+		// a consignment note exists on their side, so this must not read like the
+		// empty-wallet refusal above: that message would invite exactly the retry
+		// that spends the wallet twice.
+		stubResponses({
+			status_code: 200,
+			message: "1 request success, 0 request error.",
+			data: [{ status: "success", shipment_number: null, errors: [] }],
+		});
+
+		await expect(easyparcelAdapter.book(job(), chosen)).rejects.toThrow(
+			/no shipment number/,
+		);
+	});
+
 	it("is never retried — a resubmit deducts the wallet twice", async () => {
-		const fetchMock = vi.fn(async () => new Response("boom", { status: 500 }));
+		const fetchMock = vi.fn(
+			async (..._args: unknown[]) => new Response("boom", { status: 500 }),
+		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(easyparcelAdapter.book(job(), chosen)).rejects.toThrow();
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(String(fetchMock.mock.calls[0][0])).toContain("submit_orders");
 	});
 
 	it("refuses a quote carrying no service id", async () => {
@@ -515,5 +568,140 @@ describe("easyparcelAdapter.cancel", () => {
 		expect(sent.cancel_list[0].shipment_number).toBe("ES-2602-VC4KV");
 		// `remark` is required by their API, not optional as it reads.
 		expect(sent.cancel_list[0].remark).toBeTruthy();
+	});
+
+	it("rejects when EasyParcel refuses to cancel an already-collected shipment", async () => {
+		stubResponses(cancelRefusal);
+
+		await expect(easyparcelAdapter.cancel?.("ES-2602-VC4KV")).rejects.toThrow(
+			/collected and cannot be cancelled/,
+		);
+	});
+});
+
+describe("easyparcelAdapter.verifyWebhook", () => {
+	const hook = (path: string, body: unknown) =>
+		easyparcelAdapter.verifyWebhook?.(
+			JSON.stringify(body),
+			new Headers(),
+			new URL(`https://example.com${path}`),
+		) ?? null;
+
+	beforeEach(() => {
+		vi.stubEnv("EASYPARCEL_WEBHOOK_TOKEN", "s3cret");
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// From `./fixtures/easyparcel`, so the webhook payloads live beside the
+	// request/response ones and a shape change is still one edit.
+	const statusUpdate = webhooks.statusUpdate;
+
+	it("reads a status update into a tracking update", () => {
+		const event = hook("/api/webhooks/easyparcel?token=s3cret", statusUpdate);
+		expect(event).toEqual({
+			kind: "order",
+			carrierOrderId: "ES-2504-G7FDF",
+			update: expect.objectContaining({ status: "CANCELLED" }),
+		});
+	});
+
+	it("refuses a payload with the wrong token", () => {
+		expect(
+			hook("/api/webhooks/easyparcel?token=wrong", statusUpdate),
+		).toBeNull();
+	});
+
+	it("refuses a payload with no token at all", () => {
+		expect(hook("/api/webhooks/easyparcel", statusUpdate)).toBeNull();
+	});
+
+	it("refuses everything when no token is configured", () => {
+		vi.stubEnv("EASYPARCEL_WEBHOOK_TOKEN", "");
+		expect(hook("/api/webhooks/easyparcel?token=", statusUpdate)).toBeNull();
+	});
+
+	it("reads a tracking update, whose status lives under another key", () => {
+		// Their own sample, typo and all — code 5 is Delivered whatever the
+		// courier's text says, which is exactly why the table is keyed on the code.
+		const event = hook(
+			"/api/webhooks/easyparcel?token=s3cret",
+			webhooks.trackingUpdate,
+		);
+		expect(event).toEqual({
+			kind: "order",
+			carrierOrderId: "ES-2504-G7FDF",
+			update: expect.objectContaining({ status: "DELIVERED" }),
+		});
+	});
+
+	it("accepts an event carrying no shipment rather than answering 400", () => {
+		// `shipment.awb.update` and `shipment.created` are real topics that carry
+		// no status. A carrier that gets an error back resends for hours.
+		const event = hook(
+			"/api/webhooks/easyparcel?token=s3cret",
+			webhooks.awbUpdate,
+		);
+		expect(event).toEqual({
+			kind: "order",
+			carrierOrderId: "ES-2504-G7FDF",
+			update: expect.objectContaining({ status: null }),
+		});
+	});
+
+	it("ignores a topic with no shipment number", () => {
+		const event = hook(
+			"/api/webhooks/easyparcel?token=s3cret",
+			webhooks.ondemandUpdate,
+		);
+		expect(event).toEqual({
+			kind: "ignored",
+			eventType: "ondemand.status.update",
+		});
+	});
+
+	it("refuses a body that is not JSON", () => {
+		expect(
+			easyparcelAdapter.verifyWebhook?.(
+				"not json",
+				new Headers(),
+				new URL("https://example.com/api/webhooks/easyparcel?token=s3cret"),
+			),
+		).toBeNull();
+	});
+});
+
+describe("endpoint's refusal message", () => {
+	const NOWHERE = { sitePostcode: null, siteState: null };
+
+	afterEach(() => {
+		// Assigning `undefined` to process.env stores the STRING "undefined",
+		// which is non-empty and therefore reads as a configured key. Delete it.
+		delete process.env.GOOGLE_GEOCODING_API_KEY;
+	});
+
+	it("blames the missing key, not the address, when there is no key", () => {
+		// Re-saving cannot fill a postcode nothing is geocoding, so "edit it and
+		// save again" is a loop with no exit. This is the message that used to
+		// send an admin round it.
+		delete process.env.GOOGLE_GEOCODING_API_KEY;
+		expect(() => quotationBody(job(NOWHERE))).toThrow(
+			/GOOGLE_GEOCODING_API_KEY/,
+		);
+	});
+
+	it("names the state when the state is the half that is missing", () => {
+		process.env.GOOGLE_GEOCODING_API_KEY = "k";
+		expect(() =>
+			quotationBody(job({ sitePostcode: "40400", siteState: null })),
+		).toThrow(/no state we could read/);
+	});
+
+	it("names the postcode when the postcode is the half that is missing", () => {
+		process.env.GOOGLE_GEOCODING_API_KEY = "k";
+		expect(() =>
+			quotationBody(job({ sitePostcode: null, siteState: "MY-10" })),
+		).toThrow(/no postcode we could read/);
 	});
 });

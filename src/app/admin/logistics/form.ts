@@ -32,6 +32,7 @@ export type DeliveryRow = {
 	quotedPriceRm: number | null;
 	carrierOrderId: string | null;
 	trackingUrl: string | null;
+	labelUrl: string | null;
 	driverName: string | null;
 	driverPhone: string | null;
 	vehiclePlate: string | null;

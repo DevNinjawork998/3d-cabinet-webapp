@@ -188,8 +188,16 @@ export interface CarrierAdapter {
 	 * Returns null for anything that fails verification — the caller turns that
 	 * into a 400 and writes nothing. Absent when the partner has no callbacks
 	 * and is tracked by poll only.
+	 *
+	 * `url` is the request's own URL, and it is not decoration: EasyParcel signs
+	 * nothing at all, so a secret in the registered callback URL is the entire
+	 * identity check available for that partner. Lalamove ignores it.
 	 */
-	verifyWebhook?(rawBody: string, headers: Headers): CarrierWebhookEvent | null;
+	verifyWebhook?(
+		rawBody: string,
+		headers: Headers,
+		url: URL,
+	): CarrierWebhookEvent | null;
 }
 
 /** Thrown by the registry when a partner's credentials are not in the env. */

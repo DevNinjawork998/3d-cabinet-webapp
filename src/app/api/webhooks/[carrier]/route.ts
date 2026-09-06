@@ -48,7 +48,11 @@ export async function POST(
 
 	let event: CarrierWebhookEvent | null;
 	try {
-		event = adapter.verifyWebhook(rawBody, request.headers);
+		event = adapter.verifyWebhook(
+			rawBody,
+			request.headers,
+			new URL(request.url),
+		);
 	} catch {
 		event = null;
 	}

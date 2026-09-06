@@ -193,7 +193,18 @@ export async function resolveCoordinates(
 			state: place.state,
 		};
 	}
-	if (current.geocodedFor === address && current.lat !== null) {
+	// The postcode has to be part of this test, not just the pin: a row saved
+	// before the `20260905181525_delivery_place_and_label` migration has a pin
+	// and no place, and if the pin alone satisfied this, editing that row could
+	// never back-fill the postcode EasyParcel needs — every re-save would hit
+	// this branch and hand back the same unquotable row. Requiring the postcode
+	// too means such a row geocodes once here and then stays cached like any
+	// other.
+	if (
+		current.geocodedFor === address &&
+		current.lat !== null &&
+		current.postcode !== null
+	) {
 		return current;
 	}
 	const found = await geocodeAddress(address);

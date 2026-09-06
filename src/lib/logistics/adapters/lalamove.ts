@@ -465,9 +465,11 @@ export const lalamoveAdapter: CarrierAdapter = {
 
 	async cancel(carrierOrderId): Promise<void> {
 		// Lalamove refuses once a driver has been matched for more than five
-		// minutes (409 ERR_CANCELLATION_FORBIDDEN). The caller turns that into a
-		// message rather than swallowing it — a job that could not be cancelled
-		// still has a lorry on its way.
+		// minutes, and on an order already cancelled — both as
+		// `422 ERR_CANCELLATION`. The caller turns that into a message rather
+		// than swallowing it: a job that could not be cancelled still has a
+		// lorry on its way. Success is `204` with no body, which is why
+		// `carrierFetch` has to allow an empty 2xx.
 		await call("DELETE", `/v3/orders/${carrierOrderId}`);
 	},
 

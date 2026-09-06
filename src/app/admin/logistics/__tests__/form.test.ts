@@ -31,6 +31,7 @@ const row: DeliveryRow = {
 	quotedPriceRm: null,
 	carrierOrderId: null,
 	trackingUrl: null,
+	labelUrl: null,
 	driverName: null,
 	driverPhone: null,
 	vehiclePlate: null,

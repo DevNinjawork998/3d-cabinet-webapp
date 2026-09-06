@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/logistics/tokens";
 
 export const runtime = "nodejs";
@@ -10,14 +10,12 @@ export const runtime = "nodejs";
  * browser round trip, and the admin should land back where they started with a
  * banner saying what happened.
  */
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
 	const url = new URL(request.url);
 	const code = url.searchParams.get("code") ?? "";
 	const state = url.searchParams.get("state") ?? "";
 
-	const expected = request.headers
-		.get("cookie")
-		?.match(/easyparcel_oauth_state=([^;]+)/)?.[1];
+	const expected = request.cookies.get("easyparcel_oauth_state")?.value;
 
 	const done = (result: string) => {
 		const back = new URL("/admin/logistics", url.origin);

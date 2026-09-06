@@ -213,6 +213,34 @@ describe("resolveCoordinates", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
+	it("re-geocodes a pre-migration row that has a pin but no postcode", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(okResponse("ROOFTOP"));
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Jalan PJU 5/20",
+					postcode: null,
+					city: null,
+					state: null,
+				},
+				null,
+			),
+		).toEqual({
+			lat: 3.1509,
+			lng: 101.5931,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
+		expect(fetchMock).toHaveBeenCalled();
+	});
+
 	it("geocodes when the address changed", async () => {
 		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
 		stubFetch(okResponse("ROOFTOP"));

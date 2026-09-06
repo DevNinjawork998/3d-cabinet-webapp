@@ -62,23 +62,48 @@ export async function POST(
 			try {
 				await adapter.cancel(delivery.carrierOrderId);
 			} catch (error) {
-				// Record the attempt, then refuse. The admin has to ring the
-				// carrier, and the row must not read "cancelled" until they have.
+				// A refusal is not always a live job. Lalamove answers the same
+				// `422 ERR_CANCELLATION` whether the cancel window has closed or
+				// the order is already cancelled — and an order cancelled in the
+				// carrier's own dashboard would otherwise leave this row stuck
+				// booked for ever, since every retry refuses the same way. So ask
+				// what state the order is actually in before refusing.
+				let carrierStatus: DeliveryStatusName | null = null;
+				try {
+					carrierStatus = (await adapter.track(delivery.carrierOrderId)).status;
+				} catch {
+					// The refusal is what matters; a failed second call must not
+					// replace its message.
+				}
+
+				if (carrierStatus !== "CANCELLED") {
+					// Record the attempt, then refuse. The admin has to ring the
+					// carrier, and the row must not read "cancelled" until they have.
+					await prisma.deliveryEvent.create({
+						data: {
+							deliveryId: id,
+							source: "ADMIN",
+							actor,
+							message: `Cancelling with ${delivery.carrierId} failed: ${(error as Error).message}`,
+						},
+					});
+					return NextResponse.json(
+						{
+							error: "carrier_refused_cancel",
+							message: (error as Error).message,
+						},
+						{ status: 409 },
+					);
+				}
+
 				await prisma.deliveryEvent.create({
 					data: {
 						deliveryId: id,
 						source: "ADMIN",
 						actor,
-						message: `Cancelling with ${delivery.carrierId} failed: ${(error as Error).message}`,
+						message: `${delivery.carrierId} reports this order was already cancelled`,
 					},
 				});
-				return NextResponse.json(
-					{
-						error: "carrier_refused_cancel",
-						message: (error as Error).message,
-					},
-					{ status: 409 },
-				);
 			}
 		}
 	}

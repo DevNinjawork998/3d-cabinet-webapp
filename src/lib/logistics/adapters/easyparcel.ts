@@ -1,11 +1,8 @@
 import "server-only";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import {
-	pickupPlace,
-	WORKSHOP_ADDRESS,
-	WORKSHOP_CITY,
-	WORKSHOP_PHONE,
-} from "../carriers";
+import { pickupPlace, WORKSHOP_ADDRESS, WORKSHOP_PHONE } from "../carriers";
+import { isGeocodingConfigured } from "../geocode";
 import { carrierFetch } from "../http";
 import { longestEdgeMm } from "../measure";
 import { easyparcelAppConfigured } from "../oauth";
@@ -17,9 +14,40 @@ import type {
 	CarrierAdapter,
 	CarrierBooking,
 	CarrierQuote,
+	CarrierWebhookEvent,
 	DeliveryJob,
 	TrackingUpdate,
 } from "../types";
+
+const WEBHOOK_TOKEN = () => process.env.EASYPARCEL_WEBHOOK_TOKEN ?? "";
+
+/** Constant-time, and length-safe — `timingSafeEqual` throws on a length mismatch. */
+function secretsMatch(a: string, b: string): boolean {
+	const left = Buffer.from(a);
+	const right = Buffer.from(b);
+	return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/**
+ * EasyParcel's webhook payloads, loose on purpose.
+ *
+ * Five topics, and only two of them carry a status. The rest — an AWB being
+ * issued, a shipment being created, an OnDemand order we did not book — still
+ * have to parse, because a schema tight enough to validate one of them answers
+ * 400 to the others and EasyParcel resends those for hours. Same lesson as
+ * `cf31ac1` on the Lalamove side.
+ */
+const webhookSchema = z.looseObject({
+	topic: z.string().nullish(),
+	shipment_number: z.string().nullish(),
+	awb_number: z.string().nullish(),
+	// `shipment.status.update` carries this pair…
+	shipment_status_code: z.number().nullish(),
+	shipment_status: z.string().nullish(),
+	// …and `shipment.tracking.update` carries this one.
+	latest_shipment_status_code: z.number().nullish(),
+	latest_tracking_status: z.string().nullish(),
+});
 
 /**
  * EasyParcel — the parcel partner, and the one that fronts every Malaysian
@@ -61,17 +89,30 @@ export class EasyParcelNotDeliverable extends Error {
  * The point past which a consignment stops being a parcel.
  *
  * `carriers.ts` already draws this line — the `vehicle` partners move finished
- * carcasses and the `parcel` ones carry hardware, samples and spare doors. These
- * are the caps that make that comment enforceable rather than advisory: an
- * 800mm base unit fails the girth and weight limits of every courier on the
- * platform, and asking anyway returns a price nobody will honour at the counter.
+ * carcasses and the `parcel` ones carry hardware, samples and spare doors.
  *
- * ponytail: one conservative pair of numbers across all couriers rather than
- * per-courier limits from `courier/list`. Raise them if a real consignment is
- * refused that a courier would have taken.
+ * There is **no weight cap here any more**, because EasyParcel publishes none:
+ * their `shipment/quotation` takes `weight` as a bare `double(8,2)` in KG with
+ * no documented minimum or maximum, caps are each courier's own, and the only
+ * thing they say about it is the error string `"Weight exceeds service limits"`.
+ * `courier/list` cannot be asked either — it returns `courier_id`, `uuid`,
+ * `courier_name`, `short_name`, `courier_logo` and `country`, and nothing about
+ * what any of them will carry. A 30 kg guess here refused jobs some couriers
+ * would have taken, and reported the refusal in EasyParcel's voice. Their
+ * quotation endpoint is the only authority on what a courier will accept, so
+ * the job goes out and their answer is what the admin reads — `quote()` already
+ * surfaces both shapes it can come back as: their own per-shipment `errors`,
+ * and an empty rate list.
+ *
+ * The edge cap stays, and is a different kind of number: it is a *gauge*, not a
+ * price. A 2.4m panel does not fit through a courier's counter at any weight,
+ * and unlike weight there is no cheap way to find that out — a quotation that
+ * ignores dimensions will happily return a rate for it.
+ *
+ * ponytail: one conservative edge across all couriers. Raise it if a real
+ * consignment is refused that a courier would have taken.
  */
 export const MAX_EDGE_MM = 1_500;
-export const MAX_WEIGHT_KG = 30;
 
 /** Millimetres to centimetres, never rounding a real dimension down to zero. */
 export function mmToCm(mm: number): number {
@@ -112,12 +153,6 @@ export function parcelOf(job: DeliveryJob): Parcel {
 			"EasyParcel prices by weight and nothing on this job is weighed — add a weight to each line",
 		);
 	}
-	if (job.totalWeightKg > MAX_WEIGHT_KG) {
-		throw new EasyParcelNotDeliverable(
-			`${job.totalWeightKg} kg is past what a courier will take — this is a lorry job`,
-		);
-	}
-
 	// Checked against the whole job, not just the chosen box below — a long
 	// item can lose the volume contest and still be the one a courier refuses.
 	const longestEdge = longestEdgeMm(job.items);
@@ -154,16 +189,43 @@ function endpoint(
 	which: string,
 ): Endpoint {
 	if (postcode === null || state === null) {
-		trace("easyparcel.refused", { why: "no place", end: which });
+		trace("easyparcel.refused", {
+			why: "no place",
+			end: which,
+			postcode,
+			state,
+		});
+
+		// "Edit it and save again" is only advice when re-saving could actually
+		// help. With no geocoding key there is nothing to re-read the address
+		// with, so every save leaves these fields null and the admin is sent
+		// round a loop that cannot terminate — a correct message pointing at the
+		// wrong thing, which is worse than no message. Name the missing field
+		// too: this throws on either half, and telling someone their postcode is
+		// unreadable when the state is what is missing sends them to edit a line
+		// that is already right.
+		if (!isGeocodingConfigured()) {
+			throw new EasyParcelNotDeliverable(
+				`This deployment has no geocoding key, so no address has a postcode — EasyParcel prices by postcode and cannot quote until GOOGLE_GEOCODING_API_KEY is set`,
+			);
+		}
+
+		const missing =
+			postcode === null && state === null
+				? "postcode or state"
+				: postcode === null
+					? "postcode"
+					: "state";
 		throw new EasyParcelNotDeliverable(
-			`The ${which} address has no postcode we could read — edit it and save again`,
+			`The ${which} address has no ${missing} we could read — edit it and save again`,
 		);
 	}
 	return { postcode, subdivision_code: state, country: COUNTRY };
 }
 
 /**
- * A required `city` for `submit_orders`, refused rather than sent empty.
+ * A required `city` for `submit_orders`, refused rather than sent empty (or
+ * guessed).
  *
  * Asymmetric with `endpoint` on purpose: the quotations payload built by
  * `quotationBody` below sends no city at all — `shipment/quotations` does not
@@ -172,6 +234,14 @@ function endpoint(
  * at booking time, which is the worst possible moment — after the admin has
  * compared partners, picked a courier, and clicked book. Refuse here instead,
  * before the call goes out.
+ *
+ * Used for both ends. `pickupPlace` supplies `city` together with `postcode`
+ * and `state` whenever it returns the workshop's own place, so a workshop
+ * pickup never reaches this function's failure path — the only address this
+ * can actually refuse is a real, non-workshop pickup whose city Google's
+ * `readPlace` dropped. There is no workshop fallback for that case any more
+ * than there is one for the receiver: guessing a city on a real address would
+ * label a courier's collection point with somewhere it is not.
  */
 function cityOf(city: string | null, which: string): string {
 	if (city === null || city.trim() === "") {
@@ -232,7 +302,11 @@ export function collectionDate(scheduledAt: Date | null): string {
  */
 function phoneParts(raw: string, whose: string) {
 	const e164 = toE164(raw);
-	if (e164 === null) {
+	// `toE164` defaults to a Malaysian country code but does not refuse a
+	// number typed with a different one (`+65…`) — and this app only ever
+	// labels a number `MY`. Refuse here rather than mislabel a Singapore
+	// number as Malaysian at the one moment this task exists to protect.
+	if (e164 === null || !e164.startsWith("+60")) {
 		throw new EasyParcelNotDeliverable(
 			`The ${whose} phone number (${raw}) is not a number a courier can call`,
 		);
@@ -283,7 +357,7 @@ export function submitBody(job: DeliveryJob, serviceId: string) {
 							? WORKSHOP_ADDRESS
 							: job.pickupAddress,
 					postcode: senderEnd.postcode,
-					city: sender.city ?? WORKSHOP_CITY,
+					city: cityOf(sender.city, "pickup"),
 					subdivision_code: senderEnd.subdivision_code,
 					country_code: COUNTRY,
 				},
@@ -334,6 +408,16 @@ const detailsSchema = z.object({
 				awb_number: z.string().nullish(),
 				tracking_url: z.string().nullish(),
 			}),
+		}),
+	),
+});
+
+const cancelSchema = z.object({
+	data: z.array(
+		z.object({
+			status: z.string(),
+			message: z.string().nullish(),
+			errors: z.array(z.string()).default([]),
 		}),
 	),
 });
@@ -522,9 +606,20 @@ export const easyparcelAdapter: CarrierAdapter = {
 		);
 
 		const first = parsed.data[0];
-		if (!first || first.status !== "success" || !first.shipment_number) {
+		if (!first || first.status !== "success") {
 			throw new Error(
 				first?.errors.join("; ") || "EasyParcel refused the shipment",
+			);
+		}
+		if (!first.shipment_number) {
+			// The wallet has already been spent and a consignment note exists on
+			// EasyParcel's side — this is not a refusal, and reporting it as one
+			// would invite a retry that spends it twice. `carrierOrderId` never
+			// reached the DB, so `book/route.ts`'s already-booked guard cannot
+			// catch that retry either; the message is the only thing standing
+			// between the admin and a double charge.
+			throw new Error(
+				"EasyParcel accepted the shipment but returned no shipment number — check the EasyParcel portal before booking again",
 			);
 		}
 
@@ -567,17 +662,94 @@ export const easyparcelAdapter: CarrierAdapter = {
 		};
 	},
 
+	/**
+	 * EasyParcel signs nothing — no HMAC, no shared header, no timestamp. The
+	 * only identity available is a secret we choose ourselves and register as
+	 * part of the callback URL in their Developer Hub:
+	 *
+	 *     https://…/api/webhooks/easyparcel?token=<EASYPARCEL_WEBHOOK_TOKEN>
+	 *
+	 * Compared in constant time, and an absent or empty token refuses everything
+	 * — a deployment that forgot to set it must reject callbacks rather than
+	 * accept anyone's.
+	 *
+	 * ponytail: a URL secret is only as private as their dashboard and our
+	 * access logs. It is bounded by the route acting on a `carrierOrderId` we
+	 * already own, and by `isForwardTransition` refusing to reopen a finished
+	 * job. Upgrade path is polling for confirmation before writing, which costs
+	 * a call per callback.
+	 */
+	verifyWebhook(rawBody, _headers, url): CarrierWebhookEvent | null {
+		const expected = WEBHOOK_TOKEN();
+		if (expected === "") return null;
+		if (!secretsMatch(url.searchParams.get("token") ?? "", expected)) {
+			return null;
+		}
+
+		let parsed: z.infer<typeof webhookSchema>;
+		try {
+			parsed = webhookSchema.parse(JSON.parse(rawBody));
+		} catch {
+			return null;
+		}
+
+		const topic = parsed.topic ?? null;
+
+		// The one place an undocumented payload can be read from: every event
+		// EasyParcel sends passes through here, whether we act on it or not.
+		trace("easyparcel.webhook", { topic, body: parsed });
+
+		const shipmentNumber = parsed.shipment_number ?? "";
+		if (shipmentNumber === "") {
+			// An OnDemand order, or a topic added after this was written. We do not
+			// book OnDemand — see the note at the top of this file.
+			return { kind: "ignored", eventType: topic };
+		}
+
+		const code =
+			parsed.shipment_status_code ?? parsed.latest_shipment_status_code ?? null;
+		const text =
+			parsed.shipment_status ?? parsed.latest_tracking_status ?? "no status";
+
+		return {
+			kind: "order",
+			carrierOrderId: shipmentNumber,
+			update: {
+				status:
+					code === null ? null : mapCarrierStatus("easyparcel", String(code)),
+				message: `EasyParcel ${topic ?? "webhook"}: ${text}`,
+				raw: parsed,
+			},
+		};
+	},
+
 	async cancel(carrierOrderId): Promise<void> {
-		// EasyParcel refuses once a courier has collected. The caller turns that
-		// into a message rather than swallowing it — a shipment that could not be
-		// cancelled is still on its way.
-		await call("/shipment/cancel", {
-			cancel_list: [
-				{
-					shipment_number: carrierOrderId,
-					remark: "Cancelled by Infinite Cabinet",
-				},
-			],
-		});
+		// EasyParcel refuses once a courier has collected, and signals it the
+		// same way as every other endpoint here — HTTP 200 with `data[0].status`
+		// set to "error" — so this has to be parsed and checked like the other
+		// two, not just awaited. The caller (`advance/route.ts`) relies entirely
+		// on this throwing: with no throw it would fall straight through to
+		// marking the job CANCELLED while the parcel is still moving.
+		const parsed = readReply(
+			cancelSchema,
+			await call("/shipment/cancel", {
+				cancel_list: [
+					{
+						shipment_number: carrierOrderId,
+						remark: "Cancelled by Infinite Cabinet",
+					},
+				],
+			}),
+			"cancel",
+		);
+
+		const first = parsed.data[0];
+		if (first?.status !== "success") {
+			throw new Error(
+				first?.errors.join("; ") ||
+					first?.message ||
+					"EasyParcel would not cancel this shipment",
+			);
+		}
 	},
 };

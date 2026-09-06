@@ -12,6 +12,10 @@ const geistMono = Geist_Mono({
 	subsets: ["latin"],
 });
 
+// Admin reads live rows behind a login — never bake a build-time snapshot of
+// the catalogue, tutorials or deliveries into a static page.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
 	title: "Infinite Cabinet · Admin",
 	description: "Internal catalogue, design and site-content admin.",

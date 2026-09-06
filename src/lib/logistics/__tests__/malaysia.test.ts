@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { subdivisionCode } from "../malaysia";
+import { MALAYSIAN_STATES, subdivisionCode } from "../malaysia";
 
 describe("subdivisionCode", () => {
 	it("maps the states Google actually returns", () => {
@@ -35,5 +35,20 @@ describe("subdivisionCode", () => {
 	it("returns null for a name it does not know", () => {
 		expect(subdivisionCode("Singapore")).toBeNull();
 		expect(subdivisionCode("")).toBeNull();
+	});
+});
+
+describe("MALAYSIAN_STATES", () => {
+	it("offers every state the code table knows, and nothing it does not", () => {
+		// The picker is the only way a state reaches the form, so an entry
+		// `subdivisionCode` cannot resolve would be an option that saves as null.
+		for (const state of MALAYSIAN_STATES) {
+			expect(subdivisionCode(state.name)).toBe(state.code);
+		}
+	});
+
+	it("covers all sixteen subdivisions, with no duplicate codes", () => {
+		expect(MALAYSIAN_STATES).toHaveLength(16);
+		expect(new Set(MALAYSIAN_STATES.map((s) => s.code)).size).toBe(16);
 	});
 });

@@ -40,6 +40,38 @@ const CODES: Record<string, string> = {
  */
 const PREFIX = /^(wilayah persekutuan|federal territory of|w\.?p\.?|ft)\s+/;
 
+/**
+ * The thirteen states and three federal territories, canonically spelled, for
+ * the admin form's state picker.
+ *
+ * A picker rather than a text box because this field only ever reaches
+ * EasyParcel as `subdivision_code`, and the whole reason `CODES` above has two
+ * keys for Melaka and two for Penang is that free text arrives spelled however
+ * the typist felt. An admin choosing from a list cannot produce a spelling
+ * `subdivisionCode` refuses.
+ *
+ * Ordered by code, which is also roughly alphabetical by the name Malaysians
+ * use — and stable, unlike sorting by display name across two languages.
+ */
+export const MALAYSIAN_STATES: { code: string; name: string }[] = [
+	{ code: "MY-01", name: "Johor" },
+	{ code: "MY-02", name: "Kedah" },
+	{ code: "MY-03", name: "Kelantan" },
+	{ code: "MY-04", name: "Melaka" },
+	{ code: "MY-05", name: "Negeri Sembilan" },
+	{ code: "MY-06", name: "Pahang" },
+	{ code: "MY-07", name: "Pulau Pinang" },
+	{ code: "MY-08", name: "Perak" },
+	{ code: "MY-09", name: "Perlis" },
+	{ code: "MY-10", name: "Selangor" },
+	{ code: "MY-11", name: "Terengganu" },
+	{ code: "MY-12", name: "Sabah" },
+	{ code: "MY-13", name: "Sarawak" },
+	{ code: "MY-14", name: "Kuala Lumpur" },
+	{ code: "MY-15", name: "Labuan" },
+	{ code: "MY-16", name: "Putrajaya" },
+];
+
 export function subdivisionCode(stateName: string): string | null {
 	const trimmed = stateName.trim();
 	if (trimmed === "") return null;

@@ -27,6 +27,42 @@ body {
 }
 
 /*
+ * The ground under the hero's cabinet stage.
+ *
+ * Not flat paper. The render carries a studio vignette — its own grey runs from
+ * #b9bab4 at the frame's corners to #d5d6d0 under the cabinet — so against a
+ * flat background the masked stage floats in a visible dark ellipse. This is
+ * that vignette continued outward, centred wherever the stage is, so the
+ * frame's grey and the page's paper are one wash.
+ *
+ * It gets DARKER before it resolves to paper, because the render does: its
+ * darkest grey is at the frame's edges, not its middle, and a gradient that
+ * only lightened outward left the mask dissolving a dark ring into a pale page.
+ */
+[data-hero-ground] {
+	background: radial-gradient(
+		ellipse 92% 30% at 50% 74%,
+		#d6d7d1 0%,
+		#c8c9c3 66%,
+		#d8d9d3 86%,
+		#e9e7e3 100%
+	);
+}
+
+/* Beside the copy rather than under it, so the wash moves with the stage. */
+@media (min-width: 1024px) {
+	[data-hero-ground] {
+		background: radial-gradient(
+			ellipse 52% 72% at 66% 50%,
+			#d6d7d1 0%,
+			#c8c9c3 66%,
+			#d8d9d3 86%,
+			#e9e7e3 100%
+		);
+	}
+}
+
+/*
  * Scroll choreography.
  *
  * Every rule here is scoped under `[data-beats="on"]`, which only a mounted
@@ -52,10 +88,8 @@ body {
 	/* Each fallback is chosen so that an unknown `--p` renders the READABLE
 	   state — not a fixed number. It defends the instant before the first
 	   `write()`, and any future path that sets `data-beats` without a paired
-	   write. The two differ because the beats point in opposite directions:
-	   the photo's is an arrival (1 = settled), the copy's is a departure
-	   (0 = still here, fully legible). */
-	--beat-photo: clamp(0, calc(var(--p, 1) / 0.75), 1);
+	   write.
+	   the copy's is a departure (0 = still here, fully legible). */
 	--beat-exit: clamp(0, calc((var(--p, 0) - 0.55) / 0.45), 1);
 }
 
@@ -70,12 +104,9 @@ body {
 	will-change: transform, opacity;
 }
 
-[data-beats="on"] [data-beat="hero-photo"] {
-	/* The photograph settles back as the words arrive. Transform only — the
-	   image box never changes size, so nothing re-lays-out. */
-	transform: scale(calc(1.08 - var(--beat-photo) * 0.08));
-	will-change: transform;
-}
+/* There is no `hero-photo` beat any more. The hero's motion IS the frame
+   sequence now, and scaling the canvas it draws into would resample every
+   frame — a slow blur over the one element the section exists to show. */
 
 /* Arrive-on-entry, for the sections below the pinned hero. Same contract: the
    revealed state is the default, and only a mounted observer can take it away

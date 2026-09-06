@@ -1,14 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import RevealOnEnter from "@/components/scroll/RevealOnEnter";
+import ScrollSequence from "@/components/scroll/ScrollSequence";
 import ScrollTrack from "@/components/scroll/ScrollTrack";
 import { prisma } from "@/lib/catalogue/db";
-import {
-	finishSlot,
-	HERO_SLOT,
-	roomSlot,
-	siteImageSrc,
-} from "@/lib/catalogue/siteImages";
+import { finishSlot, roomSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { getPublishedPlannerCatalogue } from "@/lib/catalogue/store";
 import { getDictionary } from "@/lib/copy/dictionary";
 import type { Dictionary } from "@/lib/copy/en";
@@ -18,6 +14,7 @@ import type { RoomTypeId } from "@/lib/planner/catalogue";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
 import { plannerEngine } from "@/lib/planner/layout";
 import { computePlannerPrice } from "@/lib/planner/pricing";
+import { HERO_POSTER_FRAME, heroFrameSrc } from "@/lib/scroll/sequence";
 
 /**
  * Design tokens for this page, stated once.
@@ -35,6 +32,19 @@ const ACCENT = "#2c5f47";
 const PAPER = "#e9e7e3";
 const RAISED = "#fdfcfb";
 const RULE = "#d9d5cd";
+
+/**
+ * How the hero's cabinet stage meets the page. See the stage's own comment —
+ * the frames are vignetted, so the edge has to dissolve rather than stop, into
+ * the `data-hero-ground` wash in `globals.css`.
+ *
+ * `closest-side` is load-bearing: the default sizing is `farthest-corner`,
+ * which puts the box's own edges at 71% of the gradient and therefore inside
+ * any opaque stop worth having — a mask that leaves four hard edges exactly
+ * where it was added to remove them.
+ */
+const HERO_STAGE_MASK =
+	"radial-gradient(ellipse closest-side at 50% 50%, #000 0 74%, transparent 100%)";
 
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
@@ -229,78 +239,88 @@ export default async function Home({
 				</div>
 			</header>
 
-			{/* Hero — full bleed.
-			    The photograph is the argument. A kitchen someone can imagine
-			    standing in does more work than any sentence, which is why this
-			    stopped being a column of text beside a swatch: the image is now
-			    the section, and the words sit on it.
+			{/* Hero — full bleed, and the one place the product argues for itself.
 
-			    It has to hold up before that photo exists, though — the
-			    `SiteImage` table starts empty and the client's photography
-			    arrives when it arrives. So the fallback is not a grey box
-			    waiting to be replaced: it is the finish the planner actually
-			    renders on its doors, banded into a deep gradient, which reads as
-			    a deliberate dark hero rather than a hole. One upload to the
-			    `hero` slot at /admin/site-content swaps it, no code change. */}
-			<ScrollTrack viewports={1.7}>
-				<section className="relative isolate flex h-full w-full items-center overflow-hidden">
+			    It is not a photograph. It is a rendered cabinet coming apart as you
+			    scroll: the carcass, the doors, the hinges, the drawer boxes, drawn
+			    frame by frame off `--p`. A photograph of a finished kitchen says the
+			    same thing every competitor's homepage says; the explosion says the
+			    thing only this company can say, which is that the cabinet is a known
+			    set of parts they can quote you on today.
+
+			    The frames are light grey, so this hero is light — dark ink on paper,
+			    not the white-on-black it was while a photo was behind it.
+
+			    It has to hold up with no sequence at all: `ScrollSequence` refuses to
+			    run under 900px or on reduced motion, and never fetches its 1.7 MB
+			    there. Underneath is a plain `<img>` of frame 0, the cabinet assembled
+			    — which is the honest still, and the LCP element. */}
+			<ScrollTrack viewports={3}>
+				{/* `data-hero-ground` is a gradient in `globals.css` rather than a
+				    style here, because it has to follow the stage across the
+				    breakpoint and an inline style cannot hold a media query. */}
+				<section
+					data-hero-ground
+					className="relative isolate flex h-full w-full items-center overflow-hidden"
+				>
+					{/* The stage. Full width where the copy sits over it, the right
+					    side of the section once there is room for the two side by
+					    side — the frames are composed tightly enough that a
+					    full-bleed cabinet runs straight through the headline.
+
+					    The box is 16:9 because the frames are, so the picture fills
+					    it exactly and its edge and the box's are the same edge — which
+					    is what lets one mask handle both.
+
+					    That mask is structural, not decoration. The render carries a
+					    studio vignette, so the frame's grey is several shades off
+					    the section's at its corners and any hard boundary reads as a
+					    rectangle pasted onto the page. It stays fully opaque across
+					    the cabinet's own width at full explosion and only dissolves
+					    in the empty studio margin outside it. The
+					    poster and the canvas share this one box so the still and the
+					    sequence land in exactly the same place — otherwise the
+					    cabinet would jump the moment the first frame decoded. */}
 					<div
-						className="absolute inset-0 -z-20 bg-neutral-900"
-						data-beat="hero-photo"
+						className="-z-20 -right-[18%] absolute bottom-[14%] aspect-[16/9] w-[136%] lg:-translate-y-1/2 lg:top-1/2 lg:right-0 lg:bottom-auto lg:w-[68%]"
+						style={{
+							maskImage: HERO_STAGE_MASK,
+							WebkitMaskImage: HERO_STAGE_MASK,
+						}}
 					>
-						<Photo
-							url={photo.get(HERO_SLOT) ?? null}
+						{/* biome-ignore lint/performance/noImgElement: ships in the repo,
+						    and it has to share a box with a canvas next/image can't size */}
+						<img
+							src={heroFrameSrc(HERO_POSTER_FRAME)}
 							alt={t.landing.hero.alt}
-							fallbackSrc={DEFAULT_FINISH_TEXTURES["rhone-oak"]}
-							className="h-full w-full"
+							className="h-full w-full object-contain"
 						/>
+						<ScrollSequence />
 					</div>
-
-					{/* Two overlays, not one. A flat scrim dims the photo evenly and
-					    leaves the text no more legible than before; this darkens the
-					    left, where the words are, and lets the right side of the
-					    photograph stay bright. The bottom fade is what stops the
-					    headline fighting whatever the camera found down there. */}
-					<div
-						className="-z-10 absolute inset-0"
-						style={{
-							background:
-								"linear-gradient(100deg, rgba(14,15,14,.86) 0%, rgba(14,15,14,.72) 38%, rgba(14,15,14,.22) 78%, rgba(14,15,14,.12) 100%)",
-						}}
-						aria-hidden
-					/>
-					<div
-						className="-z-10 absolute inset-x-0 bottom-0 h-1/3"
-						style={{
-							background:
-								"linear-gradient(to top, rgba(14,15,14,.55), transparent)",
-						}}
-						aria-hidden
-					/>
 
 					<div
 						data-beat="hero-copy"
-						className="mx-auto flex min-h-[clamp(460px,68vh,640px)] w-full max-w-[1180px] flex-col justify-center px-6 py-20 sm:px-8 sm:py-24"
+						className="mx-auto flex h-full w-full max-w-[1180px] flex-col justify-start px-6 pt-[7vh] pb-20 sm:px-8 lg:h-auto lg:min-h-[clamp(460px,68vh,640px)] lg:justify-center lg:py-24"
 					>
-						<p className="mb-5 font-semibold text-[11px] text-white/70 uppercase tracking-[0.16em]">
+						<p className="mb-5 font-semibold text-[11px] text-neutral-500 uppercase tracking-[0.16em]">
 							{t.landing.hero.eyebrow}
 						</p>
 						{/* The accent word is the product, not decoration — the template
 						    this follows colours a noun, and the noun worth colouring
 						    here is the thing nobody else in the market offers. */}
-						<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-white leading-[1.02] tracking-[-0.02em]">
+						<h1 className="max-w-[15ch] text-balance font-bold text-[clamp(38px,6vw,68px)] text-neutral-900 leading-[1.02] tracking-[-0.02em]">
 							{t.landing.hero.titleBeforeAccent}{" "}
-							<span style={{ color: "#8fc4a8" }}>
+							<span style={{ color: ACCENT }}>
 								{t.landing.hero.titleAccent}
 							</span>
 						</h1>
-						<p className="mt-6 max-w-[46ch] text-[17px] text-white/75 leading-7">
+						<p className="mt-6 max-w-[42ch] text-[17px] text-neutral-600 leading-7">
 							{t.landing.hero.subtitle}
 						</p>
 						<div className="mt-9 flex flex-wrap items-center gap-3">
 							<Link
 								href={`/${lang}/planner`}
-								className="rounded-xl bg-white px-8 py-4 font-semibold text-[15px] text-neutral-900 transition-transform active:translate-y-px"
+								className="rounded-xl bg-neutral-900 px-8 py-4 font-semibold text-[15px] text-white transition-transform active:translate-y-px"
 							>
 								{t.landing.hero.cta}
 							</Link>
@@ -308,7 +328,8 @@ export default async function Home({
 							    customer choose, and the choice we want is the planner. */}
 							<a
 								href="#how"
-								className="rounded-xl border border-white/30 px-8 py-4 font-medium text-[15px] text-white/90 transition-colors hover:border-white/60 active:translate-y-px"
+								className="rounded-xl border px-8 py-4 font-medium text-[15px] text-neutral-700 transition-colors hover:border-neutral-500 active:translate-y-px"
+								style={{ borderColor: RULE }}
 							>
 								{t.landing.hero.howItWorks}
 							</a>
