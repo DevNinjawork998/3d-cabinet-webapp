@@ -35,4 +35,10 @@ describe("messageFor", () => {
 			"The partner refused this booking.",
 		);
 	});
+
+	it("names the deployment, not the partner, when APP_URL is unset", () => {
+		expect(messageFor("app_url_not_set", "Could not connect")).toMatch(
+			/does not know its own address/,
+		);
+	});
 });

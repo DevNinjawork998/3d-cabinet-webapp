@@ -14,6 +14,8 @@ const MESSAGE: Record<string, string> = {
 	carrier_not_configured:
 		"That partner has no credentials on this deployment yet.",
 	carrier_refused: "The partner refused this booking.",
+	app_url_not_set:
+		"This deployment does not know its own address, so a partner cannot redirect back to it.",
 };
 
 export function messageFor(code: unknown, fallback: string): string {

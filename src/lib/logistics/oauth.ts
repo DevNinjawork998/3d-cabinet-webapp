@@ -30,8 +30,28 @@ export function easyparcelAppConfigured(): boolean {
  * an error on their login page, not in our logs.
  */
 export function easyparcelRedirectUri(): string {
-	const base = process.env.APP_URL ?? "http://localhost:3000";
-	return `${base}/api/admin/logistics/easyparcel/callback`;
+	const configured = (process.env.APP_URL ?? "").trim();
+
+	// A localhost default is a convenience on a laptop and a trap on a server:
+	// the redirect goes out as `http://localhost:3000/…`, EasyParcel answers
+	// "invalid_client: `redirect_uri` does not match client value", and that
+	// sentence names their client rather than our unset variable — so whoever
+	// reads it goes looking in the Developer Hub for a fault that is in the
+	// deployment's environment. Refuse instead, and say which variable.
+	if (configured === "") {
+		if (process.env.NODE_ENV === "production") {
+			throw new Error(
+				"APP_URL is not set, so there is no address to send an EasyParcel login back to. Set it to this deployment's own origin, and register that same URL plus /api/admin/logistics/easyparcel/callback on the app in EasyParcel's Developer Hub.",
+			);
+		}
+		return "http://localhost:3000/api/admin/logistics/easyparcel/callback";
+	}
+
+	// EasyParcel compares the registered string, not the parsed URL, so
+	// `https://x.com//api/…` and `https://x.com/api/…` are two registrations
+	// even though they address the same route — and a trailing slash on APP_URL
+	// is the easiest way to have one and register the other.
+	return `${configured.replace(/\/+$/, "")}/api/admin/logistics/easyparcel/callback`;
 }
 
 export function easyparcelLoginUrl(state: string): string {

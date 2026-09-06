@@ -61,6 +61,34 @@ describe("easyparcelLoginUrl", () => {
 			"https://planner.example.com/api/admin/logistics/easyparcel/callback",
 		);
 	});
+
+	it("strips a trailing slash, which would otherwise be a byte mismatch", () => {
+		// EasyParcel compares the string, not the URL. `https://x.com//api/...`
+		// and `https://x.com/api/...` address the same route and are two
+		// different registrations, and the error names neither.
+		vi.stubEnv("APP_URL", "https://planner.example.com/");
+		expect(easyparcelRedirectUri()).toBe(
+			"https://planner.example.com/api/admin/logistics/easyparcel/callback",
+		);
+	});
+
+	it("falls back to localhost only in development", () => {
+		vi.stubEnv("APP_URL", "");
+		vi.stubEnv("NODE_ENV", "development");
+		expect(easyparcelRedirectUri()).toBe(
+			"http://localhost:3000/api/admin/logistics/easyparcel/callback",
+		);
+	});
+
+	it("refuses to guess localhost on a deployment, and names APP_URL", () => {
+		// Silently sending a localhost redirect from a deployed server produces
+		// "redirect_uri does not match client value" at EasyParcel — an error
+		// that names their client, not our missing variable, and sends whoever
+		// reads it to the wrong place entirely.
+		vi.stubEnv("APP_URL", "");
+		vi.stubEnv("NODE_ENV", "production");
+		expect(() => easyparcelRedirectUri()).toThrow(/APP_URL/);
+	});
 });
 
 describe("requestToken", () => {

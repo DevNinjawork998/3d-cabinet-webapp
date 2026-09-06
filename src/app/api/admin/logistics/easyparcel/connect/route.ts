@@ -22,8 +22,21 @@ export async function GET() {
 		return NextResponse.json({ error: "not_configured" }, { status: 409 });
 	}
 
-	const state = randomUUID();
-	const response = NextResponse.redirect(easyparcelLoginUrl(state));
+	// `easyparcelRedirectUri` throws on a deployment with no APP_URL. Answer
+	// with the reason rather than a stack: the fix is an environment variable,
+	// and the person clicking Connect is the person who can set it.
+	let loginUrl: string;
+	try {
+		loginUrl = easyparcelLoginUrl(randomUUID());
+	} catch (error) {
+		return NextResponse.json(
+			{ error: "app_url_not_set", message: (error as Error).message },
+			{ status: 409 },
+		);
+	}
+
+	const state = new URL(loginUrl).searchParams.get("state") ?? randomUUID();
+	const response = NextResponse.redirect(loginUrl);
 	response.cookies.set("easyparcel_oauth_state", state, {
 		httpOnly: true,
 		secure: process.env.NODE_ENV === "production",
