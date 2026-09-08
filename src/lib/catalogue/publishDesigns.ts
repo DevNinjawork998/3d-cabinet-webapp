@@ -15,6 +15,7 @@ import {
 	type MeshGroup,
 } from "@/lib/mesh/renderMesh";
 import { CONSTRUCTION, WALL_CABINET_FLOOR_MM } from "@/lib/planner/catalogue";
+import { plannerCatalogueSchema } from "@/lib/planner/catalogueSchema";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import {
 	CATEGORY_TO_FAMILY_SHAPE,
@@ -27,7 +28,7 @@ import {
 	renderMeshPathname,
 } from "./meshBlob";
 import { getPublishedPlannerCatalogue } from "./store";
-import { createDraftVersion } from "./versions";
+import { createDraftVersion, latestDraftVersion } from "./versions";
 
 /**
  * Pushing designs from the library into the planner catalogue.
@@ -272,11 +273,18 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 
 	if (prepared.length === 0) return { ok: false, failures };
 
-	const {
-		id: baseId,
-		version,
-		data: base,
-	} = await getPublishedPlannerCatalogue();
+	// The published version is what a change is *measured* against, and what a
+	// push falls back to. It is not always what a push builds on: an open draft
+	// already carries work this merge must not drop.
+	const published = await getPublishedPlannerCatalogue();
+	const openDraft = await latestDraftVersion("PLANNER");
+	const { id: baseId, data: base } = openDraft
+		? {
+				id: openDraft.id,
+				data: plannerCatalogueSchema.parse(openDraft.data),
+			}
+		: published;
+	const version = published.version;
 
 	// Carry the live workshop constants through. `mergeIntoCatalogue` always
 	// writes a `construction` block from what it is handed, and a design push has
@@ -364,7 +372,11 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 	const draft = await createDraftVersion({
 		product: "PLANNER",
 		data: catalogue,
-		note: `${label} added from the design library`,
+		// Say what this draft was built on when it stacked. Without it the note
+		// reads as though the draft holds one design when it may hold five.
+		note: openDraft
+			? `${label} added from the design library, on top of draft v${openDraft.version}`
+			: `${label} added from the design library`,
 	});
 
 	return {

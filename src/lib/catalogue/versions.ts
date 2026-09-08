@@ -54,3 +54,22 @@ export async function createDraftVersion({
 		},
 	});
 }
+
+/**
+ * The newest DRAFT for a product, or null.
+ *
+ * A design push used to merge onto the published catalogue every time, so two
+ * pushes in one sitting produced two drafts that each omitted the other's
+ * work — and publishing the second silently discarded the first. Merging onto
+ * an open draft instead makes pushes stack.
+ *
+ * Ordered by `version`, not `createdAt`: version is the number the admin sees
+ * on screen and the one `createDraftVersion` guarantees is monotonic.
+ */
+export async function latestDraftVersion(product: Product) {
+	return prisma.catalogueVersion.findFirst({
+		where: { product, status: "DRAFT" },
+		orderBy: { version: "desc" },
+		select: { id: true, version: true, data: true },
+	});
+}
