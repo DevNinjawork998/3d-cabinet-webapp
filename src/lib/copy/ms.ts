@@ -21,6 +21,7 @@ export const ms: Dictionary = {
 			finishes: "Kemasan",
 			faq: "Soalan lazim",
 			tutorials: "Tutorial",
+			menu: "Menu",
 			startPlanning: "Mula reka bentuk",
 			admin: "Pentadbir",
 		},

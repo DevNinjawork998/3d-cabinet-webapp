@@ -16,7 +16,13 @@ const at = (dict: unknown, path: string): string =>
 	path.split(".").reduce<never>((v, k) => (v as never)[k], dict as never);
 
 /** Strings that are legitimately identical across locales. */
-const SHARED = new Set(["common.brand", "landing.footer.email"]);
+const SHARED = new Set([
+	"common.brand",
+	"landing.footer.email",
+	// Malay borrows the word outright — "Menu" is the Malay for it, not an
+	// untranslated string.
+	"landing.nav.menu",
+]);
 
 describe("dictionaries", () => {
 	it("serves exactly the three locales", () => {

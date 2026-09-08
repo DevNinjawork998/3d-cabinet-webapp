@@ -12,6 +12,7 @@
 		var(--font-geist-sans), "PingFang SC", "Hiragino Sans GB",
 		"Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
 	--font-mono: var(--font-geist-mono);
+	--font-serif: var(--font-caslon), Georgia, "Times New Roman", serif;
 }
 
 @media (prefers-color-scheme: dark) {

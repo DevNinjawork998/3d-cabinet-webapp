@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Libre_Caslon_Display } from "next/font/google";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
@@ -11,6 +11,17 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({
 	variable: "--font-geist-mono",
 	subsets: ["latin"],
+});
+/**
+ * The wordmark, and nothing else. One weight, self-hosted by `next/font`, and
+ * `swap` so Georgia paints first — a webfont on the LCP path for a single word
+ * only earns its place if it never blocks the render.
+ */
+const caslon = Libre_Caslon_Display({
+	variable: "--font-caslon",
+	weight: "400",
+	subsets: ["latin"],
+	display: "swap",
 });
 
 /** All three locales are prerendered — they are the SEO surface. */
@@ -58,7 +69,7 @@ export default async function RootLayout({
 	return (
 		<html
 			lang={htmlLang(lang)}
-			className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+			className={`${geistSans.variable} ${geistMono.variable} ${caslon.variable} h-full antialiased`}
 		>
 			<body className="flex min-h-full flex-col font-sans">
 				{/* useSearchParams needs a Suspense boundary or the whole tree

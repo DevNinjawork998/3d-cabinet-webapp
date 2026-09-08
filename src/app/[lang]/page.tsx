@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import RevealOnEnter from "@/components/scroll/RevealOnEnter";
 import ScrollSequence from "@/components/scroll/ScrollSequence";
 import ScrollTrack from "@/components/scroll/ScrollTrack";
@@ -32,9 +34,16 @@ import { HERO_POSTER_FRAME, heroFrameSrc } from "@/lib/scroll/sequence";
  * page previously mixed six different values.
  */
 const ACCENT = "#2c5f47";
+/** `ACCENT` under a hover, at the mockup's own ratio (about 78%). */
+const ACCENT_HOVER = "#224a37";
 const PAPER = "#e9e7e3";
 const RAISED = "#fdfcfb";
 const RULE = "#d9d5cd";
+/**
+ * The menu bar is `RAISED` at 88% over a blur rather than opaque, so the hero
+ * photograph moves under it instead of stopping at a hard edge.
+ */
+const BAR = "rgba(253, 252, 251, 0.88)";
 
 const rm = (amount: number) =>
 	amount.toLocaleString("en-MY", {
@@ -171,6 +180,16 @@ export default async function Home({
 		},
 	];
 
+	/** One row of links, rendered twice: the lg nav and the small-screen menu. */
+	const sections: [string, string][] = [
+		[t.landing.nav.howItWorks, "#how"],
+		[t.landing.nav.gallery, "#gallery"],
+		[t.landing.nav.finishes, "#finishes"],
+		[t.landing.nav.faq, "#faq"],
+	];
+	const navLink =
+		"inline-flex min-h-9 items-center rounded-lg px-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900";
+
 	return (
 		<div
 			className="flex min-h-screen flex-col text-neutral-900"
@@ -178,45 +197,103 @@ export default async function Home({
 		>
 			{/* Nav */}
 			<header
-				className="sticky top-0 z-10 border-b"
-				style={{ backgroundColor: RAISED, borderColor: RULE }}
+				className="sticky top-0 z-10 border-b backdrop-blur-[8px]"
+				style={{ backgroundColor: BAR, borderColor: RULE }}
 			>
-				<div className="mx-auto flex h-16 max-w-[1180px] items-center justify-between gap-6 px-6 sm:px-8">
-					<span className="shrink-0 font-bold text-[15px] tracking-tight">
+				<div className="mx-auto flex h-[68px] max-w-[1220px] items-center justify-between gap-6 px-6 sm:px-8">
+					{/* The one serif on the page. A wordmark is the only string here
+					    that is a name rather than a label. */}
+					<span className="shrink-0 font-serif text-[18px] tracking-[-0.01em]">
 						{t.common.brand}
 					</span>
 					{/* Tight gap, padding on each link instead: the tap target is the
-					    padded box, not just the glyphs. Hidden below lg rather than
-					    wrapped to a second line — the CTA is what matters on mobile. */}
-					<nav className="hidden items-center gap-1 lg:flex">
-						{[
-							[t.landing.nav.howItWorks, "#how"],
-							[t.landing.nav.gallery, "#gallery"],
-							[t.landing.nav.finishes, "#finishes"],
-							[t.landing.nav.faq, "#faq"],
-						].map(([label, href]) => (
-							<a
-								key={href}
-								href={href}
-								className="rounded-xl px-3 py-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900"
-							>
+					    padded box, not just the glyphs. Below lg the row moves into
+					    the disclosure — the CTA is what matters on mobile. */}
+					<nav className="hidden items-center gap-1.5 lg:flex">
+						{sections.map(([label, href]) => (
+							<a key={href} href={href} className={navLink}>
 								{label}
 							</a>
 						))}
-						<Link
-							href={`/${lang}/tutorials`}
-							className="rounded-xl px-3 py-2.5 text-[13px] text-neutral-600 transition-colors hover:text-neutral-900"
-						>
+						<Link href={`/${lang}/tutorials`} className={navLink}>
 							{t.landing.nav.tutorials}
 						</Link>
 					</nav>
 					<div className="flex shrink-0 items-center gap-4">
+						{/* Inline here rather than the strip above the bar: one row of
+						    chrome, and the language sits where the reader is already
+						    looking for it. `useSearchParams` needs the boundary. */}
+						<div className="hidden lg:block">
+							<Suspense fallback={null}>
+								<LanguageSwitcher
+									current={lang}
+									label={t.common.language}
+									inline
+								/>
+							</Suspense>
+						</div>
 						<Link
 							href={`/${lang}/planner`}
-							className="rounded-xl bg-neutral-900 px-4.5 py-2.5 font-medium text-[13px] text-white transition-transform active:translate-y-px"
+							className="inline-flex min-h-9 items-center rounded-[9px] bg-[var(--cta)] px-4.5 font-semibold text-[13px] text-white transition-[transform,background-color] hover:bg-[var(--cta-hover)] active:translate-y-px"
+							style={
+								{
+									"--cta": ACCENT,
+									"--cta-hover": ACCENT_HOVER,
+								} as React.CSSProperties
+							}
 						>
 							{t.landing.nav.startPlanning}
 						</Link>
+						{/*
+						 * The small-screen menu. `<details>` rather than a client
+						 * component: this page is server-rendered end to end, and a
+						 * disclosure is the one interaction HTML already ships —
+						 * Esc, focus and the toggle come free, with no hydration.
+						 */}
+						<details className="relative lg:hidden">
+							<summary
+								aria-label={t.landing.nav.menu}
+								className="inline-flex min-h-9 cursor-pointer list-none items-center rounded-lg px-2 text-neutral-600 transition-colors marker:content-none hover:text-neutral-900 [&::-webkit-details-marker]:hidden"
+							>
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 18 18"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="1.5"
+									strokeLinecap="round"
+									aria-hidden="true"
+								>
+									<path d="M2 5h14M2 9h14M2 13h14" />
+								</svg>
+							</summary>
+							<div
+								className="absolute right-0 top-[calc(100%+20px)] flex w-56 flex-col rounded-xl border p-2 shadow-lg"
+								style={{ backgroundColor: RAISED, borderColor: RULE }}
+							>
+								{sections.map(([label, href]) => (
+									<a key={href} href={href} className={navLink}>
+										{label}
+									</a>
+								))}
+								<Link href={`/${lang}/tutorials`} className={navLink}>
+									{t.landing.nav.tutorials}
+								</Link>
+								<div
+									className="mt-1 border-t px-2.5 pt-2 pb-1"
+									style={{ borderColor: RULE }}
+								>
+									<Suspense fallback={null}>
+										<LanguageSwitcher
+											current={lang}
+											label={t.common.language}
+											inline
+										/>
+									</Suspense>
+								</div>
+							</div>
+						</details>
 						<Link
 							href="/admin/login"
 							target="_blank"

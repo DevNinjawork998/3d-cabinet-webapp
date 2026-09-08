@@ -26,6 +26,7 @@ export const en = {
 			finishes: "Finishes",
 			faq: "FAQ",
 			tutorials: "Tutorials",
+			menu: "Menu",
 			startPlanning: "Start planning",
 			admin: "Admin",
 		},
