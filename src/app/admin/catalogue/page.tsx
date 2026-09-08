@@ -15,12 +15,14 @@ import { chipClass, fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
 import { blockersOf, strandedFamilyIds } from "@/lib/catalogue/health";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
+import { type Construction, constructionOf } from "@/lib/planner/catalogue";
 import {
 	type Family,
 	type PlannerCatalogue,
 	plannerCatalogueSchema,
 } from "@/lib/planner/catalogueSchema";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
+import { fitOutOf, standOf } from "@/lib/planner/parts";
 
 /**
  * Field-level editor for the live planner catalogue.
@@ -139,6 +141,49 @@ function withGeometry(family: Family): NonNullable<Family["geometry"]> {
 		legInsetMm: 0,
 	};
 	return family.geometry;
+}
+
+/**
+ * What the scene falls back to for this family, in one line.
+ *
+ * Computed with the same functions the renderer calls — `fitOutOf` and
+ * `standOf` — rather than by reading `family.geometry` directly. That is the
+ * point: on a rung with a design the drawn mesh overrides these numbers
+ * anyway, and `fitOutOf` already encodes the precedence (a drawer bank carries
+ * no shelf; a leaf count belongs to the width, not the family). Restating the
+ * stored fields as inputs invited edits the scene would ignore.
+ */
+function fitOutSummary(family: Family, construction: Construction): string {
+	const widest = Math.max(...family.sizes.map((s) => s.widthMm));
+	const fit = fitOutOf(family, widest, construction);
+	const stand = standOf(family, construction);
+
+	const parts: string[] = [];
+	parts.push(
+		fit.shelves === 0
+			? "no shelf"
+			: `${fit.shelves} ${fit.shelves === 1 ? "shelf" : "shelves"}`,
+	);
+	if (fit.drawers > 0) parts.push(`${fit.drawers} drawers`);
+	parts.push(
+		fit.doorLeaves === 0
+			? "no door"
+			: `${fit.doorLeaves} door ${
+					fit.doorLeaves === 1 ? "leaf" : "leaves"
+				} at ${widest} mm`,
+	);
+	parts.push(fit.hasBack ? "back panel" : "open back");
+	if (stand.legs > 0) {
+		const diameter = family.geometry?.legDiameterMm ?? 0;
+		parts.push(
+			`${stand.legs} legs, ${stand.heightMm} mm${
+				diameter > 0 ? ` × ⌀${diameter}` : ""
+			}, ${stand.insetMm} mm in`,
+		);
+	} else if (family.kind !== "wall") {
+		parts.push(`recessed plinth, ${stand.heightMm} mm`);
+	}
+	return parts.join(" · ");
 }
 
 /**
@@ -574,6 +619,13 @@ function CatalogueEditor() {
 		return groups.filter((g) => g.indices.length > 0);
 	}, [draft, familyQuery]);
 
+	/** The workshop constants the scene resolves with — board thickness and
+	 * plinth height decide the fit-out the fallback draws. */
+	const construction = useMemo(
+		() => (draft ? constructionOf(draft) : null),
+		[draft],
+	);
+
 	function edit(mutate: (next: PlannerCatalogue) => void) {
 		setDraft((prev) => {
 			if (!prev) return prev;
@@ -775,6 +827,7 @@ function CatalogueEditor() {
 									value={familyQuery}
 									onChange={(e) => setFamilyQuery(e.target.value)}
 									placeholder="Search cabinets or a width, e.g. 900"
+									aria-label="Search cabinets or a width"
 									className={fieldClass(false, "w-full max-w-xs")}
 								/>
 
@@ -886,16 +939,30 @@ function CatalogueEditor() {
 																})
 															}
 														/>
-														<Num
-															label="Drawers"
-															value={family.drawers}
-															width="w-16"
-															onChange={(v) =>
-																edit((n) => {
-																	n.families[fi].drawers = v;
-																})
-															}
-														/>
+														{family.geometry ? (
+															<div className="flex flex-col gap-1">
+																<span className="text-[11px] text-neutral-500">
+																	Drawers
+																</span>
+																<p className="px-2.5 py-2 text-neutral-700 text-sm tabular-nums">
+																	{family.geometry.drawers}
+																	<span className="ml-1.5 text-[12px] text-neutral-400">
+																		from design
+																	</span>
+																</p>
+															</div>
+														) : (
+															<Num
+																label="Drawers"
+																value={family.drawers}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		n.families[fi].drawers = v;
+																	})
+																}
+															/>
+														)}
 														<label className="flex items-center gap-1.5 pb-2 text-[12px]">
 															<input
 																type="checkbox"
@@ -919,123 +986,139 @@ function CatalogueEditor() {
 										    (everything seeded before design intake) falls back to
 										    the old constants until someone edits it here. */}
 													<div className="mt-3 border-neutral-100 border-t pt-3">
-														<div className="mb-2 flex items-baseline gap-2">
-															<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
-																What it holds
-															</p>
-															<span className="text-[11px] text-neutral-400">
+														<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+															What it holds
+														</p>
+														<p className="mt-1 text-[13px] text-neutral-700">
+															{construction
+																? fitOutSummary(family, construction)
+																: "—"}
+															<span className="text-neutral-400">
 																{family.geometry
-																	? "0 door leaves = split by width · 0 legs = plinth"
-																	: "not set — showing what the scene falls back to; 0 door leaves = split by width, 0 legs = plinth"}
+																	? " — measured from a design"
+																	: " — no design yet, planner defaults"}
 															</span>
-														</div>
-														<div className="flex flex-wrap items-end gap-3">
-															<Num
-																label="Shelves"
-																value={family.geometry?.shelves ?? 1}
-																width="w-16"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).shelves = v;
-																	})
-																}
-															/>
-															<Num
-																label="Fixed shelves"
-																value={family.geometry?.fixedShelves ?? 0}
-																width="w-16"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).fixedShelves =
-																			v;
-																	})
-																}
-															/>
-															<Num
-																label="Door leaves"
-																value={family.geometry?.doorLeaves ?? 0}
-																width="w-16"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).doorLeaves = v;
-																	})
-																}
-															/>
-															<Num
-																label="Drawer fronts"
-																value={
-																	family.geometry?.drawers ?? family.drawers
-																}
-																width="w-16"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).drawers = v;
-																	})
-																}
-															/>
-															<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-																<input
-																	type="checkbox"
-																	checked={family.geometry?.hasBack ?? true}
-																	onChange={(e) =>
+														</p>
+														<details className="mt-2">
+															<summary className="cursor-pointer text-[12px] text-neutral-500 underline">
+																Override these
+															</summary>
+															<p className="mt-2 text-[12px] text-neutral-500">
+																Only for correcting a bad parse. A rung with a
+																design draws the mesh, not these numbers.
+															</p>
+															<div className="mt-2 flex flex-wrap items-end gap-3">
+																<Num
+																	label="Shelves"
+																	value={family.geometry?.shelves ?? 1}
+																	width="w-16"
+																	onChange={(v) =>
 																		edit((n) => {
-																			withGeometry(n.families[fi]).hasBack =
-																				e.target.checked;
+																			withGeometry(n.families[fi]).shelves = v;
 																		})
 																	}
 																/>
-																Back panel
-															</label>
-															{/* Feet. Zero means the recessed plinth the scene
+																<Num
+																	label="Fixed shelves"
+																	value={family.geometry?.fixedShelves ?? 0}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(
+																				n.families[fi],
+																			).fixedShelves = v;
+																		})
+																	}
+																/>
+																<Num
+																	label="Door leaves"
+																	value={family.geometry?.doorLeaves ?? 0}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).doorLeaves =
+																				v;
+																		})
+																	}
+																/>
+																<Num
+																	label="Drawer fronts"
+																	value={
+																		family.geometry?.drawers ?? family.drawers
+																	}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).drawers = v;
+																		})
+																	}
+																/>
+																<label className="flex items-center gap-1.5 pb-2 text-[12px]">
+																	<input
+																		type="checkbox"
+																		checked={family.geometry?.hasBack ?? true}
+																		onChange={(e) =>
+																			edit((n) => {
+																				withGeometry(n.families[fi]).hasBack =
+																					e.target.checked;
+																			})
+																		}
+																	/>
+																	Back panel
+																</label>
+																{/* Feet. Zero means the recessed plinth the scene
 												    draws for everything that did not say otherwise. */}
-															<Num
-																label="Legs"
-																value={family.geometry?.legs ?? 0}
-																width="w-16"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).legs = v;
-																	})
-																}
-															/>
-															<Num
-																label="Leg height mm"
-																value={family.geometry?.legHeightMm ?? 0}
-																width="w-20"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).legHeightMm =
-																			v;
-																	})
-																}
-															/>
-															{/* Zero in either of these means "not recorded", so
+																<Num
+																	label="Legs"
+																	value={family.geometry?.legs ?? 0}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).legs = v;
+																		})
+																	}
+																/>
+																<Num
+																	label="Leg height mm"
+																	value={family.geometry?.legHeightMm ?? 0}
+																	width="w-20"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).legHeightMm =
+																				v;
+																		})
+																	}
+																/>
+																{/* Zero in either of these means "not recorded", so
 												    `parts.ts` keeps its own constants — 50mm across,
 												    35mm in. An import fills a zero and never
 												    overwrites a number typed here, so these have to
 												    be typeable or that protection guards nothing. */}
-															<Num
-																label="Leg ⌀ mm"
-																value={family.geometry?.legDiameterMm ?? 0}
-																width="w-20"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).legDiameterMm =
-																			v;
-																	})
-																}
-															/>
-															<Num
-																label="Leg inset mm"
-																value={family.geometry?.legInsetMm ?? 0}
-																width="w-20"
-																onChange={(v) =>
-																	edit((n) => {
-																		withGeometry(n.families[fi]).legInsetMm = v;
-																	})
-																}
-															/>
-														</div>
+																<Num
+																	label="Leg ⌀ mm"
+																	value={family.geometry?.legDiameterMm ?? 0}
+																	width="w-20"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(
+																				n.families[fi],
+																			).legDiameterMm = v;
+																		})
+																	}
+																/>
+																<Num
+																	label="Leg inset mm"
+																	value={family.geometry?.legInsetMm ?? 0}
+																	width="w-20"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).legInsetMm =
+																				v;
+																		})
+																	}
+																/>
+															</div>
+														</details>
 													</div>
 
 													<div className="mt-3 border-neutral-100 border-t pt-3">
