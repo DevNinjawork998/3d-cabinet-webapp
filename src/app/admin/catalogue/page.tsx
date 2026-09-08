@@ -164,14 +164,21 @@ function fitOutSummary(family: Family, construction: Construction): string {
 			? "no shelf"
 			: `${fit.shelves} ${fit.shelves === 1 ? "shelf" : "shelves"}`,
 	);
-	if (fit.drawers > 0) parts.push(`${fit.drawers} drawers`);
-	parts.push(
-		fit.doorLeaves === 0
-			? "no door"
-			: `${fit.doorLeaves} door ${
-					fit.doorLeaves === 1 ? "leaf" : "leaves"
-				} at ${widest} mm`,
-	);
+	if (fit.drawers > 0) {
+		parts.push(`${fit.drawers} ${fit.drawers === 1 ? "drawer" : "drawers"}`);
+	}
+	// `cabinetPartsMm` returns early for a drawer bank and never emits a
+	// doorLeaf record — a leaf count on top of drawers is a caption for
+	// geometry the scene does not draw.
+	if (fit.drawers === 0) {
+		parts.push(
+			fit.doorLeaves === 0
+				? "no door"
+				: `${fit.doorLeaves} door ${
+						fit.doorLeaves === 1 ? "leaf" : "leaves"
+					} at ${widest} mm`,
+		);
+	}
 	parts.push(fit.hasBack ? "back panel" : "open back");
 	if (stand.legs > 0) {
 		const diameter = family.geometry?.legDiameterMm ?? 0;
