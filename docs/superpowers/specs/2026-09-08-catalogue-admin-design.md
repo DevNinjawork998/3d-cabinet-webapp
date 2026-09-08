@@ -197,7 +197,7 @@ New logic lands in the pure modules, which are already tested:
   carries both families. This is the data-loss defect; it must have a test.
 - **`blockersOf(catalogue)`** in `lib/catalogue/`, returning `{familyId,
   widthMm}` per rung priced 0. Tested beside `diff.ts`.
-- **`strandedFamilies(catalogue)`** — same module. Tested with a family in one
+- **`strandedFamilyIds(catalogue)`** — same module. Tested with a family in one
   room and a family in none.
 
 The page gets no test: it has none today, and every derivation it renders is
