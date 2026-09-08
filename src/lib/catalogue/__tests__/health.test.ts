@@ -21,6 +21,8 @@ describe("blockersOf", () => {
 				familyId: next.families[0].id,
 				familyLabel: next.families[0].label,
 				widthMm: next.families[0].sizes[0].widthMm,
+				familyIndex: 0,
+				sizeIndex: 0,
 				meshDesignId: next.families[0].sizes[0].meshDesignId,
 			},
 		]);
@@ -42,6 +44,28 @@ describe("blockersOf", () => {
 		next.families[0].sizes[0].priceRm = -10;
 
 		expect(blockersOf(next)).toHaveLength(1);
+	});
+
+	it("keeps two same-width sizes in one family distinct by index", () => {
+		const next = clone(PLANNER_CATALOGUE);
+		const family = next.families[0];
+		const dupeWidth = family.sizes[0].widthMm;
+		family.sizes[0].priceRm = 0;
+		family.sizes.push({
+			...family.sizes[0],
+			widthMm: dupeWidth,
+			priceRm: 0,
+		});
+
+		const result = blockersOf(next).filter(
+			(b) => b.familyIndex === 0 && b.widthMm === dupeWidth,
+		);
+		expect(result).toHaveLength(2);
+		expect(result.map((b) => b.sizeIndex)).toEqual([
+			0,
+			family.sizes.length - 1,
+		]);
+		expect(result[0].sizeIndex).not.toBe(result[1].sizeIndex);
 	});
 });
 

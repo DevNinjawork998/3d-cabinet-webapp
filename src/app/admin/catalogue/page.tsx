@@ -668,16 +668,11 @@ function CatalogueEditor() {
 								</ul>
 
 								{blockers.map((blocker) => {
-									const fi = draft.families.findIndex(
-										(f) => f.id === blocker.familyId,
-									);
-									const si = draft.families[fi]?.sizes.findIndex(
-										(s) => s.widthMm === blocker.widthMm,
-									);
-									if (fi < 0 || si === undefined || si < 0) return null;
+									const { familyIndex: fi, sizeIndex: si } = blocker;
+									if (!draft.families[fi]?.sizes[si]) return null;
 									return (
 										<div
-											key={`${blocker.familyId}-${blocker.widthMm}`}
+											key={`${fi}-${si}`}
 											className="flex flex-wrap items-center justify-between gap-3 border-neutral-100 border-b px-4 py-3 last:border-b-0"
 										>
 											<div className="min-w-0">

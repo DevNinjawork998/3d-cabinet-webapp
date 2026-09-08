@@ -19,6 +19,11 @@ export type PriceBlocker = {
 	familyId: string;
 	familyLabel: string;
 	widthMm: number;
+	/** Where this rung sits in the catalogue, so a caller edits the rung that
+	 * is actually blocked. `widthMm` is not unique within a family — nothing in
+	 * the schema makes it so — and searching by it silently edits the wrong one. */
+	familyIndex: number;
+	sizeIndex: number;
 	/** The design drawing this rung, if any — lets the review row say where
 	 * the unpriced size came from. */
 	meshDesignId?: string;
@@ -27,17 +32,19 @@ export type PriceBlocker = {
 /** Every rung that must not reach a customer at the price it carries. */
 export function blockersOf(catalogue: PlannerCatalogue): PriceBlocker[] {
 	const blockers: PriceBlocker[] = [];
-	for (const family of catalogue.families) {
-		for (const size of family.sizes) {
-			if (size.priceRm > 0) continue;
+	catalogue.families.forEach((family, familyIndex) => {
+		family.sizes.forEach((size, sizeIndex) => {
+			if (size.priceRm > 0) return;
 			blockers.push({
 				familyId: family.id,
 				familyLabel: family.label,
 				widthMm: size.widthMm,
+				familyIndex,
+				sizeIndex,
 				meshDesignId: size.meshDesignId,
 			});
-		}
-	}
+		});
+	});
 	return blockers;
 }
 
