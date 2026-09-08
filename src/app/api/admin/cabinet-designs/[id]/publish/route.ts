@@ -44,6 +44,7 @@ export async function POST(
 		draftId: result.draftId,
 		draftVersion: result.draftVersion,
 		basedOnVersionId: result.basedOnVersionId,
+		basedOnDraftVersion: result.basedOnDraftVersion,
 		publishedVersion: result.publishedVersion,
 		familyId: family?.familyId,
 		familyLabel: family?.familyLabel,

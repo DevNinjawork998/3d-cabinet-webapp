@@ -228,6 +228,11 @@ export type PublishResult =
 			draftId?: string;
 			draftVersion?: number;
 			basedOnVersionId: string;
+			/** The open draft this merge stacked onto, if it stacked onto one.
+			 * `already_in_catalogue` means "the base already has it", and the base
+			 * is often a draft no customer can see — the admin needs to be told
+			 * which, or the message claims the design is live when it is not. */
+			basedOnDraftVersion?: number;
 			publishedVersion: number;
 			families: { designId: string; familyId: string; familyLabel: string }[];
 			changes: string[];
@@ -280,20 +285,29 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 	// whatever was published after it.
 	const published = await getPublishedPlannerCatalogue();
 	const openDraft = await latestDraftVersion("PLANNER");
-	const parsedDraft = openDraft
-		? {
-				id: openDraft.id,
-				version: openDraft.version,
-				data: plannerCatalogueSchema.parse(openDraft.data),
-			}
-		: null;
-	const chosenBase = mergeBase(published, parsedDraft);
-	const { id: baseId, data: base } = chosenBase;
+	// `mergeBase` decides on the version numbers alone, so it runs BEFORE the
+	// draft is parsed. A leftover draft that no longer satisfies the schema
+	// would otherwise throw here — an uncaught 500 on every design push — for a
+	// row nothing was ever going to build on.
+	//
+	// ponytail: the `latestDraftVersion` read is unscoped and outside any
+	// transaction, so two design pushes landing together both see the same
+	// draft and each forks its own from it. Worst case is one merge lost, and
+	// re-pushing that design recovers it — cheap enough that a lock is not
+	// worth it until more than a couple of admins use this at once.
+	const chosen = mergeBase(
+		{ id: published.id, version: published.version },
+		openDraft && { id: openDraft.id, version: openDraft.version },
+	);
+	// The note below has to say what was actually stacked on, not just whether
+	// a draft existed — `mergeBase` may have rejected it as stale.
+	const stackedOnDraft =
+		openDraft && chosen.id === openDraft.id ? openDraft : null;
+	const baseId = chosen.id;
+	const base = stackedOnDraft
+		? plannerCatalogueSchema.parse(stackedOnDraft.data)
+		: published.data;
 	const version = published.version;
-	// `mergeBase` may reject `parsedDraft` as stale (see its doc comment), so
-	// the note below has to check what was actually chosen, not just whether a
-	// draft existed.
-	const stackedOnDraft = chosenBase === parsedDraft ? parsedDraft : null;
 
 	// Carry the live workshop constants through. `mergeIntoCatalogue` always
 	// writes a `construction` block from what it is handed, and a design push has
@@ -366,6 +380,7 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 			ok: true,
 			status: "already_in_catalogue",
 			basedOnVersionId: baseId,
+			basedOnDraftVersion: stackedOnDraft?.version,
 			publishedVersion: version,
 			families,
 			changes: describeMerge(report),
@@ -394,6 +409,7 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 		draftId: draft.id,
 		draftVersion: draft.version,
 		basedOnVersionId: baseId,
+		basedOnDraftVersion: stackedOnDraft?.version,
 		publishedVersion: version,
 		families,
 		changes: describeMerge(report),
