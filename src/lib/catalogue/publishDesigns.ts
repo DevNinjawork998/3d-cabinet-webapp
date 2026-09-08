@@ -28,7 +28,7 @@ import {
 	renderMeshPathname,
 } from "./meshBlob";
 import { getPublishedPlannerCatalogue } from "./store";
-import { createDraftVersion, latestDraftVersion } from "./versions";
+import { createDraftVersion, latestDraftVersion, mergeBase } from "./versions";
 
 /**
  * Pushing designs from the library into the planner catalogue.
@@ -275,16 +275,25 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 
 	// The published version is what a change is *measured* against, and what a
 	// push falls back to. It is not always what a push builds on: an open draft
-	// already carries work this merge must not drop.
+	// already carries work this merge must not drop — unless that draft is
+	// stale (see `mergeBase`), in which case building on it would revert
+	// whatever was published after it.
 	const published = await getPublishedPlannerCatalogue();
 	const openDraft = await latestDraftVersion("PLANNER");
-	const { id: baseId, data: base } = openDraft
+	const parsedDraft = openDraft
 		? {
 				id: openDraft.id,
+				version: openDraft.version,
 				data: plannerCatalogueSchema.parse(openDraft.data),
 			}
-		: published;
+		: null;
+	const chosenBase = mergeBase(published, parsedDraft);
+	const { id: baseId, data: base } = chosenBase;
 	const version = published.version;
+	// `mergeBase` may reject `parsedDraft` as stale (see its doc comment), so
+	// the note below has to check what was actually chosen, not just whether a
+	// draft existed.
+	const stackedOnDraft = chosenBase === parsedDraft ? parsedDraft : null;
 
 	// Carry the live workshop constants through. `mergeIntoCatalogue` always
 	// writes a `construction` block from what it is handed, and a design push has
@@ -374,8 +383,8 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 		data: catalogue,
 		// Say what this draft was built on when it stacked. Without it the note
 		// reads as though the draft holds one design when it may hold five.
-		note: openDraft
-			? `${label} added from the design library, on top of draft v${openDraft.version}`
+		note: stackedOnDraft
+			? `${label} added from the design library, on top of draft v${stackedOnDraft.version}`
 			: `${label} added from the design library`,
 	});
 

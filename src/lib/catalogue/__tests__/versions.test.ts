@@ -7,7 +7,7 @@ vi.mock("../db", () => ({
 }));
 
 // Imported after the mock so `versions.ts` closes over the fake prisma.
-const { latestDraftVersion } = await import("../versions");
+const { latestDraftVersion, mergeBase } = await import("../versions");
 
 describe("latestDraftVersion", () => {
 	beforeEach(() => {
@@ -40,5 +40,25 @@ describe("latestDraftVersion", () => {
 		findFirst.mockResolvedValue(null);
 
 		expect(await latestDraftVersion("PLANNER")).toBeNull();
+	});
+});
+
+describe("mergeBase", () => {
+	const published = { id: "pub-5", version: 5 };
+
+	it("returns published when there is no open draft", () => {
+		expect(mergeBase(published, null)).toBe(published);
+	});
+
+	it("returns the draft when it is newer than published", () => {
+		const draft = { id: "draft-6", version: 6 };
+
+		expect(mergeBase(published, draft)).toBe(draft);
+	});
+
+	it("returns published when the draft is older than published — a draft left behind by a publish must not be merged onto", () => {
+		const staleDraft = { id: "draft-4", version: 4 };
+
+		expect(mergeBase(published, staleDraft)).toBe(published);
 	});
 });
