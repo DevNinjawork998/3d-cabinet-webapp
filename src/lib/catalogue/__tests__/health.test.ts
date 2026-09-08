@@ -46,6 +46,25 @@ describe("blockersOf", () => {
 		expect(blockersOf(next)).toHaveLength(1);
 	});
 
+	it("ignores an unpriced rung in a family no room offers", () => {
+		// The retire path this branch added is "untick every room", and the
+		// publish gate is catalogue-wide. A retired family that can still block
+		// every publish bricks the screen over a cabinet no customer can see —
+		// which is `Testing123`'s state in the live catalogue today.
+		const next = clone(PLANNER_CATALOGUE);
+		const family = next.families[0];
+		family.sizes[0].priceRm = 0;
+		for (const room of next.roomTypes) {
+			room.familyIds = room.familyIds.filter((id) => id !== family.id);
+		}
+
+		expect(blockersOf(next)).toEqual([]);
+
+		// Offer it again and the same rung blocks, because now it can be sold.
+		next.roomTypes[0].familyIds.push(family.id);
+		expect(blockersOf(next)).toHaveLength(1);
+	});
+
 	it("keeps two same-width sizes in one family distinct by index", () => {
 		const next = clone(PLANNER_CATALOGUE);
 		const family = next.families[0];

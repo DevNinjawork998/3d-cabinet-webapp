@@ -29,10 +29,21 @@ export type PriceBlocker = {
 	meshDesignId?: string;
 };
 
-/** Every rung that must not reach a customer at the price it carries. */
+/**
+ * Every rung that must not reach a customer at the price it carries.
+ *
+ * Families no room offers are skipped. The publish gate is catalogue-wide, so
+ * without this an RM 0 rung in a *retired* family blocks every publish — and
+ * unticking every room is this editor's own retire path, with `Testing123`
+ * already sitting in exactly that state. A family no customer can reach cannot
+ * show a customer a wrong price, so it has no business holding the catalogue
+ * shut. Re-tick a room and its unpriced rungs block again, which is correct.
+ */
 export function blockersOf(catalogue: PlannerCatalogue): PriceBlocker[] {
+	const stranded = new Set(strandedFamilyIds(catalogue));
 	const blockers: PriceBlocker[] = [];
 	catalogue.families.forEach((family, familyIndex) => {
+		if (stranded.has(family.id)) return;
 		family.sizes.forEach((size, sizeIndex) => {
 			if (size.priceRm > 0) return;
 			blockers.push({
