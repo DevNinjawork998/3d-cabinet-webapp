@@ -13,7 +13,11 @@ import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ImageSlot } from "@/components/admin/ImageSlot";
 import { chipClass, fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
-import { blockersOf, strandedFamilyIds } from "@/lib/catalogue/health";
+import {
+	blockersOf,
+	doorBlockersOf,
+	strandedFamilyIds,
+} from "@/lib/catalogue/health";
 import { resolveOpenVersion } from "@/lib/catalogue/openVersion";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { type Construction, constructionOf } from "@/lib/planner/catalogue";
@@ -585,6 +589,14 @@ function CatalogueEditor() {
 	// blocker that actually occurs.
 	const blockers = useMemo(() => (draft ? blockersOf(draft) : []), [draft]);
 
+	// A door with no price for a width a family offers is charged at RM 0 —
+	// `doorPriceRmIn` falls through to zero rather than throwing, deliberately, so
+	// the gate is the only thing standing between that and a customer.
+	const doorBlockers = useMemo(
+		() => (draft ? doorBlockersOf(draft) : []),
+		[draft],
+	);
+
 	/**
 	 * The Cabinets tab, grouped the way an admin arrives thinking: one room at a
 	 * time. Membership comes from `roomTypes[].familyIds`, which the tab used to
@@ -826,6 +838,32 @@ function CatalogueEditor() {
 										</div>
 									);
 								})}
+
+								{/* Not an inline field: a door price is set per style on the
+								    Door styles tab, not per rung, so this row says what is
+								    wrong and where to fix it. */}
+								{doorBlockers.length > 0 && (
+									<div className="border-neutral-100 border-b px-4 py-3 last:border-b-0">
+										<p className="text-sm">
+											<span className="font-medium">
+												{doorBlockers.length} door price
+												{doorBlockers.length === 1 ? "" : "s"}
+											</span>{" "}
+											missing
+										</p>
+										<p className="mt-0.5 text-[12px] text-neutral-500">
+											{doorBlockers
+												.slice(0, 4)
+												.map((b) => `${b.doorStyleLabel} at ${b.widthMm} mm`)
+												.join(" · ")}
+											{doorBlockers.length > 4
+												? ` · and ${doorBlockers.length - 4} more`
+												: ""}{" "}
+											— a door with no price is charged at RM 0. Set them on the
+											door styles tab.
+										</p>
+									</div>
+								)}
 							</div>
 						)}
 						<div className="flex flex-wrap gap-1.5">
@@ -1751,6 +1789,14 @@ function CatalogueEditor() {
 											go live.
 										</p>
 									)}
+
+									{doorBlockers.length > 0 && (
+										<p className="mt-2 text-[12px] text-amber-800">
+											{doorBlockers.length} door price
+											{doorBlockers.length === 1 ? "" : "s"} still missing
+											before this can go live.
+										</p>
+									)}
 								</div>
 
 								<div className="flex shrink-0 flex-col items-end gap-2">
@@ -1761,7 +1807,8 @@ function CatalogueEditor() {
 											disabled={
 												changes.length === 0 ||
 												issues.length > 0 ||
-												blockers.length > 0
+												blockers.length > 0 ||
+												doorBlockers.length > 0
 											}
 											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-40"
 										>
