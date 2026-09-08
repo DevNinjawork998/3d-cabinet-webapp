@@ -711,11 +711,12 @@ function Worktop({
 	engine: PlannerEngine;
 }) {
 	const { positionsOf } = engine;
-	// One slab per unbroken stretch of units that carry one — a worktop is cut
-	// to the cabinets under it, not to the wall, so a unit without a top, a
-	// unit of a different height, or a deliberate gap splits it. Contiguity is
-	// decided by where the cabinets actually are, not by their order in the
-	// list, and `hasWorktop` is the same flag pricing charges against.
+	// One slab per unbroken stretch of base units — a worktop is cut to the
+	// cabinets under it, not to the wall, so a unit of another kind, a unit of a
+	// different height, or a deliberate gap splits it. Contiguity is decided by
+	// where the cabinets actually are, not by their order in the list, and
+	// `kind === "base"` is the same test pricing charges against, which is what
+	// keeps the drawn slab and the billed one the same slab.
 	const spans: Array<{
 		startMm: number;
 		endMm: number;
@@ -723,7 +724,7 @@ function Worktop({
 		topMm: number;
 	}> = [];
 	for (const position of positionsOf(layout, "floor")) {
-		if (!position.family.hasWorktop) continue;
+		if (position.family.kind !== "base") continue;
 		const topMm = position.family.floorHeightMm + position.family.heightMm;
 		const previous = spans[spans.length - 1];
 		if (

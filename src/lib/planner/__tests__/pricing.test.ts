@@ -145,6 +145,23 @@ describe("worktop", () => {
 		const bedroom = starterFor("bedroom");
 		expect(worktopFt(bedroom, PLANNER_CATALOGUE)).toBe(0);
 	});
+
+	it("bills a base run and not a wall run", () => {
+		// `base-cabinet` and `wall-cabinet` are both 900mm wide here, so if the
+		// worktop were billed by anything but the kind of cabinet these two would
+		// come to the same number.
+		const floor = addModule(empty(), "base-cabinet", 0, "b1", 900);
+		const hanging = addModule(empty(), "wall-cabinet", 0, "w1", 900);
+
+		expect(worktopFt(floor, PLANNER_CATALOGUE)).toBeCloseTo(900 / MM_PER_FT, 5);
+		expect(worktopFt(hanging, PLANNER_CATALOGUE)).toBe(0);
+	});
+
+	it("bills nothing for a tall unit", () => {
+		const tall = addModule(empty(), "tall-cabinet", 0, "t1", 600);
+
+		expect(worktopFt(tall, PLANNER_CATALOGUE)).toBe(0);
+	});
 });
 
 describe("catalogue is a real parameter, not just an import default", () => {

@@ -272,7 +272,6 @@ export function mergeIntoCatalogue(
 			heightMm: module.heightMm,
 			floorHeightMm: module.floorHeightMm,
 			sizes,
-			hasWorktop: module.kind === "base",
 			drawers: module.geometry.drawers,
 			geometry: module.geometry,
 			note:

@@ -15,11 +15,9 @@ import {
 	type MeshGroup,
 } from "@/lib/mesh/renderMesh";
 import { CONSTRUCTION, WALL_CABINET_FLOOR_MM } from "@/lib/planner/catalogue";
+import { plannerCatalogueSchema } from "@/lib/planner/catalogueSchema";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
-import {
-	CATEGORY_TO_FAMILY_SHAPE,
-	ROOM_TO_PLANNER,
-} from "./cabinetDesignLabels";
+import { CATEGORY_TO_KIND, ROOM_TO_PLANNER } from "./cabinetDesignLabels";
 import { prisma } from "./db";
 import {
 	fetchMeshFile,
@@ -27,7 +25,7 @@ import {
 	renderMeshPathname,
 } from "./meshBlob";
 import { getPublishedPlannerCatalogue } from "./store";
-import { createDraftVersion } from "./versions";
+import { createDraftVersion, latestDraftVersion, mergeBase } from "./versions";
 
 /**
  * Pushing designs from the library into the planner catalogue.
@@ -195,21 +193,21 @@ async function prepare(
 	// other customer-visible number already comes from the row, and mixing the
 	// two sources produced contradictions: a row recorded as 870mm tall became a
 	// `tall` family because the export contained a 2400mm run.
-	const shape = CATEGORY_TO_FAMILY_SHAPE[design.category];
+	const kind = CATEGORY_TO_KIND[design.category];
 
 	return {
 		design,
 		meshNote,
 		module: {
 			label: design.name,
-			kind: shape.kind,
+			kind,
 			widthMm: design.widthMm,
 			heightMm: design.heightMm,
 			depthMm: design.depthMm,
 			// A wall unit hangs; everything else stands on the floor. Taking this
 			// from the file would record where the cabinet happened to sit in the
 			// drawing, which is not a property of the product.
-			floorHeightMm: shape.kind === "wall" ? WALL_CABINET_FLOOR_MM : 0,
+			floorHeightMm: kind === "wall" ? WALL_CABINET_FLOOR_MM : 0,
 			// The one thing only the file knows: what is actually inside it.
 			geometry: measured.geometry,
 			meshDesignId,
@@ -227,6 +225,11 @@ export type PublishResult =
 			draftId?: string;
 			draftVersion?: number;
 			basedOnVersionId: string;
+			/** The open draft this merge stacked onto, if it stacked onto one.
+			 * `already_in_catalogue` means "the base already has it", and the base
+			 * is often a draft no customer can see — the admin needs to be told
+			 * which, or the message claims the design is live when it is not. */
+			basedOnDraftVersion?: number;
 			publishedVersion: number;
 			families: { designId: string; familyId: string; familyLabel: string }[];
 			changes: string[];
@@ -272,11 +275,36 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 
 	if (prepared.length === 0) return { ok: false, failures };
 
-	const {
-		id: baseId,
-		version,
-		data: base,
-	} = await getPublishedPlannerCatalogue();
+	// The published version is what a change is *measured* against, and what a
+	// push falls back to. It is not always what a push builds on: an open draft
+	// already carries work this merge must not drop — unless that draft is
+	// stale (see `mergeBase`), in which case building on it would revert
+	// whatever was published after it.
+	const published = await getPublishedPlannerCatalogue();
+	const openDraft = await latestDraftVersion("PLANNER");
+	// `mergeBase` decides on the version numbers alone, so it runs BEFORE the
+	// draft is parsed. A leftover draft that no longer satisfies the schema
+	// would otherwise throw here — an uncaught 500 on every design push — for a
+	// row nothing was ever going to build on.
+	//
+	// ponytail: the `latestDraftVersion` read is unscoped and outside any
+	// transaction, so two design pushes landing together both see the same
+	// draft and each forks its own from it. Worst case is one merge lost, and
+	// re-pushing that design recovers it — cheap enough that a lock is not
+	// worth it until more than a couple of admins use this at once.
+	const chosen = mergeBase(
+		{ id: published.id, version: published.version },
+		openDraft && { id: openDraft.id, version: openDraft.version },
+	);
+	// The note below has to say what was actually stacked on, not just whether
+	// a draft existed — `mergeBase` may have rejected it as stale.
+	const stackedOnDraft =
+		openDraft && chosen.id === openDraft.id ? openDraft : null;
+	const baseId = chosen.id;
+	const base = stackedOnDraft
+		? plannerCatalogueSchema.parse(stackedOnDraft.data)
+		: published.data;
+	const version = published.version;
 
 	// Carry the live workshop constants through. `mergeIntoCatalogue` always
 	// writes a `construction` block from what it is handed, and a design push has
@@ -349,6 +377,7 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 			ok: true,
 			status: "already_in_catalogue",
 			basedOnVersionId: baseId,
+			basedOnDraftVersion: stackedOnDraft?.version,
 			publishedVersion: version,
 			families,
 			changes: describeMerge(report),
@@ -364,7 +393,11 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 	const draft = await createDraftVersion({
 		product: "PLANNER",
 		data: catalogue,
-		note: `${label} added from the design library`,
+		// Say what this draft was built on when it stacked. Without it the note
+		// reads as though the draft holds one design when it may hold five.
+		note: stackedOnDraft
+			? `${label} added from the design library, on top of draft v${stackedOnDraft.version}`
+			: `${label} added from the design library`,
 	});
 
 	return {
@@ -373,6 +406,7 @@ export async function publishDesigns(ids: string[]): Promise<PublishResult> {
 		draftId: draft.id,
 		draftVersion: draft.version,
 		basedOnVersionId: baseId,
+		basedOnDraftVersion: stackedOnDraft?.version,
 		publishedVersion: version,
 		families,
 		changes: describeMerge(report),

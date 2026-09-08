@@ -105,8 +105,13 @@ function cabinetPriceRm(
 
 /**
  * Worktop is cut to the cabinets under it, not to the wall — the same rule the
- * 3D uses to decide where the slab stops. Only families that carry one count,
- * and gaps break it, so the customer is not charged for the breaks.
+ * 3D uses to decide where the slab stops. Only base units count, because only a
+ * base unit has a top to cover, and gaps break it, so the customer is not
+ * charged for the breaks.
+ *
+ * Read off `kind` rather than a per-family flag. The flag was editable, and a
+ * wall unit with it ticked was billed a worktop and drawn one 2,380mm up the
+ * wall — the only state it could express that `kind` could not.
  */
 export function worktopFt(
 	layout: PlannerLayout,
@@ -114,7 +119,7 @@ export function worktopFt(
 ): number {
 	const mm = plannerEngine(catalogue)
 		.positionsOf(layout, "floor")
-		.filter((position) => position.family.hasWorktop)
+		.filter((position) => position.family.kind === "base")
 		.reduce((total, position) => total + position.widthMm, 0);
 	return ftOf(mm);
 }

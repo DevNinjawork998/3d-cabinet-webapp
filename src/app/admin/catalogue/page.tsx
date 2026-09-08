@@ -11,15 +11,23 @@ import {
 } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ImageSlot } from "@/components/admin/ImageSlot";
-import { fieldClass } from "@/components/admin/styles";
+import { chipClass, fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
+import {
+	blockersOf,
+	doorBlockersOf,
+	strandedFamilyIds,
+} from "@/lib/catalogue/health";
+import { resolveOpenVersion } from "@/lib/catalogue/openVersion";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
+import { type Construction, constructionOf } from "@/lib/planner/catalogue";
 import {
 	type Family,
 	type PlannerCatalogue,
 	plannerCatalogueSchema,
 } from "@/lib/planner/catalogueSchema";
 import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
+import { fitOutOf, standOf } from "@/lib/planner/parts";
 
 /**
  * Field-level editor for the live planner catalogue.
@@ -31,8 +39,9 @@ import { DEFAULT_FINISH_TEXTURES } from "@/lib/planner/finishTextures";
  * review step and cache revalidation are unchanged — only the editing
  * surface is new.
  *
- * Opens on the published catalogue by default, or on `?version=<id>` — which
- * is how `/admin/import` hands over the draft it just built from a design.
+ * Opens on whatever `resolveOpenVersion` picks — an open draft waiting to be
+ * priced, otherwise the published catalogue — or on `?version=<id>`, which is
+ * how `/admin/import` hands over the draft it just built from a design.
  */
 
 type Tab = "families" | "doors" | "finishes" | "rooms" | "standards";
@@ -59,6 +68,18 @@ type SaveState =
 	| { status: "publishing"; id: string }
 	| { status: "published" }
 	| { status: "error"; message: string };
+
+type OpenedVersion = {
+	id: string;
+	version: number;
+	status: "DRAFT" | "PUBLISHED";
+	note: string | null;
+	publishedAt: string | null;
+	/** The published version, for the "open the live catalogue" link. Both
+	 * fields, because the link needs the id and the label needs the number. */
+	publishedVersion: number | null;
+	publishedVersionId: string | null;
+};
 
 /**
  * These three own their own `<label>` rather than being wrapped in one by the
@@ -126,6 +147,56 @@ function withGeometry(family: Family): NonNullable<Family["geometry"]> {
 		legInsetMm: 0,
 	};
 	return family.geometry;
+}
+
+/**
+ * What the scene falls back to for this family, in one line.
+ *
+ * Computed with the same functions the renderer calls — `fitOutOf` and
+ * `standOf` — rather than by reading `family.geometry` directly. That is the
+ * point: on a rung with a design the drawn mesh overrides these numbers
+ * anyway, and `fitOutOf` already encodes the precedence (a drawer bank carries
+ * no shelf; a leaf count belongs to the width, not the family). Restating the
+ * stored fields as inputs invited edits the scene would ignore.
+ */
+function fitOutSummary(family: Family, construction: Construction): string {
+	const widest = Math.max(...family.sizes.map((s) => s.widthMm));
+	const fit = fitOutOf(family, widest, construction);
+	const stand = standOf(family, construction);
+
+	const parts: string[] = [];
+	parts.push(
+		fit.shelves === 0
+			? "no shelf"
+			: `${fit.shelves} ${fit.shelves === 1 ? "shelf" : "shelves"}`,
+	);
+	if (fit.drawers > 0) {
+		parts.push(`${fit.drawers} ${fit.drawers === 1 ? "drawer" : "drawers"}`);
+	}
+	// `cabinetPartsMm` returns early for a drawer bank and never emits a
+	// doorLeaf record — a leaf count on top of drawers is a caption for
+	// geometry the scene does not draw.
+	if (fit.drawers === 0) {
+		parts.push(
+			fit.doorLeaves === 0
+				? "no door"
+				: `${fit.doorLeaves} door ${
+						fit.doorLeaves === 1 ? "leaf" : "leaves"
+					} at ${widest} mm`,
+		);
+	}
+	parts.push(fit.hasBack ? "back panel" : "open back");
+	if (stand.legs > 0) {
+		const diameter = family.geometry?.legDiameterMm ?? 0;
+		parts.push(
+			`${stand.legs} legs, ${stand.heightMm} mm${
+				diameter > 0 ? ` × ⌀${diameter}` : ""
+			}, ${stand.insetMm} mm in`,
+		);
+	} else if (family.kind !== "wall") {
+		parts.push(`recessed plinth, ${stand.heightMm} mm`);
+	}
+	return parts.join(" · ");
 }
 
 /**
@@ -377,7 +448,15 @@ function CatalogueEditor() {
 	const versionId = useSearchParams().get("version");
 	const [live, setLive] = useState<PlannerCatalogue | null>(null);
 	const [draft, setDraft] = useState<PlannerCatalogue | null>(null);
+	/** Which version the editor is looking at — a DRAFT waiting to be reviewed,
+	 * or the live one. Drives the header and the review panel's copy. */
+	const [openedVersion, setOpenedVersion] = useState<OpenedVersion | null>(
+		null,
+	);
 	const [tab, setTab] = useState<Tab>("families");
+	/** Filters the Cabinets tab by family label or rung width. At ~200 rungs a
+	 * flat scroll stops being navigable, and a width is how someone hunts. */
+	const [familyQuery, setFamilyQuery] = useState("");
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [save, setSave] = useState<SaveState>({ status: "idle" });
 	const [showJson, setShowJson] = useState(false);
@@ -447,25 +526,48 @@ function CatalogueEditor() {
 				return;
 			}
 			const body = await res.json();
-			const published = body.versions?.find(
-				(v: { status: string }) => v.status === "PUBLISHED",
-			);
-			const asked = versionId
-				? body.versions?.find((v: { id: string }) => v.id === versionId)
-				: null;
-			if (versionId && !asked) {
+			type VersionRow = {
+				id: string;
+				version: number;
+				status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+				note: string | null;
+				publishedAt: string | null;
+				data: PlannerCatalogue;
+			};
+			const versions: VersionRow[] = body.versions ?? [];
+			const published = versions.find((v) => v.status === "PUBLISHED");
+
+			// An open DRAFT is what the admin was sent here to deal with — the
+			// design library tells them to price it here, and opening the live
+			// catalogue instead showed them a screen with none of their work in
+			// it. Which draft, and whether one qualifies at all, is
+			// `resolveOpenVersion`'s call: a draft below live is one a publish
+			// left behind, and reopening it hides prices that are already live.
+			const opened = resolveOpenVersion(versions, versionId);
+
+			if (versionId && !opened) {
 				setLoadError("That catalogue version no longer exists");
 				return;
 			}
-			if (!published && !asked) {
+			if (!opened) {
 				setLoadError("No published planner catalogue to edit yet");
 				return;
 			}
+
 			// Edits are always diffed against what is live, even when the editor
 			// opened on a draft — "what changes if I publish this" is the only
 			// comparison that means anything.
-			setLive(published?.data ?? asked.data);
-			setDraft(JSON.parse(JSON.stringify(asked?.data ?? published.data)));
+			setLive(published?.data ?? opened.data);
+			setDraft(JSON.parse(JSON.stringify(opened.data)));
+			setOpenedVersion({
+				id: opened.id,
+				version: opened.version,
+				status: opened.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+				note: opened.note,
+				publishedAt: opened.publishedAt,
+				publishedVersion: published?.version ?? null,
+				publishedVersionId: published?.id ?? null,
+			});
 		})();
 		loadFinishPhotos();
 		loadDesigns();
@@ -481,6 +583,66 @@ function CatalogueEditor() {
 		const parsed = plannerCatalogueSchema.safeParse(draft);
 		return parsed.success ? [] : parsed.error.issues;
 	}, [draft]);
+
+	// A rung priced at nothing is schema-valid, so `issues` never sees it. It is
+	// the one thing a design file structurally cannot supply, which makes it the
+	// blocker that actually occurs.
+	const blockers = useMemo(() => (draft ? blockersOf(draft) : []), [draft]);
+
+	// A door with no price for a width a family offers is charged at RM 0 —
+	// `doorPriceRmIn` falls through to zero rather than throwing, deliberately, so
+	// the gate is the only thing standing between that and a customer.
+	const doorBlockers = useMemo(
+		() => (draft ? doorBlockersOf(draft) : []),
+		[draft],
+	);
+
+	/**
+	 * The Cabinets tab, grouped the way an admin arrives thinking: one room at a
+	 * time. Membership comes from `roomTypes[].familyIds`, which the tab used to
+	 * ignore entirely — so a family in no room looked healthy here while being
+	 * unreachable from the planner.
+	 */
+	const familyGroups = useMemo(() => {
+		if (!draft) return [];
+		const q = familyQuery.trim().toLowerCase();
+		const matches = (family: Family) =>
+			q === "" ||
+			family.label.toLowerCase().includes(q) ||
+			family.sizes.some((s) => String(s.widthMm).includes(q));
+
+		const stranded = new Set(strandedFamilyIds(draft));
+		const indexOf = new Map(draft.families.map((f, i) => [f.id, i]));
+
+		const groups = draft.roomTypes.map((room) => ({
+			key: room.id as string,
+			label: room.label,
+			stranded: false,
+			indices: room.familyIds
+				.map((id) => indexOf.get(id))
+				.filter((i): i is number => i !== undefined)
+				.filter((i) => matches(draft.families[i])),
+		}));
+
+		groups.push({
+			key: "__stranded",
+			label: "In no room — customers cannot see these",
+			stranded: true,
+			indices: draft.families
+				.map((f, i) => (stranded.has(f.id) ? i : -1))
+				.filter((i) => i >= 0)
+				.filter((i) => matches(draft.families[i])),
+		});
+
+		return groups.filter((g) => g.indices.length > 0);
+	}, [draft, familyQuery]);
+
+	/** The workshop constants the scene resolves with — board thickness and
+	 * plinth height decide the fit-out the fallback draws. */
+	const construction = useMemo(
+		() => (draft ? constructionOf(draft) : null),
+		[draft],
+	);
 
 	function edit(mutate: (next: PlannerCatalogue) => void) {
 		setDraft((prev) => {
@@ -541,6 +703,20 @@ function CatalogueEditor() {
 		}
 		setSave({ status: "published" });
 		setLive(draft);
+		// The header is the whole point of this screen, and it was wrong at the
+		// one moment it matters most: `saveAndPublish` POSTs a *new* version, so
+		// without this the page kept saying "Draft vN · not live" over a
+		// catalogue that had just gone live, and offered a link to "the live
+		// catalogue" pointing at the version this publish superseded.
+		setOpenedVersion({
+			id: body.id,
+			version: body.version,
+			status: "PUBLISHED",
+			note: null,
+			publishedAt: new Date().toISOString(),
+			publishedVersion: body.version,
+			publishedVersionId: body.id,
+		});
 	}
 
 	return (
@@ -549,11 +725,47 @@ function CatalogueEditor() {
 
 			<main className="mx-auto w-full max-w-5xl flex-1 p-6">
 				<div className="mb-5">
-					<h1 className="font-semibold text-lg">Catalogue</h1>
-					<p className="text-neutral-500 text-sm">
-						What the planner offers and what it charges. Changes are saved as a
-						draft first — nothing reaches customers until you publish.
-					</p>
+					{/* No pill until the versions fetch answers. Defaulting to the
+					    green "Live" one claimed a status the page did not yet know,
+					    and on a draft it flipped to amber a moment later. */}
+					{!openedVersion ? (
+						<h1 className="font-semibold text-lg">Catalogue</h1>
+					) : openedVersion.status === "DRAFT" ? (
+						<>
+							<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-semibold text-[11px] text-amber-900 uppercase tracking-wide">
+								<span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+								Draft v{openedVersion.version} · not live
+							</span>
+							<h1 className="mt-2 font-semibold text-lg">
+								Review this draft before customers see it
+							</h1>
+							<p className="text-neutral-500 text-sm">
+								{openedVersion.note ??
+									"Nothing on this draft reaches the planner until you publish it."}
+							</p>
+							{openedVersion.publishedVersionId && (
+								<a
+									href={`/admin/catalogue?version=${openedVersion.publishedVersionId}`}
+									className="mt-1 inline-block text-[12px] text-neutral-500 underline"
+								>
+									Open the live catalogue (v{openedVersion.publishedVersion})
+									instead
+								</a>
+							)}
+						</>
+					) : (
+						<>
+							<span className="inline-flex items-center gap-1.5 rounded-full border border-green-300 bg-green-50 px-2.5 py-1 font-semibold text-[11px] text-green-900 uppercase tracking-wide">
+								<span className="h-1.5 w-1.5 rounded-full bg-green-600" />
+								Live · v{openedVersion.version}
+							</span>
+							<h1 className="mt-2 font-semibold text-lg">Catalogue</h1>
+							<p className="text-neutral-500 text-sm">
+								What the planner offers and what it charges. Changes are saved
+								as a draft first — nothing reaches customers until you publish.
+							</p>
+						</>
+					)}
 				</div>
 
 				{loadError && (
@@ -564,6 +776,96 @@ function CatalogueEditor() {
 
 				{draft && (
 					<div className="flex flex-col gap-4">
+						{changes.length > 0 && (
+							<div className="rounded-lg border border-neutral-200 bg-white">
+								<div className="flex flex-wrap items-baseline gap-2.5 border-neutral-100 border-b px-4 py-3">
+									<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+										Needs you
+									</p>
+									<span className="text-[12px] text-neutral-400">
+										{blockers.length === 0
+											? "nothing blocking · ready to publish"
+											: `${blockers.length} rung${
+													blockers.length === 1 ? "" : "s"
+												} still need${blockers.length === 1 ? "s" : ""} a price`}
+									</span>
+								</div>
+
+								<ul className="flex flex-wrap gap-x-5 gap-y-1.5 border-neutral-100 border-b px-4 py-3">
+									{changes.map((line) => (
+										<li key={line} className="text-[13px] text-neutral-700">
+											· {line}
+										</li>
+									))}
+								</ul>
+
+								{blockers.map((blocker) => {
+									const { familyIndex: fi, sizeIndex: si } = blocker;
+									if (!draft.families[fi]?.sizes[si]) return null;
+									return (
+										<div
+											key={`${fi}-${si}`}
+											className="flex flex-wrap items-center justify-between gap-3 border-neutral-100 border-b px-4 py-3 last:border-b-0"
+										>
+											<div className="min-w-0">
+												<p className="text-sm">
+													<span className="font-medium">
+														{blocker.familyLabel}
+													</span>{" "}
+													·{" "}
+													<span className="tabular-nums">
+														{blocker.widthMm} mm
+													</span>
+												</p>
+												<p className="text-[12px] text-neutral-500">
+													{blocker.meshDesignId
+														? "Drawn from a design, but carries no price"
+														: "No price set"}
+												</p>
+											</div>
+											<div className="flex items-center gap-2">
+												<span className="text-[12px] text-neutral-400">RM</span>
+												<Num
+													value={draft.families[fi].sizes[si].priceRm}
+													width="w-24"
+													onChange={(v) =>
+														edit((n) => {
+															n.families[fi].sizes[si].priceRm = v;
+														})
+													}
+												/>
+											</div>
+										</div>
+									);
+								})}
+
+								{/* Not an inline field: a door price is set per style on the
+								    Door styles tab, not per rung, so this row says what is
+								    wrong and where to fix it. */}
+								{doorBlockers.length > 0 && (
+									<div className="border-neutral-100 border-b px-4 py-3 last:border-b-0">
+										<p className="text-sm">
+											<span className="font-medium">
+												{doorBlockers.length} door price
+												{doorBlockers.length === 1 ? "" : "s"}
+											</span>{" "}
+											missing
+										</p>
+										<p className="mt-0.5 text-[12px] text-neutral-500">
+											{doorBlockers
+												.slice(0, 4)
+												.map((b) => `${b.doorStyleLabel} at ${b.widthMm} mm`)
+												.join(" · ")}
+											{doorBlockers.length > 4
+												? ` · and ${doorBlockers.length - 4} more`
+												: ""}{" "}
+											— a door with no price is charged at RM 0. Set them on the
+											door styles tab.
+										</p>
+									</div>
+								)}
+							</div>
+						)}
 						<div className="flex flex-wrap gap-1.5">
 							{TABS.map((t) => (
 								<button
@@ -583,302 +885,465 @@ function CatalogueEditor() {
 
 						{tab === "families" && (
 							<div className="flex flex-col gap-3">
-								{draft.families.map((family, fi) => (
-									<SectionCard
-										key={family.id}
-										title={family.label || "Untitled cabinet"}
-										subtitle={`${family.kind} · ${family.sizes.length} size${
-											family.sizes.length === 1 ? "" : "s"
-										} · ${
-											family.sizes.filter((s) => s.meshDesignId).length
-										} drawn from a design`}
-										onRemove={() =>
-											edit((n) => {
-												n.families.splice(fi, 1);
-												for (const room of n.roomTypes) {
-													room.familyIds = room.familyIds.filter(
-														(id) => id !== family.id,
-													);
-													room.starter = room.starter.filter(
-														(s) => s.familyId !== family.id,
-													);
-												}
-											})
-										}
-									>
-										<div className="flex flex-wrap items-end gap-3">
-											<Text
-												label="Name"
-												value={family.label}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].label = v;
-													})
-												}
-											/>
-											<Select
-												label="Type"
-												value={family.kind}
-												options={[
-													{ value: "base" as const, label: "Base" },
-													{ value: "wall" as const, label: "Wall" },
-													{ value: "tall" as const, label: "Tall" },
-												]}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].kind = v;
-													})
-												}
-											/>
-											<Num
-												label="Depth mm"
-												value={family.depthMm}
-												min={1}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].depthMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Height mm"
-												value={family.heightMm}
-												min={1}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].heightMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Off floor mm"
-												value={family.floorHeightMm}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].floorHeightMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Drawers"
-												value={family.drawers}
-												width="w-16"
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].drawers = v;
-													})
-												}
-											/>
-											<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-												<input
-													type="checkbox"
-													checked={family.hasWorktop}
-													onChange={(e) =>
-														edit((n) => {
-															n.families[fi].hasWorktop = e.target.checked;
-														})
-													}
-												/>
-												Worktop
-											</label>
+								<input
+									type="search"
+									value={familyQuery}
+									onChange={(e) => setFamilyQuery(e.target.value)}
+									placeholder="Search cabinets or a width, e.g. 900"
+									aria-label="Search cabinets or a width"
+									className={fieldClass(false, "w-full max-w-xs")}
+								/>
+
+								{familyGroups.map((group) => (
+									<div key={group.key} className="flex flex-col gap-3">
+										<div
+											className={`flex flex-wrap items-baseline gap-2 pt-1 ${
+												group.stranded ? "text-amber-800" : "text-neutral-500"
+											}`}
+										>
+											<p className="text-[11px] uppercase tracking-wide">
+												{group.label}
+											</p>
+											<span className="text-[12px] text-neutral-400">
+												{group.indices.length} famil
+												{group.indices.length === 1 ? "y" : "ies"} ·{" "}
+												{group.indices.reduce(
+													(n, i) => n + draft.families[i].sizes.length,
+													0,
+												)}{" "}
+												rungs ·{" "}
+												{group.indices.reduce(
+													(n, i) =>
+														n +
+														draft.families[i].sizes.filter(
+															(s) => s.meshDesignId,
+														).length,
+													0,
+												)}{" "}
+												drawn
+											</span>
 										</div>
 
-										{/* What the planner actually draws inside the carcass.
+										{group.indices.map((fi) => {
+											const family = draft.families[fi];
+											// The engine's own reading — `fitOutOf` prefers the
+											// measured count over the family's. Deciding what to
+											// show on a second, looser reading would leave a
+											// control on screen that the scene still ignores.
+											const drawers =
+												family.geometry?.drawers ?? family.drawers;
+											return (
+												<SectionCard
+													key={family.id}
+													title={family.label || "Untitled cabinet"}
+													subtitle={`${family.kind} · ${family.sizes.length} size${
+														family.sizes.length === 1 ? "" : "s"
+													} · ${
+														family.sizes.filter((s) => s.meshDesignId).length
+													} drawn from a design`}
+													onRemove={() =>
+														edit((n) => {
+															n.families.splice(fi, 1);
+															for (const room of n.roomTypes) {
+																room.familyIds = room.familyIds.filter(
+																	(id) => id !== family.id,
+																);
+																room.starter = room.starter.filter(
+																	(s) => s.familyId !== family.id,
+																);
+															}
+														})
+													}
+												>
+													<div className="flex flex-wrap items-end gap-3">
+														<Text
+															label="Name"
+															value={family.label}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].label = v;
+																})
+															}
+														/>
+														<Select
+															label="Type"
+															value={family.kind}
+															options={[
+																{ value: "base" as const, label: "Base" },
+																{ value: "wall" as const, label: "Wall" },
+																{ value: "tall" as const, label: "Tall" },
+															]}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].kind = v;
+																})
+															}
+														/>
+														<Num
+															label="Depth mm"
+															value={family.depthMm}
+															min={1}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].depthMm = v;
+																})
+															}
+														/>
+														<Num
+															label="Height mm"
+															value={family.heightMm}
+															min={1}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].heightMm = v;
+																})
+															}
+														/>
+														{/* A wall unit's height off the floor comes from the
+														    room's hang setting, not from the family:
+														    `floorHeightMmOf` returns `hangingHeightMmOf(layout)`
+														    for `kind === "wall"` and never reads this field.
+														    It stays in the schema because intake writes it and
+														    `matchesFamily` routes on it. */}
+														{family.kind !== "wall" && (
+															<Num
+																label="Off floor mm"
+																value={family.floorHeightMm}
+																onChange={(v) =>
+																	edit((n) => {
+																		n.families[fi].floorHeightMm = v;
+																	})
+																}
+															/>
+														)}
+														{family.geometry ? (
+															<div className="flex flex-col gap-1">
+																<span className="text-[11px] text-neutral-500">
+																	Drawers
+																</span>
+																<p className="px-2.5 py-2 text-neutral-700 text-sm tabular-nums">
+																	{family.geometry.drawers}
+																	<span className="ml-1.5 text-[12px] text-neutral-400">
+																		from design
+																	</span>
+																</p>
+															</div>
+														) : (
+															<Num
+																label="Drawers"
+																value={family.drawers}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		n.families[fi].drawers = v;
+																	})
+																}
+															/>
+														)}
+													</div>
+
+													{/* What the planner actually draws inside the carcass.
 										    Until this existed the numbers could only come from a
 										    design-file parse, so a miscounted shelf rendered wrong
 										    for good — there was nowhere to correct it. `geometry`
 										    is optional in the schema, so a family that has none
 										    (everything seeded before design intake) falls back to
 										    the old constants until someone edits it here. */}
-										<div className="mt-3 border-neutral-100 border-t pt-3">
-											<div className="mb-2 flex items-baseline gap-2">
-												<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
-													What it holds
-												</p>
-												<span className="text-[11px] text-neutral-400">
-													{family.geometry
-														? "0 door leaves = split by width · 0 legs = plinth"
-														: "not set — showing what the scene falls back to; 0 door leaves = split by width, 0 legs = plinth"}
-												</span>
-											</div>
-											<div className="flex flex-wrap items-end gap-3">
-												<Num
-													label="Shelves"
-													value={family.geometry?.shelves ?? 1}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).shelves = v;
-														})
-													}
-												/>
-												<Num
-													label="Fixed shelves"
-													value={family.geometry?.fixedShelves ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).fixedShelves = v;
-														})
-													}
-												/>
-												<Num
-													label="Door leaves"
-													value={family.geometry?.doorLeaves ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).doorLeaves = v;
-														})
-													}
-												/>
-												<Num
-													label="Drawer fronts"
-													value={family.geometry?.drawers ?? family.drawers}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).drawers = v;
-														})
-													}
-												/>
-												<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-													<input
-														type="checkbox"
-														checked={family.geometry?.hasBack ?? true}
-														onChange={(e) =>
-															edit((n) => {
-																withGeometry(n.families[fi]).hasBack =
-																	e.target.checked;
-															})
-														}
-													/>
-													Back panel
-												</label>
-												{/* Feet. Zero means the recessed plinth the scene
-												    draws for everything that did not say otherwise. */}
-												<Num
-													label="Legs"
-													value={family.geometry?.legs ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legs = v;
-														})
-													}
-												/>
-												<Num
-													label="Leg height mm"
-													value={family.geometry?.legHeightMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legHeightMm = v;
-														})
-													}
-												/>
-												{/* Zero in either of these means "not recorded", so
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+															What it holds
+														</p>
+														<p className="mt-1 text-[13px] text-neutral-700">
+															{construction
+																? fitOutSummary(family, construction)
+																: "—"}
+															<span className="text-neutral-400">
+																{family.geometry
+																	? " — measured from a design"
+																	: " — no design yet, planner defaults"}
+															</span>
+														</p>
+														<details className="mt-2">
+															<summary className="cursor-pointer text-[12px] text-neutral-500 underline">
+																Override these
+															</summary>
+															<p className="mt-2 text-[12px] text-neutral-500">
+																Only for correcting a bad parse. A rung with a
+																design draws the mesh, not these numbers.
+															</p>
+															<div className="mt-2 flex flex-wrap items-end gap-3">
+																{/* A drawer bank's volume is its drawers:
+																    `fitOutOf` forces the shelf count to zero when
+																    there are any, so no board runs through a
+																    drawer box. */}
+																{drawers === 0 && (
+																	<Num
+																		label="Shelves"
+																		value={family.geometry?.shelves ?? 1}
+																		width="w-16"
+																		onChange={(v) =>
+																			edit((n) => {
+																				withGeometry(n.families[fi]).shelves =
+																					v;
+																			})
+																		}
+																	/>
+																)}
+																<Num
+																	label="Fixed shelves"
+																	value={family.geometry?.fixedShelves ?? 0}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(
+																				n.families[fi],
+																			).fixedShelves = v;
+																		})
+																	}
+																/>
+																{/* `cabinetPartsMm` returns as soon as it has drawn
+																    the drawer fronts, so a drawer bank never emits a
+																    door leaf however many this says. */}
+																{drawers === 0 && (
+																	<Num
+																		label="Door leaves"
+																		value={family.geometry?.doorLeaves ?? 0}
+																		width="w-16"
+																		onChange={(v) =>
+																			edit((n) => {
+																				withGeometry(
+																					n.families[fi],
+																				).doorLeaves = v;
+																			})
+																		}
+																	/>
+																)}
+																<Num
+																	label="Drawer fronts"
+																	value={
+																		family.geometry?.drawers ?? family.drawers
+																	}
+																	width="w-16"
+																	onChange={(v) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).drawers = v;
+																			// `matchesFamily` keys on the TOP-LEVEL
+																			// drawers, and the field above is read-only
+																			// once `geometry` exists — so correcting a
+																			// bad parse here without writing both would
+																			// desync them, and the next width pushed
+																			// for this ladder would fork a duplicate
+																			// family instead of adding a rung.
+																			n.families[fi].drawers = v;
+																		})
+																	}
+																/>
+																<label className="flex items-center gap-1.5 pb-2 text-[12px]">
+																	<input
+																		type="checkbox"
+																		checked={family.geometry?.hasBack ?? true}
+																		onChange={(e) =>
+																			edit((n) => {
+																				withGeometry(n.families[fi]).hasBack =
+																					e.target.checked;
+																			})
+																		}
+																	/>
+																	Back panel
+																</label>
+																{/* Feet. Zero means the recessed plinth the scene
+												    draws for everything that did not say otherwise.
+												    Hidden for a wall unit, which stands on nothing:
+												    `standOf` returns zeros for `kind === "wall"` and
+												    never reads any of these four. */}
+																{family.kind !== "wall" && (
+																	<>
+																		<Num
+																			label="Legs"
+																			value={family.geometry?.legs ?? 0}
+																			width="w-16"
+																			onChange={(v) =>
+																				edit((n) => {
+																					withGeometry(n.families[fi]).legs = v;
+																				})
+																			}
+																		/>
+																		<Num
+																			label="Leg height mm"
+																			value={family.geometry?.legHeightMm ?? 0}
+																			width="w-20"
+																			onChange={(v) =>
+																				edit((n) => {
+																					withGeometry(
+																						n.families[fi],
+																					).legHeightMm = v;
+																				})
+																			}
+																		/>
+																		{/* Zero in either of these means "not recorded", so
 												    `parts.ts` keeps its own constants — 50mm across,
 												    35mm in. An import fills a zero and never
 												    overwrites a number typed here, so these have to
 												    be typeable or that protection guards nothing. */}
-												<Num
-													label="Leg ⌀ mm"
-													value={family.geometry?.legDiameterMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legDiameterMm = v;
-														})
-													}
-												/>
-												<Num
-													label="Leg inset mm"
-													value={family.geometry?.legInsetMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legInsetMm = v;
-														})
-													}
-												/>
-											</div>
-										</div>
+																		<Num
+																			label="Leg ⌀ mm"
+																			value={
+																				family.geometry?.legDiameterMm ?? 0
+																			}
+																			width="w-20"
+																			onChange={(v) =>
+																				edit((n) => {
+																					withGeometry(
+																						n.families[fi],
+																					).legDiameterMm = v;
+																				})
+																			}
+																		/>
+																		<Num
+																			label="Leg inset mm"
+																			value={family.geometry?.legInsetMm ?? 0}
+																			width="w-20"
+																			onChange={(v) =>
+																				edit((n) => {
+																					withGeometry(
+																						n.families[fi],
+																					).legInsetMm = v;
+																				})
+																			}
+																		/>
+																	</>
+																)}
+															</div>
+														</details>
+													</div>
 
-										<div className="mt-3 border-neutral-100 border-t pt-3">
-											<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
-												Sizes &amp; prices
-											</p>
-											<div className="flex flex-col gap-2">
-												{family.sizes.map((size, si) => (
-													<div
-														// biome-ignore lint/suspicious/noArrayIndexKey: a size rung has no id in the schema, and these inputs hold no internal state — every value is read straight from `draft`, so a reorder re-renders correctly.
-														key={`${family.id}-${size.widthMm}-${si}`}
-														className="flex items-center gap-2"
-													>
-														<Num
-															value={size.widthMm}
-															min={1}
-															onChange={(v) =>
-																edit((n) => {
-																	n.families[fi].sizes[si].widthMm = v;
-																})
-															}
-														/>
-														<span className="text-[12px] text-neutral-400">
-															mm — RM
-														</span>
-														<Num
-															value={size.priceRm}
-															onChange={(v) =>
-																edit((n) => {
-																	n.families[fi].sizes[si].priceRm = v;
-																})
-															}
-														/>
-														{family.sizes.length > 1 && (
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
+															Offered in
+														</p>
+														<div className="flex flex-wrap gap-1.5">
+															{draft.roomTypes.map((room, ri) => {
+																const on = room.familyIds.includes(family.id);
+																return (
+																	<button
+																		key={room.id}
+																		type="button"
+																		onClick={() =>
+																			edit((n) => {
+																				const ids = n.roomTypes[ri].familyIds;
+																				n.roomTypes[ri].familyIds = on
+																					? ids.filter((id) => id !== family.id)
+																					: [...ids, family.id];
+																				// A starter layout may not place a cabinet the
+																				// room no longer offers.
+																				if (on) {
+																					n.roomTypes[ri].starter = n.roomTypes[
+																						ri
+																					].starter.filter(
+																						(s) => s.familyId !== family.id,
+																					);
+																				}
+																			})
+																		}
+																		className={chipClass(on)}
+																	>
+																		{room.label}
+																	</button>
+																);
+															})}
+														</div>
+														{!draft.roomTypes.some((r) =>
+															r.familyIds.includes(family.id),
+														) && (
+															<p className="mt-2 text-[12px] text-amber-800">
+																No room offers this cabinet, so no customer can
+																see it. Ticking a room is what puts it in the
+																planner; unticking every room retires it without
+																losing its prices.
+															</p>
+														)}
+													</div>
+
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
+															Sizes &amp; prices
+														</p>
+														<div className="flex flex-col gap-2">
+															{family.sizes.map((size, si) => (
+																<div
+																	// biome-ignore lint/suspicious/noArrayIndexKey: a size rung has no id in the schema, and these inputs hold no internal state — every value is read straight from `draft`, so a reorder re-renders correctly.
+																	key={`${family.id}-${size.widthMm}-${si}`}
+																	className="flex items-center gap-2"
+																>
+																	<Num
+																		value={size.widthMm}
+																		min={1}
+																		onChange={(v) =>
+																			edit((n) => {
+																				n.families[fi].sizes[si].widthMm = v;
+																			})
+																		}
+																	/>
+																	<span className="text-[12px] text-neutral-400">
+																		mm — RM
+																	</span>
+																	<Num
+																		value={size.priceRm}
+																		onChange={(v) =>
+																			edit((n) => {
+																				n.families[fi].sizes[si].priceRm = v;
+																			})
+																		}
+																	/>
+																	{family.sizes.length > 1 && (
+																		<button
+																			type="button"
+																			onClick={() =>
+																				edit((n) => {
+																					n.families[fi].sizes.splice(si, 1);
+																				})
+																			}
+																			className="text-[12px] text-neutral-400 hover:text-red-600"
+																		>
+																			Remove
+																		</button>
+																	)}
+																	<RungCoverage
+																		coverage={rungCoverage(
+																			size.meshDesignId,
+																			designs,
+																		)}
+																	/>
+																</div>
+															))}
 															<button
 																type="button"
 																onClick={() =>
 																	edit((n) => {
-																		n.families[fi].sizes.splice(si, 1);
+																		const last = n.families[fi].sizes.at(-1);
+																		n.families[fi].sizes.push({
+																			widthMm: (last?.widthMm ?? 600) + 100,
+																			priceRm: last?.priceRm ?? 0,
+																		});
 																	})
 																}
-																className="text-[12px] text-neutral-400 hover:text-red-600"
+																className="self-start text-[12px] text-[#2b6cb0] hover:underline"
 															>
-																Remove
+																+ Add size
 															</button>
-														)}
-														<RungCoverage
-															coverage={rungCoverage(
-																size.meshDesignId,
-																designs,
-															)}
-														/>
+														</div>
 													</div>
-												))}
-												<button
-													type="button"
-													onClick={() =>
-														edit((n) => {
-															const last = n.families[fi].sizes.at(-1);
-															n.families[fi].sizes.push({
-																widthMm: (last?.widthMm ?? 600) + 100,
-																priceRm: last?.priceRm ?? 0,
-															});
-														})
-													}
-													className="self-start text-[12px] text-[#2b6cb0] hover:underline"
-												>
-													+ Add size
-												</button>
-											</div>
-										</div>
-									</SectionCard>
+												</SectionCard>
+											);
+										})}
+									</div>
 								))}
 								<button
 									type="button"
-									onClick={() =>
+									onClick={() => {
+										// A search still active would hide the family that was
+										// just created — the button would read as doing nothing.
+										setFamilyQuery("");
 										edit((n) => {
 											n.families.push({
 												id: `family-${Date.now()}`,
@@ -888,11 +1353,10 @@ function CatalogueEditor() {
 												heightMm: 880,
 												floorHeightMm: 0,
 												sizes: [{ widthMm: 600, priceRm: 0 }],
-												hasWorktop: true,
 												drawers: 0,
 											});
-										})
-									}
+										});
+									}}
 									className="self-start rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm hover:border-neutral-500"
 								>
 									+ Add cabinet
@@ -1202,11 +1666,7 @@ function CatalogueEditor() {
 																}
 															})
 														}
-														className={`rounded-full border px-3 py-1.5 font-medium text-xs ${
-															on
-																? "border-neutral-900 bg-neutral-900 text-white"
-																: "border-neutral-200 bg-white text-neutral-600"
-														}`}
+														className={chipClass(on)}
 													>
 														{family.label}
 													</button>
@@ -1320,6 +1780,23 @@ function CatalogueEditor() {
 											</ul>
 										</div>
 									)}
+
+									{blockers.length > 0 && (
+										<p className="mt-3 text-[12px] text-amber-800">
+											{blockers.length} rung
+											{blockers.length === 1 ? "" : "s"} still need
+											{blockers.length === 1 ? "s" : ""} a price before this can
+											go live.
+										</p>
+									)}
+
+									{doorBlockers.length > 0 && (
+										<p className="mt-2 text-[12px] text-amber-800">
+											{doorBlockers.length} door price
+											{doorBlockers.length === 1 ? "" : "s"} still missing
+											before this can go live.
+										</p>
+									)}
 								</div>
 
 								<div className="flex shrink-0 flex-col items-end gap-2">
@@ -1327,7 +1804,12 @@ function CatalogueEditor() {
 										<button
 											type="button"
 											onClick={() => setConfirming(true)}
-											disabled={changes.length === 0 || issues.length > 0}
+											disabled={
+												changes.length === 0 ||
+												issues.length > 0 ||
+												blockers.length > 0 ||
+												doorBlockers.length > 0
+											}
 											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-40"
 										>
 											Publish to customers

@@ -626,10 +626,16 @@ export default function CabinetDesignsPage() {
 				);
 				return;
 			}
+			// "Already in the catalogue" read as "customers can see it", which is
+			// the opposite of true in the common re-push case: the merge base is
+			// usually an open draft, and nothing on a draft reaches the planner.
+			// Say which document already holds it.
 			const summary =
-				body.status === "already_in_catalogue"
-					? `${d.name} is already in the catalogue as "${body.familyLabel}" — nothing to add.`
-					: `${d.name} added to draft v${body.draftVersion} as "${body.familyLabel}". Review the price and publish it at /admin/catalogue.`;
+				body.status !== "already_in_catalogue"
+					? `${d.name} added to draft v${body.draftVersion} as "${body.familyLabel}". Review the price and publish it at /admin/catalogue.`
+					: body.basedOnDraftVersion
+						? `${d.name} is already in draft v${body.basedOnDraftVersion} as "${body.familyLabel}" — nothing to add. Publish that draft at /admin/catalogue to put it in front of customers.`
+						: `${d.name} is already in the live catalogue as "${body.familyLabel}" — nothing to add.`;
 			// The mesh is what the customer will actually look at, so a design
 			// that fell back to procedural geometry has to say so here rather
 			// than reporting a clean success and rendering a generic box.
@@ -779,9 +785,11 @@ export default function CabinetDesignsPage() {
 		const notes: string[] = body.meshNotes ?? [];
 		setPushed(
 			[
-				body.status === "already_in_catalogue"
-					? `${ids.length} design${ids.length === 1 ? "" : "s"} saved — already in the catalogue, nothing to add.`
-					: `${ids.length} design${ids.length === 1 ? "" : "s"} saved and added to draft v${body.draftVersion}. Review the prices and publish it at /admin/catalogue.`,
+				body.status !== "already_in_catalogue"
+					? `${ids.length} design${ids.length === 1 ? "" : "s"} saved and added to draft v${body.draftVersion}. Review the prices and publish it at /admin/catalogue.`
+					: body.basedOnDraftVersion
+						? `${ids.length} design${ids.length === 1 ? "" : "s"} saved — already in draft v${body.basedOnDraftVersion}, nothing to add. Publish that draft at /admin/catalogue.`
+						: `${ids.length} design${ids.length === 1 ? "" : "s"} saved — already in the live catalogue, nothing to add.`,
 				...notes,
 			].join(" "),
 		);
