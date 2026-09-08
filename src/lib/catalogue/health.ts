@@ -1,0 +1,59 @@
+import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
+
+/**
+ * What is wrong with a catalogue, as data the review screen can render.
+ *
+ * Both answers used to be invisible. A rung priced at nothing is
+ * schema-valid — `priceRm` has no positive constraint, deliberately, because
+ * a free rung is a thing a maker could genuinely offer — so the only thing
+ * standing between "the merge gave this size no price" and a customer seeing
+ * RM 0 was somebody noticing. And a family in no room's `familyIds` is
+ * unreachable from the planner while looking perfectly healthy in the editor,
+ * which is how `Testing123` has survived in the live catalogue.
+ *
+ * Pure, and separate from `diff.ts`: that one answers "what changed against
+ * live", this one answers "what is wrong regardless of what changed".
+ */
+
+export type PriceBlocker = {
+	familyId: string;
+	familyLabel: string;
+	widthMm: number;
+	/** The design drawing this rung, if any — lets the review row say where
+	 * the unpriced size came from. */
+	meshDesignId?: string;
+};
+
+/** Every rung that must not reach a customer at the price it carries. */
+export function blockersOf(catalogue: PlannerCatalogue): PriceBlocker[] {
+	const blockers: PriceBlocker[] = [];
+	for (const family of catalogue.families) {
+		for (const size of family.sizes) {
+			if (size.priceRm > 0) continue;
+			blockers.push({
+				familyId: family.id,
+				familyLabel: family.label,
+				widthMm: size.widthMm,
+				meshDesignId: size.meshDesignId,
+			});
+		}
+	}
+	return blockers;
+}
+
+/**
+ * Families no room offers.
+ *
+ * `roomTypes[].familyIds` is the whole of a family's reachability: the palette
+ * is built from it, so a family absent from every room exists only in the
+ * document. Deriving this rather than storing a flag keeps one source of
+ * truth — and makes "untick every room" a working retire path.
+ */
+export function strandedFamilyIds(catalogue: PlannerCatalogue): string[] {
+	const offered = new Set(
+		catalogue.roomTypes.flatMap((room) => room.familyIds),
+	);
+	return catalogue.families
+		.filter((family) => !offered.has(family.id))
+		.map((family) => family.id);
+}
