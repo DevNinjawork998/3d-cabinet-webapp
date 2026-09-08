@@ -11,9 +11,9 @@ import {
 } from "react";
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ImageSlot } from "@/components/admin/ImageSlot";
-import { fieldClass } from "@/components/admin/styles";
+import { chipClass, fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
-import { blockersOf } from "@/lib/catalogue/health";
+import { blockersOf, strandedFamilyIds } from "@/lib/catalogue/health";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import {
 	type Family,
@@ -396,6 +396,9 @@ function CatalogueEditor() {
 		null,
 	);
 	const [tab, setTab] = useState<Tab>("families");
+	/** Filters the Cabinets tab by family label or rung width. At ~200 rungs a
+	 * flat scroll stops being navigable, and a width is how someone hunts. */
+	const [familyQuery, setFamilyQuery] = useState("");
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [save, setSave] = useState<SaveState>({ status: "idle" });
 	const [showJson, setShowJson] = useState(false);
@@ -530,6 +533,46 @@ function CatalogueEditor() {
 	// the one thing a design file structurally cannot supply, which makes it the
 	// blocker that actually occurs.
 	const blockers = useMemo(() => (draft ? blockersOf(draft) : []), [draft]);
+
+	/**
+	 * The Cabinets tab, grouped the way an admin arrives thinking: one room at a
+	 * time. Membership comes from `roomTypes[].familyIds`, which the tab used to
+	 * ignore entirely — so a family in no room looked healthy here while being
+	 * unreachable from the planner.
+	 */
+	const familyGroups = useMemo(() => {
+		if (!draft) return [];
+		const q = familyQuery.trim().toLowerCase();
+		const matches = (family: Family) =>
+			q === "" ||
+			family.label.toLowerCase().includes(q) ||
+			family.sizes.some((s) => String(s.widthMm).includes(q));
+
+		const stranded = new Set(strandedFamilyIds(draft));
+		const indexOf = new Map(draft.families.map((f, i) => [f.id, i]));
+
+		const groups = draft.roomTypes.map((room) => ({
+			key: room.id as string,
+			label: room.label,
+			stranded: false,
+			indices: room.familyIds
+				.map((id) => indexOf.get(id))
+				.filter((i): i is number => i !== undefined)
+				.filter((i) => matches(draft.families[i])),
+		}));
+
+		groups.push({
+			key: "__stranded",
+			label: "In no room — customers cannot see these",
+			stranded: true,
+			indices: draft.families
+				.map((f, i) => (stranded.has(f.id) ? i : -1))
+				.filter((i) => i >= 0)
+				.filter((i) => matches(draft.families[i])),
+		});
+
+		return groups.filter((g) => g.indices.length > 0);
+	}, [draft, familyQuery]);
 
 	function edit(mutate: (next: PlannerCatalogue) => void) {
 		setDraft((prev) => {
@@ -727,298 +770,394 @@ function CatalogueEditor() {
 
 						{tab === "families" && (
 							<div className="flex flex-col gap-3">
-								{draft.families.map((family, fi) => (
-									<SectionCard
-										key={family.id}
-										title={family.label || "Untitled cabinet"}
-										subtitle={`${family.kind} · ${family.sizes.length} size${
-											family.sizes.length === 1 ? "" : "s"
-										} · ${
-											family.sizes.filter((s) => s.meshDesignId).length
-										} drawn from a design`}
-										onRemove={() =>
-											edit((n) => {
-												n.families.splice(fi, 1);
-												for (const room of n.roomTypes) {
-													room.familyIds = room.familyIds.filter(
-														(id) => id !== family.id,
-													);
-													room.starter = room.starter.filter(
-														(s) => s.familyId !== family.id,
-													);
-												}
-											})
-										}
-									>
-										<div className="flex flex-wrap items-end gap-3">
-											<Text
-												label="Name"
-												value={family.label}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].label = v;
-													})
-												}
-											/>
-											<Select
-												label="Type"
-												value={family.kind}
-												options={[
-													{ value: "base" as const, label: "Base" },
-													{ value: "wall" as const, label: "Wall" },
-													{ value: "tall" as const, label: "Tall" },
-												]}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].kind = v;
-													})
-												}
-											/>
-											<Num
-												label="Depth mm"
-												value={family.depthMm}
-												min={1}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].depthMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Height mm"
-												value={family.heightMm}
-												min={1}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].heightMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Off floor mm"
-												value={family.floorHeightMm}
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].floorHeightMm = v;
-													})
-												}
-											/>
-											<Num
-												label="Drawers"
-												value={family.drawers}
-												width="w-16"
-												onChange={(v) =>
-													edit((n) => {
-														n.families[fi].drawers = v;
-													})
-												}
-											/>
-											<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-												<input
-													type="checkbox"
-													checked={family.hasWorktop}
-													onChange={(e) =>
-														edit((n) => {
-															n.families[fi].hasWorktop = e.target.checked;
-														})
-													}
-												/>
-												Worktop
-											</label>
+								<input
+									type="search"
+									value={familyQuery}
+									onChange={(e) => setFamilyQuery(e.target.value)}
+									placeholder="Search cabinets or a width, e.g. 900"
+									className={fieldClass(false, "w-full max-w-xs")}
+								/>
+
+								{familyGroups.map((group) => (
+									<div key={group.key} className="flex flex-col gap-3">
+										<div
+											className={`flex flex-wrap items-baseline gap-2 pt-1 ${
+												group.stranded ? "text-amber-800" : "text-neutral-500"
+											}`}
+										>
+											<p className="text-[11px] uppercase tracking-wide">
+												{group.label}
+											</p>
+											<span className="text-[12px] text-neutral-400">
+												{group.indices.length} famil
+												{group.indices.length === 1 ? "y" : "ies"} ·{" "}
+												{group.indices.reduce(
+													(n, i) => n + draft.families[i].sizes.length,
+													0,
+												)}{" "}
+												rungs ·{" "}
+												{group.indices.reduce(
+													(n, i) =>
+														n +
+														draft.families[i].sizes.filter(
+															(s) => s.meshDesignId,
+														).length,
+													0,
+												)}{" "}
+												drawn
+											</span>
 										</div>
 
-										{/* What the planner actually draws inside the carcass.
+										{group.indices.map((fi) => {
+											const family = draft.families[fi];
+											return (
+												<SectionCard
+													key={family.id}
+													title={family.label || "Untitled cabinet"}
+													subtitle={`${family.kind} · ${family.sizes.length} size${
+														family.sizes.length === 1 ? "" : "s"
+													} · ${
+														family.sizes.filter((s) => s.meshDesignId).length
+													} drawn from a design`}
+													onRemove={() =>
+														edit((n) => {
+															n.families.splice(fi, 1);
+															for (const room of n.roomTypes) {
+																room.familyIds = room.familyIds.filter(
+																	(id) => id !== family.id,
+																);
+																room.starter = room.starter.filter(
+																	(s) => s.familyId !== family.id,
+																);
+															}
+														})
+													}
+												>
+													<div className="flex flex-wrap items-end gap-3">
+														<Text
+															label="Name"
+															value={family.label}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].label = v;
+																})
+															}
+														/>
+														<Select
+															label="Type"
+															value={family.kind}
+															options={[
+																{ value: "base" as const, label: "Base" },
+																{ value: "wall" as const, label: "Wall" },
+																{ value: "tall" as const, label: "Tall" },
+															]}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].kind = v;
+																})
+															}
+														/>
+														<Num
+															label="Depth mm"
+															value={family.depthMm}
+															min={1}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].depthMm = v;
+																})
+															}
+														/>
+														<Num
+															label="Height mm"
+															value={family.heightMm}
+															min={1}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].heightMm = v;
+																})
+															}
+														/>
+														<Num
+															label="Off floor mm"
+															value={family.floorHeightMm}
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].floorHeightMm = v;
+																})
+															}
+														/>
+														<Num
+															label="Drawers"
+															value={family.drawers}
+															width="w-16"
+															onChange={(v) =>
+																edit((n) => {
+																	n.families[fi].drawers = v;
+																})
+															}
+														/>
+														<label className="flex items-center gap-1.5 pb-2 text-[12px]">
+															<input
+																type="checkbox"
+																checked={family.hasWorktop}
+																onChange={(e) =>
+																	edit((n) => {
+																		n.families[fi].hasWorktop =
+																			e.target.checked;
+																	})
+																}
+															/>
+															Worktop
+														</label>
+													</div>
+
+													{/* What the planner actually draws inside the carcass.
 										    Until this existed the numbers could only come from a
 										    design-file parse, so a miscounted shelf rendered wrong
 										    for good — there was nowhere to correct it. `geometry`
 										    is optional in the schema, so a family that has none
 										    (everything seeded before design intake) falls back to
 										    the old constants until someone edits it here. */}
-										<div className="mt-3 border-neutral-100 border-t pt-3">
-											<div className="mb-2 flex items-baseline gap-2">
-												<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
-													What it holds
-												</p>
-												<span className="text-[11px] text-neutral-400">
-													{family.geometry
-														? "0 door leaves = split by width · 0 legs = plinth"
-														: "not set — showing what the scene falls back to; 0 door leaves = split by width, 0 legs = plinth"}
-												</span>
-											</div>
-											<div className="flex flex-wrap items-end gap-3">
-												<Num
-													label="Shelves"
-													value={family.geometry?.shelves ?? 1}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).shelves = v;
-														})
-													}
-												/>
-												<Num
-													label="Fixed shelves"
-													value={family.geometry?.fixedShelves ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).fixedShelves = v;
-														})
-													}
-												/>
-												<Num
-													label="Door leaves"
-													value={family.geometry?.doorLeaves ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).doorLeaves = v;
-														})
-													}
-												/>
-												<Num
-													label="Drawer fronts"
-													value={family.geometry?.drawers ?? family.drawers}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).drawers = v;
-														})
-													}
-												/>
-												<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-													<input
-														type="checkbox"
-														checked={family.geometry?.hasBack ?? true}
-														onChange={(e) =>
-															edit((n) => {
-																withGeometry(n.families[fi]).hasBack =
-																	e.target.checked;
-															})
-														}
-													/>
-													Back panel
-												</label>
-												{/* Feet. Zero means the recessed plinth the scene
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<div className="mb-2 flex items-baseline gap-2">
+															<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+																What it holds
+															</p>
+															<span className="text-[11px] text-neutral-400">
+																{family.geometry
+																	? "0 door leaves = split by width · 0 legs = plinth"
+																	: "not set — showing what the scene falls back to; 0 door leaves = split by width, 0 legs = plinth"}
+															</span>
+														</div>
+														<div className="flex flex-wrap items-end gap-3">
+															<Num
+																label="Shelves"
+																value={family.geometry?.shelves ?? 1}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).shelves = v;
+																	})
+																}
+															/>
+															<Num
+																label="Fixed shelves"
+																value={family.geometry?.fixedShelves ?? 0}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).fixedShelves =
+																			v;
+																	})
+																}
+															/>
+															<Num
+																label="Door leaves"
+																value={family.geometry?.doorLeaves ?? 0}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).doorLeaves = v;
+																	})
+																}
+															/>
+															<Num
+																label="Drawer fronts"
+																value={
+																	family.geometry?.drawers ?? family.drawers
+																}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).drawers = v;
+																	})
+																}
+															/>
+															<label className="flex items-center gap-1.5 pb-2 text-[12px]">
+																<input
+																	type="checkbox"
+																	checked={family.geometry?.hasBack ?? true}
+																	onChange={(e) =>
+																		edit((n) => {
+																			withGeometry(n.families[fi]).hasBack =
+																				e.target.checked;
+																		})
+																	}
+																/>
+																Back panel
+															</label>
+															{/* Feet. Zero means the recessed plinth the scene
 												    draws for everything that did not say otherwise. */}
-												<Num
-													label="Legs"
-													value={family.geometry?.legs ?? 0}
-													width="w-16"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legs = v;
-														})
-													}
-												/>
-												<Num
-													label="Leg height mm"
-													value={family.geometry?.legHeightMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legHeightMm = v;
-														})
-													}
-												/>
-												{/* Zero in either of these means "not recorded", so
+															<Num
+																label="Legs"
+																value={family.geometry?.legs ?? 0}
+																width="w-16"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).legs = v;
+																	})
+																}
+															/>
+															<Num
+																label="Leg height mm"
+																value={family.geometry?.legHeightMm ?? 0}
+																width="w-20"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).legHeightMm =
+																			v;
+																	})
+																}
+															/>
+															{/* Zero in either of these means "not recorded", so
 												    `parts.ts` keeps its own constants — 50mm across,
 												    35mm in. An import fills a zero and never
 												    overwrites a number typed here, so these have to
 												    be typeable or that protection guards nothing. */}
-												<Num
-													label="Leg ⌀ mm"
-													value={family.geometry?.legDiameterMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legDiameterMm = v;
-														})
-													}
-												/>
-												<Num
-													label="Leg inset mm"
-													value={family.geometry?.legInsetMm ?? 0}
-													width="w-20"
-													onChange={(v) =>
-														edit((n) => {
-															withGeometry(n.families[fi]).legInsetMm = v;
-														})
-													}
-												/>
-											</div>
-										</div>
+															<Num
+																label="Leg ⌀ mm"
+																value={family.geometry?.legDiameterMm ?? 0}
+																width="w-20"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).legDiameterMm =
+																			v;
+																	})
+																}
+															/>
+															<Num
+																label="Leg inset mm"
+																value={family.geometry?.legInsetMm ?? 0}
+																width="w-20"
+																onChange={(v) =>
+																	edit((n) => {
+																		withGeometry(n.families[fi]).legInsetMm = v;
+																	})
+																}
+															/>
+														</div>
+													</div>
 
-										<div className="mt-3 border-neutral-100 border-t pt-3">
-											<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
-												Sizes &amp; prices
-											</p>
-											<div className="flex flex-col gap-2">
-												{family.sizes.map((size, si) => (
-													<div
-														// biome-ignore lint/suspicious/noArrayIndexKey: a size rung has no id in the schema, and these inputs hold no internal state — every value is read straight from `draft`, so a reorder re-renders correctly.
-														key={`${family.id}-${size.widthMm}-${si}`}
-														className="flex items-center gap-2"
-													>
-														<Num
-															value={size.widthMm}
-															min={1}
-															onChange={(v) =>
-																edit((n) => {
-																	n.families[fi].sizes[si].widthMm = v;
-																})
-															}
-														/>
-														<span className="text-[12px] text-neutral-400">
-															mm — RM
-														</span>
-														<Num
-															value={size.priceRm}
-															onChange={(v) =>
-																edit((n) => {
-																	n.families[fi].sizes[si].priceRm = v;
-																})
-															}
-														/>
-														{family.sizes.length > 1 && (
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
+															Offered in
+														</p>
+														<div className="flex flex-wrap gap-1.5">
+															{draft.roomTypes.map((room, ri) => {
+																const on = room.familyIds.includes(family.id);
+																return (
+																	<button
+																		key={room.id}
+																		type="button"
+																		onClick={() =>
+																			edit((n) => {
+																				const ids = n.roomTypes[ri].familyIds;
+																				n.roomTypes[ri].familyIds = on
+																					? ids.filter((id) => id !== family.id)
+																					: [...ids, family.id];
+																				// A starter layout may not place a cabinet the
+																				// room no longer offers.
+																				if (on) {
+																					n.roomTypes[ri].starter = n.roomTypes[
+																						ri
+																					].starter.filter(
+																						(s) => s.familyId !== family.id,
+																					);
+																				}
+																			})
+																		}
+																		className={chipClass(on)}
+																	>
+																		{room.label}
+																	</button>
+																);
+															})}
+														</div>
+														{!draft.roomTypes.some((r) =>
+															r.familyIds.includes(family.id),
+														) && (
+															<p className="mt-2 text-[12px] text-amber-800">
+																No room offers this cabinet, so no customer can
+																see it. Ticking a room is what puts it in the
+																planner; unticking every room retires it without
+																losing its prices.
+															</p>
+														)}
+													</div>
+
+													<div className="mt-3 border-neutral-100 border-t pt-3">
+														<p className="mb-2 text-[11px] text-neutral-500 uppercase tracking-wide">
+															Sizes &amp; prices
+														</p>
+														<div className="flex flex-col gap-2">
+															{family.sizes.map((size, si) => (
+																<div
+																	// biome-ignore lint/suspicious/noArrayIndexKey: a size rung has no id in the schema, and these inputs hold no internal state — every value is read straight from `draft`, so a reorder re-renders correctly.
+																	key={`${family.id}-${size.widthMm}-${si}`}
+																	className="flex items-center gap-2"
+																>
+																	<Num
+																		value={size.widthMm}
+																		min={1}
+																		onChange={(v) =>
+																			edit((n) => {
+																				n.families[fi].sizes[si].widthMm = v;
+																			})
+																		}
+																	/>
+																	<span className="text-[12px] text-neutral-400">
+																		mm — RM
+																	</span>
+																	<Num
+																		value={size.priceRm}
+																		onChange={(v) =>
+																			edit((n) => {
+																				n.families[fi].sizes[si].priceRm = v;
+																			})
+																		}
+																	/>
+																	{family.sizes.length > 1 && (
+																		<button
+																			type="button"
+																			onClick={() =>
+																				edit((n) => {
+																					n.families[fi].sizes.splice(si, 1);
+																				})
+																			}
+																			className="text-[12px] text-neutral-400 hover:text-red-600"
+																		>
+																			Remove
+																		</button>
+																	)}
+																	<RungCoverage
+																		coverage={rungCoverage(
+																			size.meshDesignId,
+																			designs,
+																		)}
+																	/>
+																</div>
+															))}
 															<button
 																type="button"
 																onClick={() =>
 																	edit((n) => {
-																		n.families[fi].sizes.splice(si, 1);
+																		const last = n.families[fi].sizes.at(-1);
+																		n.families[fi].sizes.push({
+																			widthMm: (last?.widthMm ?? 600) + 100,
+																			priceRm: last?.priceRm ?? 0,
+																		});
 																	})
 																}
-																className="text-[12px] text-neutral-400 hover:text-red-600"
+																className="self-start text-[12px] text-[#2b6cb0] hover:underline"
 															>
-																Remove
+																+ Add size
 															</button>
-														)}
-														<RungCoverage
-															coverage={rungCoverage(
-																size.meshDesignId,
-																designs,
-															)}
-														/>
+														</div>
 													</div>
-												))}
-												<button
-													type="button"
-													onClick={() =>
-														edit((n) => {
-															const last = n.families[fi].sizes.at(-1);
-															n.families[fi].sizes.push({
-																widthMm: (last?.widthMm ?? 600) + 100,
-																priceRm: last?.priceRm ?? 0,
-															});
-														})
-													}
-													className="self-start text-[12px] text-[#2b6cb0] hover:underline"
-												>
-													+ Add size
-												</button>
-											</div>
-										</div>
-									</SectionCard>
+												</SectionCard>
+											);
+										})}
+									</div>
 								))}
 								<button
 									type="button"
