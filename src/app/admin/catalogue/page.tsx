@@ -56,7 +56,6 @@ const DEFAULT_RATES = { worktopRmPerFt: 200 };
 type SaveState =
 	| { status: "idle" }
 	| { status: "saving" }
-	| { status: "draft"; id: string }
 	| { status: "publishing"; id: string }
 	| { status: "published" }
 	| { status: "error"; message: string };
@@ -382,6 +381,7 @@ function CatalogueEditor() {
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [save, setSave] = useState<SaveState>({ status: "idle" });
 	const [showJson, setShowJson] = useState(false);
+	const [confirming, setConfirming] = useState(false);
 
 	/**
 	 * Decor photo per finish slot, `finish:<id>` → URL.
@@ -515,7 +515,18 @@ function CatalogueEditor() {
 			});
 			return;
 		}
-		setSave({ status: "draft", id: body.id });
+		return body.id as string;
+	}
+
+	/**
+	 * One gesture from the admin's side: they confirmed the change list, so the
+	 * draft is a record of what was published, not a step they have to take.
+	 * Still two requests — the version row is the audit trail and the publish
+	 * endpoint is the only thing that flips it live.
+	 */
+	async function saveAndPublish() {
+		const id = await saveDraft();
+		if (id) await publish(id);
 	}
 
 	async function publish(id: string) {
@@ -1315,26 +1326,15 @@ function CatalogueEditor() {
 									{save.status === "idle" && (
 										<button
 											type="button"
-											onClick={saveDraft}
+											onClick={() => setConfirming(true)}
 											disabled={changes.length === 0 || issues.length > 0}
-											className="rounded-full border border-neutral-300 px-4 py-2 text-sm hover:border-neutral-500 disabled:opacity-40"
-										>
-											Save as draft
-										</button>
-									)}
-									{save.status === "saving" && (
-										<span className="text-neutral-500 text-sm">Saving…</span>
-									)}
-									{save.status === "draft" && (
-										<button
-											type="button"
-											onClick={() => publish(save.id)}
-											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white"
+											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-40"
 										>
 											Publish to customers
 										</button>
 									)}
-									{save.status === "publishing" && (
+									{(save.status === "saving" ||
+										save.status === "publishing") && (
 										<span className="text-neutral-500 text-sm">
 											Publishing…
 										</span>
@@ -1365,6 +1365,56 @@ function CatalogueEditor() {
 								</pre>
 							)}
 						</div>
+
+						{/*
+						 * Publishing is the only thing on this screen a customer
+						 * can see, so it gets the one confirmation step. Native
+						 * `<dialog>` rather than an overlay div: Esc, the
+						 * backdrop and the focus trap come with it.
+						 */}
+						{confirming && (
+							<dialog
+								ref={(el) => {
+									if (el && !el.open) el.showModal();
+								}}
+								onClose={() => setConfirming(false)}
+								className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-neutral-200 p-5 backdrop:bg-neutral-900/40"
+							>
+								<p className="font-medium text-sm">
+									Publish {changes.length}{" "}
+									{changes.length === 1 ? "change" : "changes"} to customers?
+								</p>
+								<ul className="mt-2 flex max-h-64 flex-col gap-1 overflow-auto">
+									{changes.map((line) => (
+										<li key={line} className="text-[13px] text-neutral-700">
+											• {line}
+										</li>
+									))}
+								</ul>
+								<p className="mt-3 text-[13px] text-neutral-500">
+									The planner shows this to everyone straight away.
+								</p>
+								<div className="mt-4 flex justify-end gap-2">
+									<button
+										type="button"
+										onClick={() => setConfirming(false)}
+										className="rounded-full border border-neutral-300 px-4 py-2 text-sm hover:border-neutral-500"
+									>
+										Cancel
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											setConfirming(false);
+											saveAndPublish();
+										}}
+										className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white"
+									>
+										Publish
+									</button>
+								</div>
+							</dialog>
+						)}
 					</div>
 				)}
 			</main>
