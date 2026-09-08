@@ -14,6 +14,7 @@ import { ImageSlot } from "@/components/admin/ImageSlot";
 import { chipClass, fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
 import { blockersOf, strandedFamilyIds } from "@/lib/catalogue/health";
+import { resolveOpenVersion } from "@/lib/catalogue/openVersion";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import { type Construction, constructionOf } from "@/lib/planner/catalogue";
 import {
@@ -34,8 +35,9 @@ import { fitOutOf, standOf } from "@/lib/planner/parts";
  * review step and cache revalidation are unchanged — only the editing
  * surface is new.
  *
- * Opens on the published catalogue by default, or on `?version=<id>` — which
- * is how `/admin/import` hands over the draft it just built from a design.
+ * Opens on whatever `resolveOpenVersion` picks — an open draft waiting to be
+ * priced, otherwise the published catalogue — or on `?version=<id>`, which is
+ * how `/admin/import` hands over the draft it just built from a design.
  */
 
 type Tab = "families" | "doors" | "finishes" | "rooms" | "standards";
@@ -531,25 +533,22 @@ function CatalogueEditor() {
 			const versions: VersionRow[] = body.versions ?? [];
 			const published = versions.find((v) => v.status === "PUBLISHED");
 
-			// `?version=` still wins — that is how /admin/import hands over the
-			// draft it just built. Absent it, an open DRAFT is what the admin was
-			// sent here to deal with: the design library tells them to price it
-			// here, and opening the live catalogue instead showed them a screen
-			// with none of their work in it.
-			const asked = versionId
-				? versions.find((v) => v.id === versionId)
-				: (versions.find((v) => v.status === "DRAFT") ?? null);
+			// An open DRAFT is what the admin was sent here to deal with — the
+			// design library tells them to price it here, and opening the live
+			// catalogue instead showed them a screen with none of their work in
+			// it. Which draft, and whether one qualifies at all, is
+			// `resolveOpenVersion`'s call: a draft below live is one a publish
+			// left behind, and reopening it hides prices that are already live.
+			const opened = resolveOpenVersion(versions, versionId);
 
-			if (versionId && !asked) {
+			if (versionId && !opened) {
 				setLoadError("That catalogue version no longer exists");
 				return;
 			}
-			if (!published && !asked) {
+			if (!opened) {
 				setLoadError("No published planner catalogue to edit yet");
 				return;
 			}
-			const opened = asked ?? published;
-			if (!opened) return;
 
 			// Edits are always diffed against what is live, even when the editor
 			// opened on a draft — "what changes if I publish this" is the only
@@ -692,6 +691,20 @@ function CatalogueEditor() {
 		}
 		setSave({ status: "published" });
 		setLive(draft);
+		// The header is the whole point of this screen, and it was wrong at the
+		// one moment it matters most: `saveAndPublish` POSTs a *new* version, so
+		// without this the page kept saying "Draft vN · not live" over a
+		// catalogue that had just gone live, and offered a link to "the live
+		// catalogue" pointing at the version this publish superseded.
+		setOpenedVersion({
+			id: body.id,
+			version: body.version,
+			status: "PUBLISHED",
+			note: null,
+			publishedAt: new Date().toISOString(),
+			publishedVersion: body.version,
+			publishedVersionId: body.id,
+		});
 	}
 
 	return (
@@ -700,7 +713,12 @@ function CatalogueEditor() {
 
 			<main className="mx-auto w-full max-w-5xl flex-1 p-6">
 				<div className="mb-5">
-					{openedVersion?.status === "DRAFT" ? (
+					{/* No pill until the versions fetch answers. Defaulting to the
+					    green "Live" one claimed a status the page did not yet know,
+					    and on a draft it flipped to amber a moment later. */}
+					{!openedVersion ? (
+						<h1 className="font-semibold text-lg">Catalogue</h1>
+					) : openedVersion.status === "DRAFT" ? (
 						<>
 							<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-semibold text-[11px] text-amber-900 uppercase tracking-wide">
 								<span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
@@ -727,7 +745,7 @@ function CatalogueEditor() {
 						<>
 							<span className="inline-flex items-center gap-1.5 rounded-full border border-green-300 bg-green-50 px-2.5 py-1 font-semibold text-[11px] text-green-900 uppercase tracking-wide">
 								<span className="h-1.5 w-1.5 rounded-full bg-green-600" />
-								Live{openedVersion ? ` · v${openedVersion.version}` : ""}
+								Live · v{openedVersion.version}
 							</span>
 							<h1 className="mt-2 font-semibold text-lg">Catalogue</h1>
 							<p className="text-neutral-500 text-sm">
@@ -1057,6 +1075,14 @@ function CatalogueEditor() {
 																	onChange={(v) =>
 																		edit((n) => {
 																			withGeometry(n.families[fi]).drawers = v;
+																			// `matchesFamily` keys on the TOP-LEVEL
+																			// drawers, and the field above is read-only
+																			// once `geometry` exists — so correcting a
+																			// bad parse here without writing both would
+																			// desync them, and the next width pushed
+																			// for this ladder would fork a duplicate
+																			// family instead of adding a rung.
+																			n.families[fi].drawers = v;
 																		})
 																	}
 																/>
@@ -1251,7 +1277,10 @@ function CatalogueEditor() {
 								))}
 								<button
 									type="button"
-									onClick={() =>
+									onClick={() => {
+										// A search still active would hide the family that was
+										// just created — the button would read as doing nothing.
+										setFamilyQuery("");
 										edit((n) => {
 											n.families.push({
 												id: `family-${Date.now()}`,
@@ -1264,8 +1293,8 @@ function CatalogueEditor() {
 												hasWorktop: true,
 												drawers: 0,
 											});
-										})
-									}
+										});
+									}}
 									className="self-start rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm hover:border-neutral-500"
 								>
 									+ Add cabinet
@@ -1575,11 +1604,7 @@ function CatalogueEditor() {
 																}
 															})
 														}
-														className={`rounded-full border px-3 py-1.5 font-medium text-xs ${
-															on
-																? "border-neutral-900 bg-neutral-900 text-white"
-																: "border-neutral-200 bg-white text-neutral-600"
-														}`}
+														className={chipClass(on)}
 													>
 														{family.label}
 													</button>
