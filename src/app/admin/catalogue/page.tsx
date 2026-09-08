@@ -60,6 +60,18 @@ type SaveState =
 	| { status: "published" }
 	| { status: "error"; message: string };
 
+type OpenedVersion = {
+	id: string;
+	version: number;
+	status: "DRAFT" | "PUBLISHED";
+	note: string | null;
+	publishedAt: string | null;
+	/** The published version, for the "open the live catalogue" link. Both
+	 * fields, because the link needs the id and the label needs the number. */
+	publishedVersion: number | null;
+	publishedVersionId: string | null;
+};
+
 /**
  * These three own their own `<label>` rather than being wrapped in one by the
  * caller: a `<label>` around a component reads as unlabelled to a screen
@@ -377,6 +389,11 @@ function CatalogueEditor() {
 	const versionId = useSearchParams().get("version");
 	const [live, setLive] = useState<PlannerCatalogue | null>(null);
 	const [draft, setDraft] = useState<PlannerCatalogue | null>(null);
+	/** Which version the editor is looking at — a DRAFT waiting to be reviewed,
+	 * or the live one. Drives the header and the review panel's copy. */
+	const [openedVersion, setOpenedVersion] = useState<OpenedVersion | null>(
+		null,
+	);
 	const [tab, setTab] = useState<Tab>("families");
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [save, setSave] = useState<SaveState>({ status: "idle" });
@@ -447,12 +464,26 @@ function CatalogueEditor() {
 				return;
 			}
 			const body = await res.json();
-			const published = body.versions?.find(
-				(v: { status: string }) => v.status === "PUBLISHED",
-			);
+			type VersionRow = {
+				id: string;
+				version: number;
+				status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+				note: string | null;
+				publishedAt: string | null;
+				data: PlannerCatalogue;
+			};
+			const versions: VersionRow[] = body.versions ?? [];
+			const published = versions.find((v) => v.status === "PUBLISHED");
+
+			// `?version=` still wins — that is how /admin/import hands over the
+			// draft it just built. Absent it, an open DRAFT is what the admin was
+			// sent here to deal with: the design library tells them to price it
+			// here, and opening the live catalogue instead showed them a screen
+			// with none of their work in it.
 			const asked = versionId
-				? body.versions?.find((v: { id: string }) => v.id === versionId)
-				: null;
+				? versions.find((v) => v.id === versionId)
+				: (versions.find((v) => v.status === "DRAFT") ?? null);
+
 			if (versionId && !asked) {
 				setLoadError("That catalogue version no longer exists");
 				return;
@@ -461,11 +492,23 @@ function CatalogueEditor() {
 				setLoadError("No published planner catalogue to edit yet");
 				return;
 			}
+			const opened = asked ?? published;
+			if (!opened) return;
+
 			// Edits are always diffed against what is live, even when the editor
 			// opened on a draft — "what changes if I publish this" is the only
 			// comparison that means anything.
-			setLive(published?.data ?? asked.data);
-			setDraft(JSON.parse(JSON.stringify(asked?.data ?? published.data)));
+			setLive(published?.data ?? opened.data);
+			setDraft(JSON.parse(JSON.stringify(opened.data)));
+			setOpenedVersion({
+				id: opened.id,
+				version: opened.version,
+				status: opened.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT",
+				note: opened.note,
+				publishedAt: opened.publishedAt,
+				publishedVersion: published?.version ?? null,
+				publishedVersionId: published?.id ?? null,
+			});
 		})();
 		loadFinishPhotos();
 		loadDesigns();
@@ -549,11 +592,42 @@ function CatalogueEditor() {
 
 			<main className="mx-auto w-full max-w-5xl flex-1 p-6">
 				<div className="mb-5">
-					<h1 className="font-semibold text-lg">Catalogue</h1>
-					<p className="text-neutral-500 text-sm">
-						What the planner offers and what it charges. Changes are saved as a
-						draft first — nothing reaches customers until you publish.
-					</p>
+					{openedVersion?.status === "DRAFT" ? (
+						<>
+							<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 font-semibold text-[11px] text-amber-900 uppercase tracking-wide">
+								<span className="h-1.5 w-1.5 rounded-full bg-amber-600" />
+								Draft v{openedVersion.version} · not live
+							</span>
+							<h1 className="mt-2 font-semibold text-lg">
+								Review this draft before customers see it
+							</h1>
+							<p className="text-neutral-500 text-sm">
+								{openedVersion.note ??
+									"Nothing on this draft reaches the planner until you publish it."}
+							</p>
+							{openedVersion.publishedVersionId && (
+								<a
+									href={`/admin/catalogue?version=${openedVersion.publishedVersionId}`}
+									className="mt-1 inline-block text-[12px] text-neutral-500 underline"
+								>
+									Open the live catalogue (v{openedVersion.publishedVersion})
+									instead
+								</a>
+							)}
+						</>
+					) : (
+						<>
+							<span className="inline-flex items-center gap-1.5 rounded-full border border-green-300 bg-green-50 px-2.5 py-1 font-semibold text-[11px] text-green-900 uppercase tracking-wide">
+								<span className="h-1.5 w-1.5 rounded-full bg-green-600" />
+								Live{openedVersion ? ` · v${openedVersion.version}` : ""}
+							</span>
+							<h1 className="mt-2 font-semibold text-lg">Catalogue</h1>
+							<p className="text-neutral-500 text-sm">
+								What the planner offers and what it charges. Changes are saved
+								as a draft first — nothing reaches customers until you publish.
+							</p>
+						</>
+					)}
 				</div>
 
 				{loadError && (
