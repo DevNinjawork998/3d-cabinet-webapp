@@ -988,19 +988,6 @@ function CatalogueEditor() {
 																}
 															/>
 														)}
-														<label className="flex items-center gap-1.5 pb-2 text-[12px]">
-															<input
-																type="checkbox"
-																checked={family.hasWorktop}
-																onChange={(e) =>
-																	edit((n) => {
-																		n.families[fi].hasWorktop =
-																			e.target.checked;
-																	})
-																}
-															/>
-															Worktop
-														</label>
 													</div>
 
 													{/* What the planner actually draws inside the carcass.
@@ -1290,7 +1277,6 @@ function CatalogueEditor() {
 												heightMm: 880,
 												floorHeightMm: 0,
 												sizes: [{ widthMm: 600, priceRm: 0 }],
-												hasWorktop: true,
 												drawers: 0,
 											});
 										});

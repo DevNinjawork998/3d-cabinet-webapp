@@ -17,10 +17,7 @@ import {
 import { CONSTRUCTION, WALL_CABINET_FLOOR_MM } from "@/lib/planner/catalogue";
 import { plannerCatalogueSchema } from "@/lib/planner/catalogueSchema";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
-import {
-	CATEGORY_TO_FAMILY_SHAPE,
-	ROOM_TO_PLANNER,
-} from "./cabinetDesignLabels";
+import { CATEGORY_TO_KIND, ROOM_TO_PLANNER } from "./cabinetDesignLabels";
 import { prisma } from "./db";
 import {
 	fetchMeshFile,
@@ -196,21 +193,21 @@ async function prepare(
 	// other customer-visible number already comes from the row, and mixing the
 	// two sources produced contradictions: a row recorded as 870mm tall became a
 	// `tall` family because the export contained a 2400mm run.
-	const shape = CATEGORY_TO_FAMILY_SHAPE[design.category];
+	const kind = CATEGORY_TO_KIND[design.category];
 
 	return {
 		design,
 		meshNote,
 		module: {
 			label: design.name,
-			kind: shape.kind,
+			kind,
 			widthMm: design.widthMm,
 			heightMm: design.heightMm,
 			depthMm: design.depthMm,
 			// A wall unit hangs; everything else stands on the floor. Taking this
 			// from the file would record where the cabinet happened to sit in the
 			// drawing, which is not a property of the product.
-			floorHeightMm: shape.kind === "wall" ? WALL_CABINET_FLOOR_MM : 0,
+			floorHeightMm: kind === "wall" ? WALL_CABINET_FLOOR_MM : 0,
 			// The one thing only the file knows: what is actually inside it.
 			geometry: measured.geometry,
 			meshDesignId,

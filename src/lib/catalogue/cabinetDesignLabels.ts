@@ -82,13 +82,10 @@ export const ROOM_TO_PLANNER: Record<Room, RoomTypeId> = {
  * base from a base, and a fridge housing from a tall unit, where the planner
  * only cares how a cabinet is placed.
  */
-export const CATEGORY_TO_FAMILY_SHAPE: Record<
-	Category,
-	{ kind: "base" | "wall" | "tall"; hasWorktop: boolean }
-> = {
-	BASE_CABINET: { kind: "base", hasWorktop: true },
-	WALL_CABINET: { kind: "wall", hasWorktop: false },
-	TALL_CABINET: { kind: "tall", hasWorktop: false },
-	DRAWER_BASE: { kind: "base", hasWorktop: true },
-	FRIDGE_HOUSING: { kind: "tall", hasWorktop: false },
+export const CATEGORY_TO_KIND: Record<Category, "base" | "wall" | "tall"> = {
+	BASE_CABINET: "base",
+	WALL_CABINET: "wall",
+	TALL_CABINET: "tall",
+	DRAWER_BASE: "base",
+	FRIDGE_HOUSING: "tall",
 };

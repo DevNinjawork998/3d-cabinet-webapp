@@ -67,7 +67,6 @@ export const familySchema = z.object({
 	heightMm: z.number().positive(),
 	floorHeightMm: z.number().min(0),
 	sizes: z.array(sizeOptionSchema).min(1),
-	hasWorktop: z.boolean(),
 	drawers: z.number().int().min(0),
 	geometry: cabinetGeometrySchema.optional(),
 	note: z.string().optional(),

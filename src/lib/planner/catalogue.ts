@@ -141,7 +141,6 @@ export const FAMILIES: Family[] = [
 		...BASE,
 		id: "base-cabinet",
 		label: "Base cabinet",
-		hasWorktop: true,
 		drawers: 0,
 		note: "Standard 880mm carcass, 600mm deep",
 		sizes: [
@@ -156,7 +155,6 @@ export const FAMILIES: Family[] = [
 		...BASE,
 		id: "base-drawers",
 		label: "Drawer base",
-		hasWorktop: true,
 		drawers: 3,
 		note: "Three drawers",
 		sizes: [
@@ -169,7 +167,6 @@ export const FAMILIES: Family[] = [
 		...WALL,
 		id: "wall-cabinet",
 		label: "Wall cabinet",
-		hasWorktop: false,
 		drawers: 0,
 		note: "Hung at 1500mm, 397mm deep",
 		sizes: [
@@ -186,7 +183,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 607,
 		heightMm: 2380,
 		floorHeightMm: 0,
-		hasWorktop: false,
 		drawers: 0,
 		note: "Full height, 2380mm",
 		sizes: [
@@ -203,7 +199,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 650,
 		heightMm: 2380,
 		floorHeightMm: 0,
-		hasWorktop: false,
 		drawers: 0,
 		note: "Houses the fridge — carcass only, dimensions not yet from a job file",
 		sizes: [
@@ -221,7 +216,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 400,
 		heightMm: 400,
 		floorHeightMm: 0,
-		hasWorktop: true,
 		drawers: 2,
 		note: "Low media unit — dimensions not yet from a job file",
 		sizes: [
@@ -238,7 +232,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 400,
 		heightMm: 2100,
 		floorHeightMm: 0,
-		hasWorktop: false,
 		drawers: 0,
 		note: "Dimensions not yet from a job file",
 		sizes: [
@@ -253,7 +246,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 600,
 		heightMm: 2400,
 		floorHeightMm: 0,
-		hasWorktop: false,
 		drawers: 0,
 		note: "Simple box — no interior fit-out yet",
 		sizes: [
@@ -269,7 +261,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 350,
 		heightMm: 1000,
 		floorHeightMm: 0,
-		hasWorktop: true,
 		drawers: 0,
 		note: "Dimensions not yet from a job file",
 		sizes: [
@@ -285,7 +276,6 @@ export const FAMILIES: Family[] = [
 		depthMm: 350,
 		heightMm: 450,
 		floorHeightMm: 0,
-		hasWorktop: true,
 		drawers: 1,
 		note: "Seat height, dimensions not yet from a job file",
 		sizes: [
