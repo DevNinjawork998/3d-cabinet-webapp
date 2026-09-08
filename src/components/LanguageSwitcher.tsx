@@ -24,9 +24,10 @@ const ENDONYM: Record<Locale, string> = {
 /**
  * The same three, short enough to sit inside a nav bar. `zh` keeps its
  * endonym: 中文 is already two characters, and "ZH" is a code no reader of
- * Chinese scans for.
+ * Chinese scans for. `ms` is "BM" for the same reason — Bahasa Malaysia is
+ * BM to Malaysians, and "MS" is an ISO code nobody here reads as a language.
  */
-const SHORT: Record<Locale, string> = { en: "EN", zh: "中文", ms: "MS" };
+const SHORT: Record<Locale, string> = { en: "EN", zh: "中文", ms: "BM" };
 
 export function LanguageSwitcher({
 	current,
