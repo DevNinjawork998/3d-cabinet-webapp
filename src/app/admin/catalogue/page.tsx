@@ -13,6 +13,7 @@ import { AdminHeader } from "@/components/admin/AdminHeader";
 import { ImageSlot } from "@/components/admin/ImageSlot";
 import { fieldClass } from "@/components/admin/styles";
 import { summariseCatalogueChanges } from "@/lib/catalogue/diff";
+import { blockersOf } from "@/lib/catalogue/health";
 import { finishSlot, siteImageSrc } from "@/lib/catalogue/siteImages";
 import {
 	type Family,
@@ -525,6 +526,11 @@ function CatalogueEditor() {
 		return parsed.success ? [] : parsed.error.issues;
 	}, [draft]);
 
+	// A rung priced at nothing is schema-valid, so `issues` never sees it. It is
+	// the one thing a design file structurally cannot supply, which makes it the
+	// blocker that actually occurs.
+	const blockers = useMemo(() => (draft ? blockersOf(draft) : []), [draft]);
+
 	function edit(mutate: (next: PlannerCatalogue) => void) {
 		setDraft((prev) => {
 			if (!prev) return prev;
@@ -638,6 +644,75 @@ function CatalogueEditor() {
 
 				{draft && (
 					<div className="flex flex-col gap-4">
+						{changes.length > 0 && (
+							<div className="rounded-lg border border-neutral-200 bg-white">
+								<div className="flex flex-wrap items-baseline gap-2.5 border-neutral-100 border-b px-4 py-3">
+									<p className="text-[11px] text-neutral-500 uppercase tracking-wide">
+										Needs you
+									</p>
+									<span className="text-[12px] text-neutral-400">
+										{blockers.length === 0
+											? "nothing blocking · ready to publish"
+											: `${blockers.length} rung${
+													blockers.length === 1 ? "" : "s"
+												} still need${blockers.length === 1 ? "s" : ""} a price`}
+									</span>
+								</div>
+
+								<ul className="flex flex-wrap gap-x-5 gap-y-1.5 border-neutral-100 border-b px-4 py-3">
+									{changes.map((line) => (
+										<li key={line} className="text-[13px] text-neutral-700">
+											· {line}
+										</li>
+									))}
+								</ul>
+
+								{blockers.map((blocker) => {
+									const fi = draft.families.findIndex(
+										(f) => f.id === blocker.familyId,
+									);
+									const si = draft.families[fi]?.sizes.findIndex(
+										(s) => s.widthMm === blocker.widthMm,
+									);
+									if (fi < 0 || si === undefined || si < 0) return null;
+									return (
+										<div
+											key={`${blocker.familyId}-${blocker.widthMm}`}
+											className="flex flex-wrap items-center justify-between gap-3 border-neutral-100 border-b px-4 py-3 last:border-b-0"
+										>
+											<div className="min-w-0">
+												<p className="text-sm">
+													<span className="font-medium">
+														{blocker.familyLabel}
+													</span>{" "}
+													·{" "}
+													<span className="tabular-nums">
+														{blocker.widthMm} mm
+													</span>
+												</p>
+												<p className="text-[12px] text-neutral-500">
+													{blocker.meshDesignId
+														? "Drawn from a design, but carries no price"
+														: "No price set"}
+												</p>
+											</div>
+											<div className="flex items-center gap-2">
+												<span className="text-[12px] text-neutral-400">RM</span>
+												<Num
+													value={draft.families[fi].sizes[si].priceRm}
+													width="w-24"
+													onChange={(v) =>
+														edit((n) => {
+															n.families[fi].sizes[si].priceRm = v;
+														})
+													}
+												/>
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						)}
 						<div className="flex flex-wrap gap-1.5">
 							{TABS.map((t) => (
 								<button
@@ -1394,6 +1469,15 @@ function CatalogueEditor() {
 											</ul>
 										</div>
 									)}
+
+									{blockers.length > 0 && (
+										<p className="mt-3 text-[12px] text-amber-800">
+											{blockers.length} rung
+											{blockers.length === 1 ? "" : "s"} still need
+											{blockers.length === 1 ? "s" : ""} a price before this can
+											go live.
+										</p>
+									)}
 								</div>
 
 								<div className="flex shrink-0 flex-col items-end gap-2">
@@ -1401,7 +1485,11 @@ function CatalogueEditor() {
 										<button
 											type="button"
 											onClick={() => setConfirming(true)}
-											disabled={changes.length === 0 || issues.length > 0}
+											disabled={
+												changes.length === 0 ||
+												issues.length > 0 ||
+												blockers.length > 0
+											}
 											className="rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-40"
 										>
 											Publish to customers
