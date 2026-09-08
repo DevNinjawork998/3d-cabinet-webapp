@@ -7,3 +7,4 @@ allowBuilds:
 
 overrides:
   deepmerge-ts: '>=8.0.0'
+  mysql2: '>=3.24.3'
