@@ -43,6 +43,7 @@ const {
 	positionsOf,
 	removeModule,
 	removeModules,
+	replaceFamily,
 	runExtentMm,
 	setBaseSkirting,
 	setCeilingHeight,
@@ -1034,5 +1035,50 @@ describe("the engine is bound to the catalogue it was given", () => {
 		});
 		expect(a.fits(emptyLayout(4000), "base-cabinet")).toBe(true);
 		expect(b.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
+	});
+});
+
+describe("replaceFamily", () => {
+	it("swaps the family and keeps the left edge", () => {
+		const placed = addModule(layout, "base-cabinet", 600, "a", 600);
+		const next = replaceFamily(placed, "a", "base-drawers");
+		const module = next.floor.find((m) => m.id === "a");
+		expect(module?.familyId).toBe("base-drawers");
+		expect(module?.xMm).toBe(600);
+	});
+
+	it("lands on the nearest rung of the new ladder", () => {
+		// base-cabinet has a 300 rung; base-drawers starts at 400.
+		const placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		const next = replaceFamily(placed, "a", "base-drawers");
+		expect(next.floor.find((m) => m.id === "a")?.widthMm).toBe(400);
+	});
+
+	it("refuses a swap the neighbours leave no room for", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 300);
+		// The nearest drawer rung is 400, which would run into "b".
+		expect(replaceFamily(placed, "a", "base-drawers")).toBe(placed);
+	});
+
+	it("refuses a swap that would change row", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		expect(replaceFamily(placed, "a", "wall-cabinet")).toBe(placed);
+	});
+
+	it("keeps the door and the hinge", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		placed = setDoor(placed, "a", "shaker");
+		placed = setHinge(placed, "a", "right");
+		const next = replaceFamily(placed, "a", "base-drawers");
+		const module = next.floor.find((m) => m.id === "a");
+		expect(module?.doorStyleId).toBe("shaker");
+		expect(module?.hinge).toBe("right");
+	});
+
+	it("leaves an unknown family or id alone", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		expect(replaceFamily(placed, "a", "nope")).toBe(placed);
+		expect(replaceFamily(placed, "nope", "base-drawers")).toBe(placed);
 	});
 });

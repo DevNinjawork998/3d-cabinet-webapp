@@ -1108,6 +1108,51 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Swap what a cabinet *is* without moving it.
+	 *
+	 * The left edge is the thing the customer is not asking to change, so it
+	 * stays and the new family takes the nearest width its own ladder offers.
+	 * Refused rather than half-applied when the neighbours leave no room —
+	 * same rule as `setWidth`, for the same reason: a swap that silently slid
+	 * the run would move cabinets the customer never touched.
+	 *
+	 * A swap across rows is refused too. The rows are separate arrays and a
+	 * wall cabinet standing where a base unit stood is not a resize, it is a
+	 * different design decision — remove and add is the honest path for that.
+	 */
+	function replaceFamily(
+		layout: PlannerLayout,
+		id: string,
+		familyId: string,
+	): PlannerLayout {
+		const found = find(layout, id);
+		const family = familyIn(catalogue, familyId);
+		if (!found || !family) return layout;
+		if (family.id === found.placed.familyId) return layout;
+		if (rowFor(family.kind) !== found.row) return layout;
+
+		const widthMm = family.sizes.reduce(
+			(best, size) =>
+				Math.abs(size.widthMm - found.placed.widthMm) <
+				Math.abs(best - found.placed.widthMm)
+					? size.widthMm
+					: best,
+			family.sizes[0].widthMm,
+		);
+
+		const spans = occupiedSpans(layout, found.row, id);
+		if (found.placed.xMm + widthMm > layout.wallWidthMm) return layout;
+		if (overlapsAnything(found.placed.xMm, widthMm, spans)) return layout;
+
+		return {
+			...layout,
+			[found.row]: layout[found.row].map((module) =>
+				module.id === id ? { ...module, familyId, widthMm } : module,
+			),
+		};
+	}
+
+	/**
 	 * The room's own starter, so no room ever opens on a blank wall — the same
 	 * rule the wardrobe configurator follows. Dropped at 0 each time, so each one
 	 * takes the leftmost gap that holds it and the run comes out packed from the
@@ -1135,6 +1180,7 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		addModule,
 		removeModules,
 		removeModule,
+		replaceFamily,
 		duplicateModule,
 		setHangingHeight,
 		setWallToCeiling,
