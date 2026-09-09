@@ -71,8 +71,20 @@ export default async function SiteContentPage() {
 					<p className="mb-3 text-[12px] text-neutral-500">
 						The real board, used in two places: the swatch on the homepage and
 						the door surface in the 3D planner. A slot per finish in the live
-						catalogue — leave one empty to show its flat colour instead. These
-						are also editable beside each finish in Catalogue.
+						catalogue — leave one empty to show its flat colour instead.{" "}
+						{/* A finish is catalogue data, so it arrives here only once it has
+						    been published. Adding one on this page would mean either a
+						    publish step on a page that promises none, or a published
+						    version edited in place — so this points at the editor that
+						    already does it properly rather than growing a second one. */}
+						<a
+							href="/admin/catalogue?tab=finishes"
+							className="font-medium text-[#2b6cb0] underline"
+						>
+							Add or rename a finish in Catalogue
+						</a>{" "}
+						— its colour and board live there, and a new one appears here once
+						the catalogue is published.
 					</p>
 					<div className="grid grid-cols-3 gap-3.5 sm:grid-cols-6">
 						{catalogue.finishes.map((finish) => (

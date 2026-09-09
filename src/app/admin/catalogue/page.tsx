@@ -445,7 +445,11 @@ function CatalogueEditor() {
 	// `/admin/import` sends the reviewer straight here with the draft it just
 	// created. Without this the editor could only ever open the published
 	// version, and an imported draft would be unreachable.
-	const versionId = useSearchParams().get("version");
+	const params = useSearchParams();
+	const versionId = params.get("version");
+	// Which tab to land on. `/admin/site-content` links straight to Finishes,
+	// because "add a finish" is a question asked from there and answered here.
+	const wantedTab = params.get("tab");
 	const [live, setLive] = useState<PlannerCatalogue | null>(null);
 	const [draft, setDraft] = useState<PlannerCatalogue | null>(null);
 	/** Which version the editor is looking at — a DRAFT waiting to be reviewed,
@@ -453,7 +457,9 @@ function CatalogueEditor() {
 	const [openedVersion, setOpenedVersion] = useState<OpenedVersion | null>(
 		null,
 	);
-	const [tab, setTab] = useState<Tab>("families");
+	const [tab, setTab] = useState<Tab>(() =>
+		TABS.some((t) => t.id === wantedTab) ? (wantedTab as Tab) : "families",
+	);
 	/** Filters the Cabinets tab by family label or rung width. At ~200 rungs a
 	 * flat scroll stops being navigable, and a width is how someone hunts. */
 	const [familyQuery, setFamilyQuery] = useState("");
