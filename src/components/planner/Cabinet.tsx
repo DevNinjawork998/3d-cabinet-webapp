@@ -1,5 +1,6 @@
 import { Edges } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import { DoubleSide } from "three";
 import {
 	CARCASS_COLOR,
 	CARCASS_INTERIOR_COLOR,
@@ -508,26 +509,50 @@ function Front({
 				/>
 			</mesh>
 
-			{/* A shaker's recessed centre panel, and a glazed one's pane. Both are
-			    the same inset box; only the material differs. */}
-			{door.look !== "slab" && (
+			{/* A shaker's recessed centre panel: a real inset box, because it is a
+			    real piece of board with thickness. */}
+			{door.look === "shaker" && (
 				<mesh position={[0, 0, m(FRONT_THICKNESS_MM) / 2]}>
 					<boxGeometry args={[panelW, panelH, m(4)]} />
-					{door.look === "glass" ? (
-						<meshStandardMaterial
-							color={GLASS_COLOR}
-							roughness={0.1}
-							metalness={0.1}
-							transparent
-							opacity={0.55}
-						/>
-					) : (
-						<meshStandardMaterial
-							color={insetShade(finishHex)}
-							roughness={0.6}
-							roughnessMap={surface.roughnessMap}
-						/>
-					)}
+					<meshStandardMaterial
+						color={insetShade(finishHex)}
+						roughness={0.6}
+						roughnessMap={surface.roughnessMap}
+					/>
+					<Edges
+						threshold={15}
+						color={EDGE_COLOR}
+						transparent
+						opacity={EDGE_OPACITY}
+					/>
+				</mesh>
+			)}
+
+			{/* A glazed door's pane.
+
+			    A single plane, not a box: as a box the camera looks through both
+			    its front and back faces, and two coats of the same alpha compound
+			    — 0.55 twice reads as 0.80, which is why the glass looked like a
+			    milky film rather than a window. The point of a glazed door is
+			    seeing what is inside it, so the pane is faint and the frame around
+			    it does the work of saying "there is glass here".
+
+			    `depthWrite` off because a transparent surface that writes depth
+			    culls whatever is drawn behind it afterwards — the shelves this
+			    door exists to show. `DoubleSide` because the elevation view and
+			    the doors-open toggle both look at a door from behind, and a plane
+			    has no back. */}
+			{door.look === "glass" && (
+				<mesh position={[0, 0, m(FRONT_THICKNESS_MM) / 2]}>
+					<planeGeometry args={[panelW, panelH]} />
+					<meshStandardMaterial
+						color={GLASS_COLOR}
+						roughness={0.1}
+						transparent
+						opacity={0.15}
+						depthWrite={false}
+						side={DoubleSide}
+					/>
 					<Edges
 						threshold={15}
 						color={EDGE_COLOR}

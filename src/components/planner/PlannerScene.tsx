@@ -1,14 +1,26 @@
 "use client";
 
 import { OrbitControls, Shadow } from "@react-three/drei";
-import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
+import {
+	Canvas,
+	type ThreeEvent,
+	useFrame,
+	useThree,
+} from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	Object3D,
 	PerspectiveCamera,
 	Vector3 as Vector3Type,
 } from "three";
-import { Raycaster, Vector2, Vector3 } from "three";
+import {
+	type Mesh,
+	type MeshBasicMaterial,
+	type PlaneGeometry,
+	Raycaster,
+	Vector2,
+	Vector3,
+} from "three";
 import {
 	CEILING_TRIM_MM,
 	type Construction,
@@ -636,6 +648,55 @@ function Run({
 }
 
 /**
+ * A wall unit's contact patch, faded out as the camera swings off-axis.
+ *
+ * The patch is painted on the wall and is deliberately larger than the cabinet
+ * hanging in front of it, so head-on only its soft fringe shows and it reads as
+ * shadow. Those two facts are what break it from the side: the cabinet sits
+ * forward of the wall by the wall gap plus its own depth, so parallax slides it
+ * off the patch, and what is left is a grey smudge on bare wall with nothing
+ * casting it. The planner's camera orbits, so that view is one drag away.
+ *
+ * Fading on the viewing angle keeps the cue where it works and removes it where
+ * it lies. `useFrame` writes the material directly rather than going through
+ * React state — this runs every frame, and re-rendering the scene graph sixty
+ * times a second to animate one float is exactly the mobile budget's problem.
+ */
+function WallShadow({
+	position,
+	scale,
+	opacity,
+}: {
+	position: [number, number, number];
+	scale: [number, number, number];
+	opacity: number;
+}) {
+	const ref = useRef<Mesh<PlaneGeometry, MeshBasicMaterial>>(null);
+
+	useFrame(({ camera }) => {
+		const mesh = ref.current;
+		if (!mesh) return;
+		// The wall faces +z, so the z component of the direction from patch to
+		// camera is how square-on the view is: 1 looking straight at the wall,
+		// 0 grazing it, negative from behind.
+		const facing = SHADOW_VIEW.subVectors(
+			camera.position,
+			mesh.position,
+		).normalize().z;
+		// Full strength until the view is already fairly oblique, then off by the
+		// time the wall is edge-on. Squared so it leaves rather than lingers.
+		const fade = Math.max(0, Math.min(1, (facing - 0.15) / 0.35));
+		mesh.material.opacity = opacity * fade * fade;
+	});
+
+	return <Shadow ref={ref} position={position} scale={scale} color="#151311" />;
+}
+
+/** Scratch vector for the fade above — allocating one per frame per wall unit
+ * is how a scene starts stuttering on the phones this app is built for. */
+const SHADOW_VIEW = new Vector3();
+
+/**
  * Fake contact shadows. No shadow maps — the mobile budget in CLAUDE.md rules
  * those out, and a cabinet only really needs to look *attached* to what it
  * meets.
@@ -679,7 +740,7 @@ function ContactShadows({
 			    peeks out below the carcass — the cue that says "hung on that wall"
 			    rather than "floating in front of it". */}
 			{positionsOf(layout, "wall").map((position) => (
-				<Shadow
+				<WallShadow
 					key={position.placed.id}
 					position={[
 						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
@@ -692,7 +753,6 @@ function ContactShadows({
 						1,
 					]}
 					opacity={0.28}
-					color="#151311"
 				/>
 			))}
 		</>

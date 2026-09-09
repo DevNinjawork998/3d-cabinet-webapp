@@ -10,6 +10,7 @@ import {
 	CARCASS_COLOR,
 	CARCASS_INTERIOR_COLOR,
 	type DoorStyle,
+	GLASS_COLOR,
 	HARDWARE_COLOR,
 } from "@/lib/planner/catalogue";
 import type { ExposedSides } from "@/lib/planner/exposure";
@@ -267,9 +268,23 @@ function Group({
 	// carcass reads as timber, which is exactly the wrong answer.
 	const carcass = useGrain("vertical", m(sizeMm.x), m(sizeMm.y));
 
+	// A glazed front on a drafted cabinet used to differ from a solid one only
+	// by roughness, which meant the drafter's glass door rendered as a solid
+	// panel — the one door style whose whole point is that you see past it. The
+	// procedural path has always drawn a pane; this is the same treatment
+	// applied to the mesh the drafter actually made, including `depthWrite` off
+	// so the shelves behind it survive being drawn after it.
 	const material =
 		isFront(group.role) && door
-			? { ...front, roughness: door.look === "glass" ? 0.1 : 0.45 }
+			? door.look === "glass"
+				? {
+						color: GLASS_COLOR,
+						roughness: 0.1,
+						transparent: true,
+						opacity: 0.15,
+						depthWrite: false,
+					}
+				: { ...front, roughness: 0.45 }
 			: group.role === "hardware"
 				? { color: HARDWARE_COLOR, roughness: 0.5, metalness: 0.35 }
 				: group.role === "shelf"
