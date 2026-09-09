@@ -714,7 +714,7 @@ function ContactShadows({
 	runWidthMm: number;
 	engine: PlannerEngine;
 }) {
-	const { positionsOf, hangingHeightMmOf } = engine;
+	const { positionsOf, floorHeightMmOf } = engine;
 	return (
 		<>
 			{positionsOf(layout, "floor").map((position) => (
@@ -744,7 +744,9 @@ function ContactShadows({
 					key={position.placed.id}
 					position={[
 						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
-						m(hangingHeightMmOf(layout) + position.family.heightMm / 2) - 0.06,
+						m(
+							floorHeightMmOf(position, layout) + position.family.heightMm / 2,
+						) - 0.06,
 						0.002,
 					]}
 					scale={[

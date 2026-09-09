@@ -60,6 +60,17 @@ type PlacedModule = {
 	hinge: HingeSide;
 	/** Left edge of the carcass, from the left end of the run. */
 	xMm: number;
+	/**
+	 * This one cabinet's underside height, when the customer has raised or
+	 * lowered it away from the row. Absent means "hangs with the row", which
+	 * is what every wall unit does until somebody drags its arrow — a real
+	 * override and an unset one have to stay distinguishable, so this is
+	 * optional rather than defaulted to the row's height.
+	 *
+	 * Ignored in ceiling mode: lining the tops up is the whole point of that
+	 * mode, and it wins.
+	 */
+	hangAtMm?: number;
 };
 
 /** The stile a door hangs on. Left is what the scene has always drawn — a lone
@@ -697,6 +708,37 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Raise or lower one wall cabinet out of the row. `null` puts it back.
+	 *
+	 * Clamped to the same range the hang slider allows, so a cabinet can never
+	 * be nudged somewhere the slider could not have put the whole row — the
+	 * gizmo is a shortcut, not a second set of rules.
+	 */
+	function setHangAt(
+		layout: PlannerLayout,
+		id: string,
+		hangAtMm: number | null,
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (found?.row !== "wall") return layout;
+
+		const next = { ...found.placed };
+		if (hangAtMm === null) {
+			delete next.hangAtMm;
+		} else {
+			next.hangAtMm = Math.max(
+				WALL_HANG_LIMITS.minMm,
+				Math.min(WALL_HANG_LIMITS.maxMm, Math.round(hangAtMm)),
+			);
+		}
+
+		return {
+			...layout,
+			wall: layout.wall.map((module) => (module.id === id ? next : module)),
+		};
+	}
+
+	/**
 	 * Switch the wall row between hanging at a set height and running to the
 	 * ceiling. `hangingHeightMm` is deliberately left alone: this is a mode, not
 	 * an edit, and a customer who flips it on to look at it must get their own
@@ -867,9 +909,11 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		position: Positioned,
 		layout: PlannerLayout,
 	): number {
-		return position.family.kind === "wall"
-			? hangingHeightMmOf(layout)
-			: position.family.floorHeightMm;
+		if (position.family.kind !== "wall") return position.family.floorHeightMm;
+		// Ceiling mode aligns the tops, so a per-cabinet figure has nothing to
+		// say there.
+		if (layout.wallToCeiling) return hangingHeightMmOf(layout);
+		return position.placed.hangAtMm ?? layout.hangingHeightMm;
 	}
 
 	/**
@@ -1196,6 +1240,7 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		setWallWidth,
 		setRoomDepth,
 		setCeilingHeight,
+		setHangAt,
 		overhangMm,
 		overhangingIds,
 		closeGaps,

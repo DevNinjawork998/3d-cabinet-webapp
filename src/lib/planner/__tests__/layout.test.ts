@@ -47,6 +47,7 @@ const {
 	runExtentMm,
 	setBaseSkirting,
 	setCeilingHeight,
+	setHangAt,
 	setHangingHeight,
 	setRoomDepth,
 	setWallToCeiling,
@@ -1080,5 +1081,44 @@ describe("replaceFamily", () => {
 		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
 		expect(replaceFamily(placed, "a", "nope")).toBe(placed);
 		expect(replaceFamily(placed, "nope", "base-drawers")).toBe(placed);
+	});
+});
+
+describe("setHangAt", () => {
+	const hung = () => addModule(layout, "wall-cabinet", 0, "w", 600);
+
+	it("raises one wall cabinet without moving the row", () => {
+		const placed = addModule(hung(), "wall-cabinet", 600, "w2", 600);
+		const next = setHangAt(placed, "w", 1600);
+		const [a, b] = positionsOf(next, "wall");
+		expect(floorHeightMmOf(a, next)).toBe(1600);
+		expect(floorHeightMmOf(b, next)).toBe(next.hangingHeightMm);
+	});
+
+	it("clamps to the hang limits", () => {
+		expect(setHangAt(hung(), "w", 100).wall[0].hangAtMm).toBe(
+			WALL_HANG_LIMITS.minMm,
+		);
+		expect(setHangAt(hung(), "w", 9000).wall[0].hangAtMm).toBe(
+			WALL_HANG_LIMITS.maxMm,
+		);
+	});
+
+	it("ignores a floor unit — only the hung row moves vertically", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		expect(setHangAt(placed, "b", 1600)).toBe(placed);
+	});
+
+	it("is overridden by ceiling mode, which lines every top up", () => {
+		const raised = setWallToCeiling(setHangAt(hung(), "w", 1250), true);
+		const [only] = positionsOf(raised, "wall");
+		expect(floorHeightMmOf(only, raised)).toBe(hangingHeightMmOf(raised));
+	});
+
+	it("is dropped by passing null, so the unit rejoins the row", () => {
+		const reset = setHangAt(setHangAt(hung(), "w", 1600), "w", null);
+		const [only] = positionsOf(reset, "wall");
+		expect(reset.wall[0].hangAtMm).toBeUndefined();
+		expect(floorHeightMmOf(only, reset)).toBe(reset.hangingHeightMm);
 	});
 });
