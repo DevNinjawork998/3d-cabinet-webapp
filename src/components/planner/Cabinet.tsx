@@ -490,24 +490,63 @@ function Front({
 	const frame = m(FRAME_MM);
 	const panelW = Math.max(width - frame * 2, width * 0.2);
 	const panelH = Math.max(height - frame * 2, height * 0.2);
+	const thickness = m(FRONT_THICKNESS_MM);
+
+	// A glazed door is a frame around a hole, and what sells it as glass is the
+	// carcass seen through that hole. Drawing a full slab and laying a
+	// translucent pane over it — which is what this did — gives a solid door
+	// with a milky rectangle painted on its face however clear the pane is
+	// made, because there is nothing behind the pane but board.
+	//
+	// Stiles run the full height and the rails span between them, so the
+	// corners belong to the stiles instead of being drawn twice. `[x, y, w, h]`
+	// each, in the door's own frame.
+	const glazed = door.look === "glass";
+	const railW = Math.max(width - frame * 2, 0);
+	const frameParts: [number, number, number, number][] = [
+		[-(width - frame) / 2, 0, frame, height],
+		[(width - frame) / 2, 0, frame, height],
+		[0, (height - frame) / 2, railW, frame],
+		[0, -(height - frame) / 2, railW, frame],
+	];
 
 	return (
 		<group position={position}>
-			<mesh>
-				<boxGeometry args={[width, height, m(FRONT_THICKNESS_MM)]} />
-				<meshStandardMaterial
-					roughness={0.5}
-					{...surface}
-					emissive={emissive}
-					emissiveIntensity={emphasis}
-				/>
-				<Edges
-					threshold={15}
-					color={EDGE_COLOR}
-					transparent
-					opacity={EDGE_OPACITY}
-				/>
-			</mesh>
+			{glazed ? (
+				frameParts.map(([x, y, w, h]) => (
+					<mesh key={`${x}-${y}`} position={[x, y, 0]}>
+						<boxGeometry args={[w, h, thickness]} />
+						<meshStandardMaterial
+							roughness={0.5}
+							{...surface}
+							emissive={emissive}
+							emissiveIntensity={emphasis}
+						/>
+						<Edges
+							threshold={15}
+							color={EDGE_COLOR}
+							transparent
+							opacity={EDGE_OPACITY}
+						/>
+					</mesh>
+				))
+			) : (
+				<mesh>
+					<boxGeometry args={[width, height, thickness]} />
+					<meshStandardMaterial
+						roughness={0.5}
+						{...surface}
+						emissive={emissive}
+						emissiveIntensity={emphasis}
+					/>
+					<Edges
+						threshold={15}
+						color={EDGE_COLOR}
+						transparent
+						opacity={EDGE_OPACITY}
+					/>
+				</mesh>
+			)}
 
 			{/* A shaker's recessed centre panel: a real inset box, because it is a
 			    real piece of board with thickness. */}
@@ -528,22 +567,24 @@ function Front({
 				</mesh>
 			)}
 
-			{/* A glazed door's pane.
+			{/* A glazed door's pane, sitting in the opening the frame leaves.
 
 			    A single plane, not a box: as a box the camera looks through both
 			    its front and back faces, and two coats of the same alpha compound
-			    — 0.55 twice reads as 0.80, which is why the glass looked like a
-			    milky film rather than a window. The point of a glazed door is
-			    seeing what is inside it, so the pane is faint and the frame around
-			    it does the work of saying "there is glass here".
+			    — 0.55 twice reads as 0.80. It is deliberately faint. A photograph
+			    of a real glazed cabinet shows why: the glass is close to
+			    invisible, and the stiles, the rails and the shelves behind them
+			    are what say "there is glass here".
 
 			    `depthWrite` off because a transparent surface that writes depth
 			    culls whatever is drawn behind it afterwards — the shelves this
 			    door exists to show. `DoubleSide` because the elevation view and
 			    the doors-open toggle both look at a door from behind, and a plane
 			    has no back. */}
-			{door.look === "glass" && (
-				<mesh position={[0, 0, m(FRONT_THICKNESS_MM) / 2]}>
+			{glazed && (
+				// Set back into the frame, the way glass sits in a rebate rather
+				// than proud of the stiles.
+				<mesh position={[0, 0, -thickness / 4]}>
 					<planeGeometry args={[panelW, panelH]} />
 					<meshStandardMaterial
 						color={GLASS_COLOR}
