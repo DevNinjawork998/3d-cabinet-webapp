@@ -26,6 +26,7 @@ import { standOf } from "../parts";
 const {
 	addModule,
 	closeGaps,
+	dragModule,
 	dropModule,
 	duplicateModule,
 	endPanels,
@@ -411,6 +412,58 @@ describe("removeModule", () => {
 		const gone = removeModule(next, "b");
 		expect(at(gone, "a")).toBe(0);
 		expect(at(gone, "c")).toBe(1500);
+	});
+});
+
+describe("dragModule", () => {
+	it("slides a floor cabinet along the wall", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		const next = dragModule(placed, "a", { xMm: 900 });
+		expect(at(next, "a")).toBe(900);
+	});
+
+	it("moves a wall cabinet on both axes at once", () => {
+		const placed = addModule(layout, "wall-cabinet", 0, "w", 600);
+		const next = dragModule(placed, "w", { xMm: 800, hangAtMm: 1650 });
+		expect(at(next, "w")).toBe(800);
+		expect(next.wall.find((m) => m.id === "w")?.hangAtMm).toBe(1650);
+	});
+
+	it("ignores a hang height given for a floor cabinet", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		const next = dragModule(placed, "a", { xMm: 300, hangAtMm: 1650 });
+		expect(at(next, "a")).toBe(300);
+		expect(next.floor.find((m) => m.id === "a")).not.toHaveProperty("hangAtMm");
+	});
+
+	it("clamps the hang height to the slider's own range", () => {
+		const placed = addModule(layout, "wall-cabinet", 0, "w", 600);
+		const low = dragModule(placed, "w", { xMm: 0, hangAtMm: 100 });
+		const high = dragModule(placed, "w", { xMm: 0, hangAtMm: 9000 });
+		expect(low.wall[0].hangAtMm).toBe(WALL_HANG_LIMITS.minMm);
+		expect(high.wall[0].hangAtMm).toBe(WALL_HANG_LIMITS.maxMm);
+	});
+
+	it("leaves the hang height alone in ceiling mode, which aligns the tops", () => {
+		const hung = addModule(layout, "wall-cabinet", 0, "w", 600);
+		const ceiling = setWallToCeiling(hung, true);
+		const next = dragModule(ceiling, "w", { xMm: 600, hangAtMm: 1700 });
+		expect(at(next, "w")).toBe(600);
+		expect(next.wall.find((m) => m.id === "w")?.hangAtMm).toBeUndefined();
+	});
+
+	it("stops against a neighbour rather than overlapping it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		placed = addModule(placed, "base-cabinet", 600, "b", 600);
+		const next = dragModule(placed, "a", { xMm: 500 });
+		// Clamped flush against "b" at 600, not sitting inside it.
+		expect(at(next, "a")).toBe(0);
+		expectNoOverlaps(next);
+	});
+
+	it("leaves an unknown id alone", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		expect(dragModule(placed, "nope", { xMm: 900 })).toBe(placed);
 	});
 });
 
