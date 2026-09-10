@@ -70,9 +70,14 @@ function journeyFor(carrierId: string | null): DeliveryStatusName[] {
 	);
 }
 
+/**
+ * `events` is the structural minimum rather than `DeliveryEventRow` so the
+ * public tracking page can pass its own narrower rows — it deliberately never
+ * loads an event's message or actor.
+ */
 export function journeySteps(
 	status: DeliveryStatusName,
-	events: DeliveryEventRow[],
+	events: readonly Pick<DeliveryEventRow, "at" | "status">[],
 	carrierId: string | null = null,
 ): JourneyStep[] {
 	const journey = journeyFor(carrierId);

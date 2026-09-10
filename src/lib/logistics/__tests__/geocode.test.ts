@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	geocodeAddress,
+	geocoderFault,
+	geocoderHealth,
 	isGeocodingConfigured,
+	refreshGeocoderHealth,
+	resetGeocoderHealth,
 	resolveCoordinates,
 } from "../geocode";
 
@@ -52,6 +56,91 @@ function stubFetch(body: unknown) {
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.unstubAllEnvs();
+	resetGeocoderHealth();
+});
+
+/**
+ * The refusal that started all of this: a real, present, *valid* key that
+ * Google will not accept for the Geocoding web service because it is
+ * restricted to HTTP referrers. Indistinguishable from a working key until
+ * it is used.
+ */
+const refererRestricted = {
+	status: "REQUEST_DENIED",
+	error_message:
+		"API keys with referer restrictions cannot be used with this API.",
+	results: [],
+};
+
+describe("geocoder health", () => {
+	it("is a fault the admin cannot fix by editing an address", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch(refererRestricted);
+
+		expect(await geocodeAddress("Jalan PJU 5/20")).toBeNull();
+		expect(geocoderHealth()).toEqual({
+			ok: false,
+			why: "rejected",
+			detail:
+				"API keys with referer restrictions cannot be used with this API.",
+		});
+		// The sentence must carry Google's own words — "REQUEST_DENIED" alone
+		// sends someone to the wrong three menus.
+		expect(geocoderFault()).toMatch(/referer restrictions/);
+	});
+
+	it("blames the deployment, by name, when there is no key at all", () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "");
+		expect(geocoderHealth().why).toBe("no-key");
+		expect(geocoderFault()).toMatch(/GOOGLE_GEOCODING_API_KEY/);
+	});
+
+	it("separates a geocoder that did not answer from one that refused", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new Error("network down");
+			}),
+		);
+
+		await geocodeAddress("Jalan PJU 5/20");
+		expect(geocoderHealth().why).toBe("unreachable");
+		expect(geocoderFault()).toMatch(/retry/);
+	});
+
+	it("treats an address Google simply does not know as healthy", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch({ status: "ZERO_RESULTS", results: [] });
+
+		expect(await geocodeAddress("nowhere at all")).toBeNull();
+		// The one case where "edit it and save again" is the right advice, so
+		// nothing here may claim a deployment fault.
+		expect(geocoderFault()).toBeNull();
+	});
+
+	it("is optimistic until something has actually failed", () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		expect(geocoderHealth().ok).toBe(true);
+		expect(geocoderFault()).toBeNull();
+	});
+
+	it("probes once and then answers from cache", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(refererRestricted);
+
+		expect((await refreshGeocoderHealth()).ok).toBe(false);
+		expect((await refreshGeocoderHealth()).ok).toBe(false);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not spend a probe when there is no key to probe with", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "");
+		const fetchMock = stubFetch(refererRestricted);
+
+		expect((await refreshGeocoderHealth()).why).toBe("no-key");
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
 });
 
 describe("isGeocodingConfigured", () => {
@@ -233,6 +322,40 @@ describe("resolveCoordinates", () => {
 		).toEqual({
 			lat: 3.1509,
 			lng: 101.5931,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: "47810",
+			city: "Petaling Jaya",
+			state: "MY-10",
+		});
+		expect(fetchMock).toHaveBeenCalled();
+	});
+
+	it("re-geocodes an overridden pin whose place was never found", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch(okResponse("ROOFTOP"));
+
+		// Delivery 14, exactly: saved once while the geocoding key was still
+		// refused, which stored `geocodedFor` alongside a null postcode. Every
+		// save after the key was fixed matched that cache and short-circuited,
+		// so the row could never recover and the admin was told to edit an
+		// address that geocodes perfectly well.
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{
+					lat: 3.1,
+					lng: 101.5,
+					geocodedFor: "Jalan PJU 5/20",
+					postcode: null,
+					city: null,
+					state: null,
+				},
+				{ lat: 3.1, lng: 101.5 },
+			),
+		).toEqual({
+			// The admin's pin still wins on coordinates.
+			lat: 3.1,
+			lng: 101.5,
 			geocodedFor: "Jalan PJU 5/20",
 			postcode: "47810",
 			city: "Petaling Jaya",

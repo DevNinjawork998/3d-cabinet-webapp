@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/catalogue/db";
 import { CARRIERS } from "@/lib/logistics/carriers";
+import { refreshGeocoderHealth } from "@/lib/logistics/geocode";
 import { findAdapter } from "@/lib/logistics/registry";
 import { toJob } from "@/lib/logistics/store";
 import { trace } from "@/lib/logistics/trace";
@@ -33,6 +34,14 @@ export async function POST(
 	if (!delivery) {
 		return NextResponse.json({ error: "not_found" }, { status: 404 });
 	}
+
+	// Before anyone is asked, settle whether the geocoder works. Both parcel
+	// adapters refuse a job with no postcode, and the sentence they show turns
+	// on *why* there is none — an address the admin should fix, or a key Google
+	// is refusing, which no amount of editing that address will change. This is
+	// the screen where that sentence is read and acted on, so it is worth one
+	// probe every five minutes to have it be true.
+	await refreshGeocoderHealth();
 
 	const job = toJob(delivery);
 	const adapters = CARRIERS.map((carrier) => ({

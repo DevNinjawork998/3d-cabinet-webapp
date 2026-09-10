@@ -172,14 +172,17 @@ export function buildRenderMesh(objText: string): RenderMesh | null {
 	const mesh = readObjMesh(objText);
 	if (mesh.records.length === 0 || mesh.positions.length === 0) return null;
 
-	// The bounding-box pass, for scale, up-axis and roles. Coalesced first, the
-	// same way `measureDesign` does it: SketchUp writes one board as several
-	// planar records, so uncoalesced every panel reads as a face with a zero
-	// dimension. Safe here because a design file holds one cabinet.
+	// The bounding-box pass, for scale, up-axis and roles. Normalise from the
+	// records and coalesce after, the same way `measureDesign` does it: SketchUp
+	// writes one board as several planar records, so uncoalesced every panel
+	// reads as a face with a zero dimension — but the union is by name, so on a
+	// file holding more than one cabinet it merges panels metres apart and robs
+	// `inferUpAxis` of the horizontal boards it votes with. Inferring first, then
+	// unioning, is what keeps a run standing up rather than on its end.
 	const boxes = readObj(objText);
-	const { parts, panelThicknessMm, scaleFactor, order } = normalise(
-		coalesceParts(boxes.parts),
-	);
+	const normalised = normalise(boxes.parts);
+	const { panelThicknessMm, scaleFactor, order } = normalised;
+	const parts = coalesceParts(normalised.parts);
 	if (parts.length === 0) return null;
 
 	// Settle which way the cabinet faces *before* classifying, because

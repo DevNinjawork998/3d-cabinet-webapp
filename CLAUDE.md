@@ -285,7 +285,6 @@ boxes are what is on screen.
 Onboarding a new design is a **data-entry task, not a 3D-modeling task**: name
 it, price it, push it. That is what lets one person maintain the catalogue.
 
-
 ### Mobile performance rules
 
 Mid-range Android is the target device.
@@ -301,42 +300,6 @@ Mid-range Android is the target device.
 - **A design past `MAX_TRIANGLES` (200,000) is refused** and falls back to procedural. That is not a cabinet — it is a whole room, or a file with the furniture library left switched on.
 - `InstancedMesh` for shelves/drawers only if a design gets large enough to need it
 
-### The landing hero is a scrubbed frame sequence, not a photograph
-
-`/` opens on a rendered cabinet coming apart as you scroll — carcass, doors,
-hinges, drawer boxes — drawn frame by frame off the same `--p` the rest of the
-choreography reads. A photograph of a finished kitchen says what every
-competitor's homepage says; the explosion says the thing only this company can
-say, which is that the cabinet is a known set of parts they can quote today.
-
-It is a JPEG sequence in `public/hero-frames`, not the R3F scene. The planner's
-own engine is the honest way to draw a cabinet, but it would mean booting a
-WebGL context on the landing page — the one thing the mobile budget above
-forbids — to show a shot the client has already rendered better than we would.
-
-Three things keep it inside the budget:
-
-- **Desktop only.** `ScrollSequence` shares `beatsEnabled` with `ScrollTrack`:
-  under 900px or on reduced motion it never arms, and never fetches. A phone
-  gets the poster and nothing else.
-- **The poster is the LCP element.** Frame 0, the cabinet assembled, is a plain
-  `<img>` that ships in the markup. The canvas is transparent until the effect
-  runs, so no-JavaScript, pre-hydration and reduced motion all render a finished
-  hero rather than an empty one.
-- **The backing store is capped at the source width** (`heroBackingScale`). Past
-  1:1 with a 960px JPEG a retina canvas is interpolating pixels that were never
-  in the file, at four times the fill cost.
-
-The frames carry a studio vignette, so the stage is masked with a
-`closest-side` radial gradient and the section behind it continues that vignette
-outward — `[data-cabinet-stage]` and `[data-cabinet-ground]` in `globals.css`.
-Without both, it is a grey rectangle pasted onto the page. Both rules are
-shared with **`/admin/login`**, whose right-hand panel is the same render
-stopped on its last frame, the cabinet fully apart — one static file, no
-sequence, because nothing scrolls on a sign-in screen. **There is no `hero` site-image slot any
-more**; `HERO_SLOT` survives in `siteImages.ts` only so an already-uploaded row
-stays addressable.
-
 Two features carry the sale: a **doors-open / doors-hidden toggle** so the customer sees their interior, and a **canvas screenshot** attached to the quote. That screenshot going out over WhatsApp is what closes the lead.
 
 ## Where assets live
@@ -344,11 +307,10 @@ Two features carry the sale: a **doors-open / doors-hidden toggle** so the custo
 | Kind | Home | Why |
 | --- | --- | --- |
 | Grain/laminate textures | `/public` | Static, versioned with code, free off Vercel CDN |
-| Hero scroll frames (`public/hero-frames`) | `/public` | 72 JPEGs, ~1.7 MB, rebuilt from the client's render export by `scripts/build-hero-frames.sh`. The last one is also the admin sign-in panel. Desktop only: `ScrollSequence` refuses under 900px or on reduced motion and never fetches them there |
 | Palette thumbnails | Inline SVG (`components/planner/thumbs.tsx`) | Drawn from the family's own proportions. Never boot a WebGL context per thumbnail. |
 | Design exports (`.obj`, or `.zip` with textures) | Vercel Blob, **private** | The source file carries the client's module standard, layer structure and part naming. Never public, never in `/public`. Reachable only under `/api/admin`. |
 | Derived render meshes (`.icbmesh`) | Vercel Blob, served **public** via `/api/cabinet-mesh/[id]` | The geometry a customer's browser draws, so it has to get out — but only as triangles, with the drafter's materials and every part name stripped. The store is private-access-only, so the route is the hole, exactly like site images. Regenerable from the source, so it is cache, not record. |
-| Room / finish photos | Vercel Blob, public | Slot-keyed (`room:<id>`, `finish:<id>`), uploaded at `/admin/site-content`. Slots are derived from the live catalogue, not hardcoded, so adding a finish adds its photo slot |
+| Homepage / room / finish photos | Vercel Blob, public | Slot-keyed (`hero`, `room:<id>`, `finish:<id>`), uploaded at `/admin/site-content`. Slots are derived from the live catalogue, not hardcoded, so adding a finish adds its photo slot |
 | Canvas screenshots | Vercel Blob | User-generated at runtime, one per lead |
 | Quote PDFs | Vercel Blob | Same |
 | Tutorial videos | **Mux**, not Blob | Needs transcoding, adaptive bitrate and a poster frame. Blob would serve one giant MP4 to a phone on Malaysian mobile data |
@@ -416,12 +378,6 @@ Recorded rather than fixed. Do not paper over them; fix them deliberately.
 2. **A junk `Testing123` family, 1000–1000mm, is still in the live catalogue.** Left behind by `lib/catalogue/cabinetDesignToFamily.ts` (deleted in `84f4cb7`), which mapped a design straight to a family with a single-rung ladder; the design row it came from was deleted long ago. Harmless but visible — remove it in a catalogue-only commit.
 3. **EasyParcel's webhooks are unsigned.** Nothing in their payload identifies the sender, so the callback URL carries a secret query token and that is the entire check — see `verifyWebhook` in `adapters/easyparcel.ts`.
 4. **`pnpm easyparcel:ping` is the only thing that checks EasyParcel's real API shape**; CI runs against recorded fixtures and cannot see a renamed field. Run it before a release that touches `lib/logistics`, or wire it to a scheduled workflow with the credentials as repository secrets. It is deliberately not in PR CI: it needs secrets in the runner, it fails on EasyParcel's downtime rather than on our bugs, and a partner outage must not block an unrelated merge.
-5. **GDEX has no webhook — tracking is the cron poll and nothing else.** The API documents no callback, subscription or event operation of any kind, so `adapters/gdex.ts` implements no `verifyWebhook` and a GDEX job's status only ever moves when `/api/cron/track-deliveries` sweeps it. That is a ten-minute floor on how fresh a GDEX status can be, and it is the partner's limit rather than ours.
-6. **GDEX talks to the sandbox only.** The account holds one active subscription, `myGDEX (Testing)`; there is no live `myGDEX` subscription, and the two `myGDEX Prime (Testing)` requests are still awaiting approval. `BASE` in `adapters/gdex.ts` is a constant rather than a flag for that reason — a switch whose other position is always broken is a footgun. Going live needs an approved subscription and a deliberate edit.
-7. **GDEX renamed Azure's subscription header.** The key goes in `subscription-key`, and `Ocp-Apim-Subscription-Key` is silently ignored — the gateway answers "Access denied due to missing subscription key" to a request that is carrying a valid one. It reads like a bad key and is not. `pnpm gdex:ping` distinguishes the two 401s; do not "fix" the header back to the Azure default.
-8. **`pnpm gdex:ping` is the only thing that checks GDEX's real API shape**, for the same reasons as EasyParcel's, and is likewise out of PR CI. It has already earned itself twice: it found that GDEX renamed the APIM subscription header, and that `GetLastShipmentStatus` answers for an unknown consignment number with `"Pending"` and an **undocumented** `IsValid: false` — the same status word a real new note carries, so reading it would report a parcel that does not exist as booked, permanently. Run it after any change to `adapters/gdex.ts`; the fixtures are our belief about GDEX, and only a real reply corrects them.
-9. **`PickupDate` is a day GDEX offers, not a moment.** `GetPickUpDateListing?PostCode=` returns the collectable days as `2026-09-08T00:00:00` — naive Malaysian local, always midnight — and `CreateConsignment` matches `PickupDate` against that list. Sending the collection *time* there is refused with "Pick Up Day Unavailable" on a day GDEX is actively offering, which reads as a closed depot rather than a malformed field. The time of day belongs in `ParcelReadyTime`. Verified by booking and cancelling a real sandbox consignment.
-10. **GDEX's two estates have separate customer portals and separate accounts.** The sandbox token comes from `my-openapi.gdexpress.com`, live from `my.gdexpress.com`, and GDEX's developer portal links to both under the identical words "myGDEX Portal". A token from the wrong one returns `Invalid User Token`, which reads like a bad token and is not. `pnpm gdex:ping` prints the portal matching the base URL it just called.
 
 ## Open questions — resolve before trusting pricing.ts
 
@@ -444,19 +400,6 @@ Recorded rather than fixed. Do not paper over them; fix them deliberately.
   derived from `WORKSHOP_PIN`, and EasyParcel prices the origin zone off them —
   a wrong postcode there is a wrong price on every parcel quote.
 - Does Prisma Postgres offer an ap-southeast region? If not, quote submission eats a transpacific round trip.
-- **`GOOGLE_GEOCODING_API_KEY` is not set, and it blocks both parcel partners.**
-  `geocodeAddress` returns null on its first line without it, so every delivery
-  saves with `sitePostcode` null and neither GDEX nor EasyParcel can quote —
-  they price postcode to postcode. Both adapters now say so by name rather than
-  telling the admin to correct an address that will never gain a postcode.
-- **Who tops up GDEX's e-Wallet, and what is the live balance policy?**
-  `CreateConsignment` debits at booking; the sandbox wallet was topped up to
-  RM 1,020 on 2026-09-06, so sandbox booking is possible. Production needs the
-  same question answered as EasyParcel's wallet. `Insufficient Credit` reaches
-  the admin's screen rather than only the event log.
-- **Who tops up GDEX's e-Wallet?** `CreateConsignment` debits it at booking time
-  and a consignment cannot be created against an empty one — the same question
-  EasyParcel's wallet carries, and the likeliest booking failure in practice.
 - Does Infinite Cabinet have an EasyParcel account, and who tops up the wallet? `submit_orders` deducts at booking time and a shipment cannot be booked against an empty wallet.
 
 ## Conventions

@@ -48,6 +48,21 @@ const OBJ_TEXT = [
 	box("G-Door(R)", [0, 0, 600], [800, 880, 618]),
 ].join("\n");
 
+/**
+ * What the client actually uploaded as "FLAT PACK": a 2400 x 3848 panel layout,
+ * not an assembled cabinet. Nothing is 3,848mm tall — that is past every
+ * ceiling the planner will let a customer set.
+ */
+const SHEET_OBJ_TEXT = [
+	box("G-UEnd_(L)", [0, 0, 0], [18, 3848, 600]),
+	box("G-UEnd_(R)", [2382, 0, 0], [2400, 3848, 600]),
+	box("G-Top", [18, 3830, 0], [2382, 3848, 600]),
+	box("G-Bottom", [18, 0, 0], [2382, 18, 600]),
+	box("G-Back", [18, 18, 0], [2382, 3830, 18]),
+	box("G-Shelf", [18, 1900, 18], [2382, 1918, 600]),
+	box("G-Door(R)", [0, 0, 600], [2400, 3848, 618]),
+].join("\n");
+
 /** Dimensions are deliberately off every seed family's — within
  * `DIMENSION_TOLERANCE_MM` of one, the design would join an existing family
  * that already lives in the published catalogue, and "the second draft kept the
@@ -73,7 +88,7 @@ const design = (
 
 const state = vi.hoisted(() => ({
 	rows: [] as { id: string; version: number; status: string; data: unknown }[],
-	designs: [] as { id: string }[],
+	designs: [] as ReturnType<typeof design>[],
 }));
 
 vi.mock("../db", () => ({
@@ -105,7 +120,8 @@ vi.mock("../db", () => ({
 }));
 
 vi.mock("../meshBlob", () => ({
-	fetchMeshFile: async () => Buffer.from(OBJ_TEXT, "utf8"),
+	fetchMeshFile: async (pathname: string) =>
+		Buffer.from(pathname.includes("sheet") ? SHEET_OBJ_TEXT : OBJ_TEXT, "utf8"),
 	putRenderMeshFile: async () => undefined,
 	renderMeshPathname: (id: string, sha: string) =>
 		`render/${id}/${sha}.icbmesh`,
@@ -190,5 +206,30 @@ describe("publishDesigns", () => {
 		if (!result.ok) throw new Error("the push must succeed");
 		expect(result.basedOnVersionId).toBe("ver-1");
 		expect(result.basedOnDraftVersion).toBeUndefined();
+	});
+
+	/**
+	 * The guard this replaces compared the server's measurement against
+	 * `design.widthMm` — which the upload form filled from that same
+	 * measurement, so it was a number compared with itself and could never
+	 * fire. A 2400 x 3848 panel layout walked straight into the catalogue as a
+	 * "tall cabinet" priced at RM 8,000.
+	 */
+	it("refuses a file taller than any room the planner allows", async () => {
+		state.designs = [
+			{
+				...design("sheet", 3848, "TALL_CABINET"),
+				blobPathname: "mesh/sheet/sheet.obj",
+				widthMm: 2400,
+			},
+		];
+
+		const result = await publishDesigns(["sheet"]);
+
+		expect(result.ok).toBe(false);
+		expect(result.failures[0].error).toBe("taller_than_any_room");
+		expect(result.failures[0].message).toContain("3848mm");
+		// Nothing may reach the catalogue from a refused file.
+		expect(state.rows.filter((r) => r.status === "DRAFT")).toHaveLength(0);
 	});
 });

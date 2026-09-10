@@ -292,6 +292,14 @@ model Delivery {
   /// key would point at a deleted row. The number is also the only thing any
   /// screen renders of it.
   splitFromNumber   Int?
+  /// The unguessable half of the customer's tracking link.
+  ///
+  /// `number` is sequential and sayable, which is exactly why it cannot be the
+  /// key to a public page: this row carries a name, a phone number and a home
+  /// address, and `/track/42` would hand the next customer's to anyone who can
+  /// count. Separate from `id` as well, so a link forwarded to the wrong
+  /// WhatsApp group can be rotated without moving the job.
+  publicToken       String         @unique @default(cuid())
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 

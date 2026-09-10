@@ -135,7 +135,15 @@ const CEILING_MM = 3000;
  * on *depth* and together outvote the shelves. Taking depth out of the running
  * first leaves only sides against horizontals, and horizontals always win.
  */
-export function inferUpAxis(parts: MeshPart[]): {
+export function inferUpAxis(
+	parts: MeshPart[],
+	/** What raw coordinates have to be multiplied by to reach millimetres.
+	 * Only the ceiling corroboration needs it, and it needs it badly: without
+	 * it a file drawn in metres compares 3.848 against 3000 and clears a
+	 * ceiling it is a metre too tall for, so the one check that would have
+	 * flagged a run standing on its end silently passed. */
+	scaleFactor = 1,
+): {
 	upAxis: 0 | 1 | 2;
 	depthAxis: 0 | 1 | 2;
 	confident: boolean;
@@ -165,7 +173,7 @@ export function inferUpAxis(parts: MeshPart[]): {
 	// reviewer to check: the vote was not a near-tie, and the height we picked
 	// fits under a ceiling.
 	const decisiveVote = votes[upAxis] >= Math.max(1, votes[other] * 1.5);
-	const fitsARoom = spans[upAxis] <= CEILING_MM;
+	const fitsARoom = spans[upAxis] * scaleFactor <= CEILING_MM;
 
 	return { upAxis, depthAxis, confident: decisiveVote && fitsARoom };
 }
@@ -188,7 +196,11 @@ export function normalise(parts: MeshPart[]): Normalised {
 		panelThicknessMm,
 		confident: scaleOk,
 	} = inferScale(parts);
-	const { upAxis, depthAxis, confident: axisOk } = inferUpAxis(parts);
+	const {
+		upAxis,
+		depthAxis,
+		confident: axisOk,
+	} = inferUpAxis(parts, scaleFactor);
 
 	if (!scaleOk) {
 		notes.push(

@@ -42,6 +42,8 @@ export type DeliveryRow = {
 	bookedBy: string | null;
 	/** The job this one was cut out of, when it was — see `Delivery`. */
 	splitFromNumber: number | null;
+	/** The unguessable half of the customer's `/track/…` link — see `Delivery`. */
+	publicToken: string;
 	createdAt: string;
 };
 

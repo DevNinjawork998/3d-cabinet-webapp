@@ -14,7 +14,11 @@ import {
 	MAX_TRIANGLES,
 	type MeshGroup,
 } from "@/lib/mesh/renderMesh";
-import { CONSTRUCTION, WALL_CABINET_FLOOR_MM } from "@/lib/planner/catalogue";
+import {
+	CEILING_LIMITS,
+	CONSTRUCTION,
+	WALL_CABINET_FLOOR_MM,
+} from "@/lib/planner/catalogue";
 import { plannerCatalogueSchema } from "@/lib/planner/catalogueSchema";
 import { type BoxMm, swingOf } from "@/lib/planner/swing";
 import { CATEGORY_TO_KIND, ROOM_TO_PLANNER } from "./cabinetDesignLabels";
@@ -47,8 +51,11 @@ import { createDraftVersion, latestDraftVersion, mergeBase } from "./versions";
  */
 
 /** Above this multiple of the recorded width, the file is a run, not a unit.
- * Generous: a real single-cabinet export measures within a few millimetres of
- * its own width, so anything past 1.5x is a different kind of file. */
+ *
+ * Only bites when a human typed the width. The upload form fills `widthMm`
+ * from this very measurement, so on the ordinary path the two numbers are the
+ * same number and this can never fire — which is why the absolute height bound
+ * below exists rather than a second ratio. */
 const MULTI_CABINET_RATIO = 1.5;
 
 export type DesignFailure = {
@@ -58,7 +65,8 @@ export type DesignFailure = {
 		| "file_unreachable"
 		| "parse_failed"
 		| "no_geometry"
-		| "looks_like_a_run";
+		| "looks_like_a_run"
+		| "taller_than_any_room";
 	message: string;
 	status: number;
 };
@@ -141,6 +149,27 @@ async function prepare(
 		return fail(
 			"looks_like_a_run",
 			`${design.filename} measures ${measured.widthMm}mm wide but this design is recorded as ${design.widthMm}mm. That file looks like a whole run rather than one cabinet — attach the single-cabinet export, or use Import design for a full run.`,
+			409,
+		);
+	}
+
+	// The check that actually catches a file which is not one cabinet.
+	//
+	// `looks_like_a_run` above compares the server's measurement against
+	// `design.widthMm`, and the upload form filled that field from the same
+	// `measureDesign` call on the same bytes — a number compared with itself.
+	// So a 2400 x 3848 flat-pack panel layout walked into the live catalogue as
+	// a "tall cabinet" at RM 8,000, and would have rendered through the ceiling
+	// in front of a customer: `fits` only asks whether there is room along the
+	// wall, never whether the thing is short enough for the room.
+	//
+	// The bound is absolute and the planner already owns it. A customer cannot
+	// set a ceiling above `CEILING_LIMITS.maxMm`, so a cabinet taller than that
+	// fits in no room that can be planned here, whatever the row says.
+	if (measured.heightMm > CEILING_LIMITS.maxMm) {
+		return fail(
+			"taller_than_any_room",
+			`${design.filename} measures ${measured.heightMm}mm tall, past the ${CEILING_LIMITS.maxMm}mm ceiling a customer can plan against — so it fits in no room. That file is a run or a flat-pack panel layout rather than one assembled cabinet. Attach the single-cabinet export, or use Import design for a full run.`,
 			409,
 		);
 	}
