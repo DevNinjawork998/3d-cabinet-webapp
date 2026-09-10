@@ -118,6 +118,38 @@ export const ms: Dictionary = {
 		diyTutorials: "Tutorial DIY",
 		clear: "Kosongkan",
 		dimensionAriaSuffix: "{label} dalam milimeter",
+		tools: {
+			ariaLabel: "Alat",
+			select: "Pilih",
+			add: "Tambah",
+			measure: "Ukur",
+			view: "Paparan",
+			doors: "Pintu",
+			defaults: "Tetapan",
+			selectTitle: "Pilih dan alihkan kabinet",
+			addTitle: "Tambah kabinet",
+			measureTitle: "Ukur jarak antara dua titik",
+			viewTitle: "Paparan: 3D, elevasi atau pelan",
+			doorsTitle: "Pintu: buka, tutup atau sembunyi",
+			defaultsTitle: "Tetapan lalai untuk seluruh baris",
+		},
+		panel: {
+			close: "Tutup panel",
+			addTitle: "Tambah kabinet",
+			addHint:
+				"Klik untuk meletakkannya di hujung baris, atau seret ke dinding.",
+			viewTitle: "Paparan",
+			viewHint: "Cara bilik dilukis.",
+			threeDHint: "Lihat bilik seperti rupanya nanti.",
+			elevationHint: "Rata dari depan — terbaik untuk menetapkan saiz.",
+			planHint: "Dari atas — terbaik untuk kedalaman dan laluan.",
+			doorsTitle: "Pintu",
+			doorsHint:
+				"Terpakai untuk semua unit. Pintu satu kabinet dibuka melalui tindakan Buka pintu miliknya.",
+			defaultsTitle: "Tetapan lalai untuk baris ini",
+			defaultsHint:
+				"Tetapkan sekali, terpakai untuk semua — sudah diletak atau belum.",
+		},
 		start: {
 			heading: "Bilik apa yang anda ingin rancang?",
 			subtitle:
@@ -139,6 +171,10 @@ export const ms: Dictionary = {
 			cta: "Mula merancang",
 		},
 		room: {
+			fitFree: "{mm} mm dinding masih kosong.",
+			fitOver:
+				"Baris ini {mm} mm lebih panjang daripada dinding. Buang satu kabinet atau panjangkan dinding.",
+			moreSettings: "Papan kaki, hujung, ketinggian gantung…",
 			heading: "Bilik",
 			subtitle: "Menetapkan ruang yang perlu dimuatkan oleh setiap kabinet.",
 			wallLength: "Panjang dinding",
@@ -194,6 +230,8 @@ export const ms: Dictionary = {
 			sizeRange: "{min}–{max}mm · dari {price}",
 		},
 		canvas: {
+			selectHint:
+				"Klik kabinet untuk memilihnya · klik kanan untuk tindakannya",
 			runOfWall: "Susunan {run} m pada dinding {wall} m",
 			loading: "Memuatkan paparan 3D…",
 		},
@@ -211,6 +249,23 @@ export const ms: Dictionary = {
 				"Klik kabinet untuk menukar saiz atau pintunya. Seret di sepanjang dinding untuk menggerakkannya.",
 		},
 		selection: {
+			verbResize: "Ubah saiz",
+			verbReplace: "Ganti",
+			verbMove: "Alih",
+			verbOpenDoors: "Buka pintu",
+			verbCloseDoors: "Tutup pintu",
+			moveMeta: "anak panah + mm",
+			replaceHeading: "Ganti dengan",
+			positionHeading: "Kedudukan",
+			fromLeftWall: "Dari dinding kiri",
+			widthHint:
+				"Kabinet sebelah kekal di tempatnya — saiz yang tidak muat dikelabukan. {name} ada {n} lebar.",
+			moveHintFloor:
+				"Anak panah menggerakkannya di sepanjang dinding. Unit lantai tidak boleh naik turun.",
+			moveHintWall:
+				"Anak panah menggerakkannya di sepanjang dinding dan menetapkan ketinggian gantungnya.",
+			hangsAt: "digantung pada {mm} mm",
+			sizeRangeMeta: "lebar {min}–{max} mm",
 			heading: "Kabinet dipilih",
 			emptyHint:
 				"Klik kabinet dalam bilik untuk menetapkan saiz atau menukar pintunya.",
@@ -229,6 +284,25 @@ export const ms: Dictionary = {
 			nSelected: "{n} kabinet dipilih",
 			removeAll: "Buang semua {n}",
 		},
+		design: {
+			heading: "Reka bentuk ini",
+			hint: "Klik kabinet dalam bilik untuk ubah saiz, ganti atau alihkannya.",
+			room: "Bilik",
+			wall: "Dinding",
+			run: "Baris",
+			wallFree: "Dinding kosong",
+			overBy: "lebih {mm} mm",
+			finish: "Kemasan",
+			addCabinet: "Tambah kabinet",
+		},
+		gizmo: {
+			left: "Alih ke kiri sepanjang dinding",
+			right: "Alih ke kanan sepanjang dinding",
+			raise: "Naikkan kabinet ini",
+			lower: "Turunkan kabinet ini",
+			vertLocked: "Hanya kabinet dinding boleh bergerak menegak",
+			vertHint: "Ubah ketinggian gantung kabinet ini",
+		},
 		finish: {
 			heading: "Kemasan pintu · seluruh susunan",
 			currentLabel: "{label} · satu warna untuk seluruh bilik",
@@ -243,6 +317,8 @@ export const ms: Dictionary = {
 			reset: "Set semula bilik ini",
 		},
 		price: {
+			breakdown: "Perincian",
+			breakdownTitle: "Apa yang membentuk {total}",
 			trimStrip: "jalur kemasan yang menutup susunan di siling",
 			skirtingBoard: "papan kaki di atas kaki pelaras",
 			endPanels: "panel siap pada setiap sisi kabinet yang terdedah",
