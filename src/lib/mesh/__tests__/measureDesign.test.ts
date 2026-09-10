@@ -60,6 +60,23 @@ describe("measureDesign", () => {
 		);
 	});
 
+	/**
+	 * The fixture is a 3.8m wall run 2.4m tall, and it used to measure 2.4m wide
+	 * by 3.8m tall — the whole thing stood on its end, which is what the planner
+	 * then drew.
+	 *
+	 * Coalescing before inferring the up axis is what did it. A run holds one
+	 * `G-Bottom` under the base units and another under the uppers; unioned by
+	 * name they become one 1.7m-tall box, thin on depth rather than on height,
+	 * so every horizontal board drops out of the vote and the vertical sides —
+	 * thin along the wall — elect the wall axis as up.
+	 */
+	it("stands the run up rather than on its end", () => {
+		expect(measured.widthMm).toBe(3848);
+		expect(measured.heightMm).toBe(2400);
+		expect(measured.depthMm).toBe(607);
+	});
+
 	it("keeps drawers and doors in step with the geometry it reports", () => {
 		expect(measured.drawers).toBe(measured.geometry.drawers);
 		expect(measured.doors).toBe(measured.geometry.doorLeaves);

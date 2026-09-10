@@ -93,11 +93,14 @@ export function LogisticsManager({
 	initial,
 	workshopAddress,
 	geocodingConfigured,
+	geocodingFault,
 	easyparcel,
 }: {
 	initial: DeliveryRow[];
 	workshopAddress: string;
 	geocodingConfigured: boolean;
+	/** Why the geocoder is not answering, in Google's own words. Null when it is. */
+	geocodingFault: string | null;
 	easyparcel: { appConfigured: boolean; connected: boolean };
 }) {
 	const router = useRouter();
@@ -189,9 +192,13 @@ export function LogisticsManager({
 
 			{!geocodingConfigured && (
 				<p className="rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-					Addresses are not looked up here, so every job needs a pin pasted into
-					the Site pin field. Vehicle partners price by coordinate and cannot
-					quote without one.
+					{/* Named rather than implied. "Addresses are not looked up here" is
+					    true of a missing key and of a key Google refuses, but only one
+					    of those is fixed by editing an environment variable — and the
+					    admin cannot tell which they have without being told. */}
+					{geocodingFault ?? "Addresses are not looked up here."} Until that is
+					fixed, every job needs a pin pasted into the Site pin field, and the
+					parcel partners cannot quote at all — they price by postcode.
 				</p>
 			)}
 
@@ -717,6 +724,7 @@ function DeliveryDetail({
 	const [busy, setBusy] = useState<string | null>(null);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
+	const [copiedCustomer, setCopiedCustomer] = useState(false);
 	// Null until asked. A collection takes a moment to reach GDEX's board, so
 	// "not checked yet" and "not there" must not look the same.
 	const [pickup, setPickup] = useState<{
@@ -993,6 +1001,20 @@ function DeliveryDetail({
 		setTimeout(() => setCopied(false), 1500);
 	};
 
+	/**
+	 * The page the customer watches, as opposed to `trackingUrl`, which is the
+	 * carrier's own. Origin-relative until the click: the admin may be on a
+	 * preview deployment, and a link pasted into WhatsApp has to be absolute.
+	 */
+	const customerLink = `/en/track/${delivery.publicToken}`;
+	const copyCustomerLink = async () => {
+		await navigator.clipboard.writeText(
+			new URL(customerLink, window.location.origin).toString(),
+		);
+		setCopiedCustomer(true);
+		setTimeout(() => setCopiedCustomer(false), 1500);
+	};
+
 	return (
 		<div className="flex flex-col gap-5 border-neutral-200 border-t px-4 py-4">
 			<section className="flex flex-col rounded-xl border border-neutral-200 bg-white px-5 py-4">
@@ -1064,7 +1086,12 @@ function DeliveryDetail({
 				<p className="mt-1.5 border-[#ecebe7] border-t pt-2.5 font-semibold text-[13px]">
 					{loadLine(delivery.items)}
 				</p>
-				<p className="mt-2.5 text-[12px] text-[#5c574e]">
+				{/* `wrap-anywhere`, not `truncate`: this is the line a coordinator
+				    reads back to a driver, so it has to show the whole thing. An
+				    admin who pastes a Google Maps link instead of an address puts
+				    250 unbroken characters here, and without a break opportunity
+				    that one <p> widens the card past the viewport. */}
+				<p className="mt-2.5 wrap-anywhere text-[12px] text-[#5c574e]">
 					Deliver to: {delivery.siteAddress}
 				</p>
 				{splittable && !splitting && (
@@ -1155,7 +1182,7 @@ function DeliveryDetail({
 				</section>
 			)}
 
-			<div className="grid grid-cols-1 gap-1 text-[12px] text-neutral-500 sm:grid-cols-2">
+			<div className="grid grid-cols-1 gap-1 wrap-anywhere text-[12px] text-neutral-500 sm:grid-cols-2">
 				<p>Phone: {delivery.customerPhone}</p>
 				<p>Pickup: {delivery.pickupAddress}</p>
 				{delivery.addressNotes && <p>Access: {delivery.addressNotes}</p>}
@@ -1480,6 +1507,26 @@ function DeliveryDetail({
 												: ""
 										}`}
 						</span>
+					</div>
+
+					{/* Every job has one, booked or not: before a carrier is chosen the
+					    page tells the customer their cabinets are being built. */}
+					<div className="flex items-center gap-2 rounded-[9px] border border-[#ecebe7] bg-[#faf9f7] px-3 py-2.5">
+						<a
+							className="flex-1 truncate text-[12px] underline"
+							href={customerLink}
+							target="_blank"
+							rel="noreferrer"
+						>
+							Customer tracking page
+						</a>
+						<button
+							type="button"
+							className="shrink-0 font-semibold text-[12px] text-[#1f5138]"
+							onClick={copyCustomerLink}
+						>
+							{copiedCustomer ? "Copied" : "Copy link"}
+						</button>
 					</div>
 
 					{delivery.trackingUrl && (

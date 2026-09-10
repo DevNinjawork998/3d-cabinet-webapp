@@ -395,6 +395,63 @@ export const en = {
 			advanced: "Advanced",
 		},
 	},
+	/**
+	 * The delivery tracking page a customer reaches from their link.
+	 *
+	 * Status names are the ones the app stores, translated here rather than
+	 * shown as the carrier spelled them: a partner writes "ON_GOING" in English
+	 * regardless of who is reading, and a page that renders the raw word loses
+	 * the locale on the one screen a customer opens more than once.
+	 */
+	track: {
+		breadcrumb: "Order confirmation",
+		headingPlaced: "Order placed",
+		bodyPlaced: "Thanks — we've got your order and we're getting it ready.",
+		headingDelivered: "Delivered",
+		bodyDelivered: "Your cabinets have arrived. Thanks for choosing us.",
+		headingStopped: "Delivery on hold",
+		bodyStopped:
+			"This delivery didn't go through. Our team will call you to sort it out.",
+		orderId: "Order ID",
+		copyOrderId: "Copy order ID",
+		copied: "Copied",
+		summaryHeading: "Order summary",
+		qty: "Qty {count}",
+		noItems: "The job sheet is still being finalised.",
+		addressHeading: "Delivery address",
+		statusHeading: "Delivery status",
+		etaHeading: "Estimated delivery",
+		etaPending: "To be confirmed",
+		carrierRef: "{carrier} · {reference}",
+		carrierBooked: "Delivered by {carrier}",
+		timelineEmpty: "Nothing to show yet.",
+		/* Before a carrier holds the job there is no tracker to draw, so the
+		   card says what we do know and what happens next. */
+		awaitingHeading: "Delivery",
+		awaitingEtaHeading: "Expected window",
+		awaitingStatus: "Being arranged",
+		awaitingCarrier: "Partner not booked yet",
+		stagePlaced: "Order placed",
+		stageBuilding: "Cabinets being built",
+		stageBuildingDetail: "In the workshop now",
+		awaitingNote:
+			"A delivery partner is booked once your cabinets are built. The moment that happens, the tracking appears here and we send you the link.",
+		awaitingNoteSub:
+			"Usually two to three working days before your delivery window. Nothing is needed from you until then.",
+		backToPlanner: "Back to planner",
+		backHome: "Back to home",
+		status: {
+			DRAFT: "Being arranged",
+			QUOTED: "Being arranged",
+			BOOKED: "Order placed",
+			DRIVER_ASSIGNED: "Driver assigned",
+			PICKED_UP: "Picked up",
+			IN_TRANSIT: "In transit",
+			DELIVERED: "Delivered",
+			CANCELLED: "Cancelled",
+			FAILED: "Failed",
+		},
+	},
 } as const;
 
 /**

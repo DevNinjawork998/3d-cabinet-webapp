@@ -1,7 +1,7 @@
 import "server-only";
 import { put } from "@vercel/blob";
 import { z } from "zod";
-import { isGeocodingConfigured } from "../geocode";
+import { geocoderFault } from "../geocode";
 import { carrierFetch } from "../http";
 import { suggestVehicle, type VehicleClass } from "../measure";
 import { toE164 } from "../phone";
@@ -140,14 +140,16 @@ function sitePostcodeOf(job: DeliveryJob): string {
 		trace("gdex.refused", { why: "no postcode", address: job.siteAddress });
 
 		// "Correct the address" is only advice when re-saving could actually
-		// help. `geocodeAddress` returns null on the first line when there is no
-		// key, so every save leaves the postcode null however the address is
-		// written — and the admin is sent round a loop that cannot terminate,
-		// editing a line that was already right. Same distinction, and the same
-		// reasoning, as `endpoint()` in `easyparcel.ts`.
-		if (!isGeocodingConfigured()) {
+		// help. Whenever the geocoder itself is the reason there is no postcode
+		// — no key, a key Google refuses, a geocoder that did not answer — every
+		// save leaves the postcode null however the address is written, and the
+		// admin is sent round a loop that cannot terminate, editing a line that
+		// was already right. `geocoderFault` owns that distinction; the same
+		// call guards `endpoint()` in `easyparcel.ts`.
+		const fault = geocoderFault();
+		if (fault !== null) {
 			throw new GdexNotDeliverable(
-				"This deployment has no geocoding key, so no address has a postcode — GDEX prices postcode to postcode and cannot quote until GOOGLE_GEOCODING_API_KEY is set",
+				`${fault}. GDEX prices postcode to postcode and cannot quote until that is fixed`,
 			);
 		}
 

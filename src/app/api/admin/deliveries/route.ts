@@ -3,7 +3,7 @@ import { prisma } from "@/lib/catalogue/db";
 import { pickupPin, WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
 import { pinFor } from "@/lib/logistics/coords";
 import {
-	isGeocodingConfigured,
+	refreshGeocoderHealth,
 	resolveCoordinates,
 } from "@/lib/logistics/geocode";
 import {
@@ -24,7 +24,7 @@ export async function GET() {
 	return NextResponse.json({
 		deliveries,
 		workshopAddress: WORKSHOP_ADDRESS,
-		geocodingConfigured: isGeocodingConfigured(),
+		geocodingConfigured: (await refreshGeocoderHealth()).ok,
 	});
 }
 

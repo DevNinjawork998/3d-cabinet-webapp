@@ -116,6 +116,19 @@ export type Row = "floor" | "wall";
 
 type Span = { startMm: number; endMm: number };
 
+/** Where a cabinet sits: the clear gap either side of it, and what the gap
+ * runs to — a neighbour's edge, or the wall. See `offsetsOf`. */
+export type Offsets = {
+	leftMm: number;
+	rightMm: number;
+	/** x the left gap runs back to: a neighbour's right edge, or 0. */
+	leftAnchorMm: number;
+	/** x the right gap runs out to: a neighbour's left edge, or the wall. */
+	rightAnchorMm: number;
+	/** Underside off the floor. Only a hung cabinet has one to report. */
+	floorMm: number | null;
+};
+
 /** Land exactly on an edge within this of it, when a drag is released. */
 export const SNAP_MM = 60;
 
@@ -376,6 +389,58 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		}
 
 		return gaps;
+	}
+
+	/**
+	 * Where one cabinet sits, as the gaps a dimension line would be drawn
+	 * across.
+	 *
+	 * Every cabinet here is locked to one wall in one of two rows, so its
+	 * whole position is a figure either side of it along that wall, plus how
+	 * high it hangs if it is a wall unit. That is what the callouts report.
+	 *
+	 * The neighbours come from `occupiedSpans`, which is the same list
+	 * collision settles against — so a tall unit counts as the wall row's
+	 * neighbour, exactly as it does when a hung cabinet is dragged into it. A
+	 * gap the customer can see is a gap the customer can move into, and the
+	 * two must never disagree.
+	 *
+	 * The anchors are returned alongside the distances because the overlay has
+	 * to know *where* the line stops, not only how long it is.
+	 */
+	function offsetsOf(layout: PlannerLayout, id: string): Offsets | null {
+		const row: Row = layout.wall.some((placed) => placed.id === id)
+			? "wall"
+			: "floor";
+		const position = positionsOf(layout, row).find(
+			(candidate) => candidate.placed.id === id,
+		);
+		if (!position) return null;
+
+		const leftEdgeMm = position.xMm;
+		const rightEdgeMm = position.xMm + position.widthMm;
+		const neighbours = occupiedSpans(layout, row, id);
+
+		const leftAnchorMm = neighbours
+			.filter((span) => span.endMm <= leftEdgeMm)
+			.reduce((anchor, span) => Math.max(anchor, span.endMm), 0);
+		const rightAnchorMm = neighbours
+			.filter((span) => span.startMm >= rightEdgeMm)
+			.reduce(
+				(anchor, span) => Math.min(anchor, span.startMm),
+				layout.wallWidthMm,
+			);
+
+		return {
+			leftMm: leftEdgeMm - leftAnchorMm,
+			rightMm: rightAnchorMm - rightEdgeMm,
+			leftAnchorMm,
+			rightAnchorMm,
+			floorMm:
+				position.family.kind === "wall"
+					? floorHeightMmOf(position, layout)
+					: null,
+		};
 	}
 
 	/**
@@ -1255,6 +1320,40 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Put a cabinet where a drag has taken it.
+	 *
+	 * Which axes a cabinet may move on is a layout rule, not a scene detail,
+	 * so it is decided here: everything slides along the wall, and only a hung
+	 * cabinet has a height of its own to change. A hang height handed in for a
+	 * floor unit is dropped rather than refused — the pointer moves in two
+	 * dimensions whatever is being dragged, and the caller should not have to
+	 * ask what it is holding.
+	 *
+	 * Ceiling mode ignores the vertical too: lining the tops up is the whole
+	 * point of that mode, and `floorHeightMmOf` would overrule the stored
+	 * figure anyway. Writing it would leave a number that silently reappears
+	 * when the mode is switched off.
+	 */
+	function dragModule(
+		layout: PlannerLayout,
+		id: string,
+		to: { xMm: number; hangAtMm?: number },
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (!found) return layout;
+
+		const moved = moveModule(layout, id, to.xMm);
+		if (
+			to.hangAtMm === undefined ||
+			found.row !== "wall" ||
+			moved.wallToCeiling
+		) {
+			return moved;
+		}
+		return setHangAt(moved, id, to.hangAtMm);
+	}
+
+	/**
 	 * The room's own starter, so no room ever opens on a blank wall — the same
 	 * rule the wardrobe configurator follows. Dropped at 0 each time, so each one
 	 * takes the leftmost gap that holds it and the run comes out packed from the
@@ -1275,8 +1374,10 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		rowEndMm,
 		occupiedSpans,
 		freeSpans,
+		offsetsOf,
 		moveModule,
 		dropModule,
+		dragModule,
 		firstFreeXMm,
 		fits,
 		addModule,

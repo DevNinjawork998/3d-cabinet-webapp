@@ -66,14 +66,20 @@ export function measureDesign(objText: string): DesignMeasurement | null {
 	const obj = readObj(objText);
 	if (obj.parts.length === 0) return null;
 
-	// One file, one cabinet — so the records an exporter split a panel into can
-	// be safely unioned back together. Without this every board reads as a flat
-	// face with a zero dimension, `isSolid` discards it, and a cabinet with a
-	// shelf, a back and four feet measures as an empty box. Only sound here:
-	// across a whole run it would merge neighbouring cabinets' panels.
-	const { parts, panelThicknessMm, notes } = normalise(
-		coalesceParts(obj.parts),
-	);
+	// Normalise from the records, then union them — never the other way round.
+	// The union is by name, so on a file holding more than one cabinet it merges
+	// panels that are metres apart, and a `G-Bottom` spanning plinth to uppers is
+	// no longer thin on height. That costs `inferUpAxis` every horizontal board
+	// it votes with and stands the whole file on its end.
+	//
+	// The union itself is still needed and still runs: an exporter splits one
+	// board across several planar records, so without it every board reads as a
+	// flat face with a zero dimension, `isSolid` discards it, and a cabinet with
+	// a shelf, a back and four feet measures as an empty box. It is only sound
+	// on a file holding one cabinet — across a run it merges neighbours.
+	const normalised = normalise(obj.parts);
+	const { panelThicknessMm, notes } = normalised;
+	const parts = coalesceParts(normalised.parts);
 	const classified = classify(parts, boundsOf(parts, panelThicknessMm));
 
 	const axis = (i: 0 | 1 | 2) => {

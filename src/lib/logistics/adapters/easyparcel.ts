@@ -2,7 +2,7 @@ import "server-only";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { pickupPlace, WORKSHOP_ADDRESS, WORKSHOP_PHONE } from "../carriers";
-import { isGeocodingConfigured } from "../geocode";
+import { geocoderFault } from "../geocode";
 import { carrierFetch } from "../http";
 import { longestEdgeMm } from "../measure";
 import { easyparcelAppConfigured } from "../oauth";
@@ -197,16 +197,17 @@ function endpoint(
 		});
 
 		// "Edit it and save again" is only advice when re-saving could actually
-		// help. With no geocoding key there is nothing to re-read the address
-		// with, so every save leaves these fields null and the admin is sent
-		// round a loop that cannot terminate — a correct message pointing at the
-		// wrong thing, which is worse than no message. Name the missing field
-		// too: this throws on either half, and telling someone their postcode is
-		// unreadable when the state is what is missing sends them to edit a line
-		// that is already right.
-		if (!isGeocodingConfigured()) {
+		// help. When the geocoder is what is broken there is nothing to re-read
+		// the address with, so every save leaves these fields null and the admin
+		// is sent round a loop that cannot terminate — a correct message
+		// pointing at the wrong thing, which is worse than no message. Name the
+		// missing field too: this throws on either half, and telling someone
+		// their postcode is unreadable when the state is what is missing sends
+		// them to edit a line that is already right.
+		const fault = geocoderFault();
+		if (fault !== null) {
 			throw new EasyParcelNotDeliverable(
-				`This deployment has no geocoding key, so no address has a postcode — EasyParcel prices by postcode and cannot quote until GOOGLE_GEOCODING_API_KEY is set`,
+				`${fault}. EasyParcel prices by postcode and cannot quote until that is fixed`,
 			);
 		}
 

@@ -30,6 +30,16 @@ async function fetchPublishedPlannerCatalogue() {
 	};
 }
 
+/**
+ * The same read, straight off Postgres.
+ *
+ * For an admin screen that just wrote a catalogue version and reloaded:
+ * `revalidateTag` purges the cache below, but not necessarily before the
+ * reload's own render, and an editor showing its own change as not-yet-made
+ * is worse than one extra query on a three-person admin surface.
+ */
+export const readPublishedPlannerCatalogue = fetchPublishedPlannerCatalogue;
+
 export const getPublishedPlannerCatalogue = unstable_cache(
 	fetchPublishedPlannerCatalogue,
 	["catalogue-planner"],

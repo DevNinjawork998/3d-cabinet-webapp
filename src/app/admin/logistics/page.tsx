@@ -1,7 +1,7 @@
 import { AdminHeader } from "@/components/admin/AdminHeader";
 import { prisma } from "@/lib/catalogue/db";
 import { WORKSHOP_ADDRESS } from "@/lib/logistics/carriers";
-import { isGeocodingConfigured } from "@/lib/logistics/geocode";
+import { geocoderFault, refreshGeocoderHealth } from "@/lib/logistics/geocode";
 import { easyparcelAppConfigured } from "@/lib/logistics/oauth";
 import { hasConnection } from "@/lib/logistics/tokens";
 import { LogisticsManager } from "./LogisticsManager";
@@ -21,6 +21,9 @@ export default async function LogisticsAdminPage() {
 	// unconfigured deployment doesn't need a query to be told what the
 	// environment already answers.
 	const appConfigured = easyparcelAppConfigured();
+	// Probed, not assumed. A key that is present and refused looks identical to
+	// a working one from here, and the banner is where an admin finds out.
+	const geocoder = await refreshGeocoderHealth();
 	const easyparcel = {
 		appConfigured,
 		connected: appConfigured ? await hasConnection("easyparcel") : false,
@@ -41,7 +44,8 @@ export default async function LogisticsAdminPage() {
 				<LogisticsManager
 					initial={JSON.parse(JSON.stringify(deliveries))}
 					workshopAddress={WORKSHOP_ADDRESS}
-					geocodingConfigured={isGeocodingConfigured()}
+					geocodingConfigured={geocoder.ok}
+					geocodingFault={geocoderFault()}
 					easyparcel={easyparcel}
 				/>
 			</main>

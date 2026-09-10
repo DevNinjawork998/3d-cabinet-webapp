@@ -24,11 +24,20 @@
 .DS_Store
 *.pem
 
+# editor swap and backup files
+*.swp
+*.swo
+*~
+
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# Playwright MCP session output: a console log and a page snapshot per run,
+# written every time an agent drives the browser. Scratch, never a record.
+/.playwright-mcp/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -51,6 +60,12 @@ graphify-out
 .agents/skills/*/
 .claude/skills/
 skills-lock.json
+
+# Per-machine agent permissions. `.claude/settings.json` IS tracked — it is the
+# project's shared config. This one is whoever is sitting here, and until now it
+# was spared only by a personal ~/.config/git/ignore, which a fresh clone on
+# anyone else's machine does not have.
+.claude/settings.local.json
 
 # Worktrees for isolated agent work — scratch, never committed.
 .claude/worktrees/

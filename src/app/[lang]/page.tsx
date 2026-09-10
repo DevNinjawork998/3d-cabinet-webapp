@@ -359,8 +359,19 @@ export default async function Home({
 						<ScrollSequence />
 					</div>
 
-					{/* `lg:pr-[40%]` reserves the lane the render occupies, rather than
-					    leaving it to each string's own max-width to stay clear of it.
+					{/* The right padding reserves the lane the render occupies, rather
+					    than leaving it to each string's own max-width to stay clear of
+					    it.
+
+					    It is capped in pixels as well as a percentage, and the cap is
+					    the whole point: a percentage padding resolves against the
+					    *containing block*, which here is the full-bleed section, not
+					    this box's own 1180px. On an ultrawide 40% is over 1300px of
+					    padding on an 1180px box — and `border-box` cannot shrink a box
+					    below its own padding, so the content column collapsed to zero
+					    and every word in the headline wrapped onto its own line. 472px
+					    is that same 40%, measured against the 1180 the copy actually
+					    gets, so the lane stops growing once the container does.
 					    The headline is capped in `ch`, which is the width of a `0` —
 					    about half an em — so 15ch holds an English line but only about
 					    seven Han characters, each of which is a full em. The Chinese
@@ -369,7 +380,7 @@ export default async function Home({
 					    a per-locale width would not. */}
 					<div
 						data-beat="hero-copy"
-						className="mx-auto flex h-full w-full max-w-[1180px] flex-col justify-start px-6 pt-[7vh] pb-20 sm:px-8 lg:h-auto lg:min-h-[clamp(460px,68vh,640px)] lg:justify-center lg:py-24 lg:pr-[40%]"
+						className="mx-auto flex h-full w-full max-w-[1180px] flex-col justify-start px-6 pt-[7vh] pb-20 sm:px-8 lg:h-auto lg:min-h-[clamp(460px,68vh,640px)] lg:justify-center lg:py-24 lg:pr-[min(40%,472px)]"
 					>
 						<p className="mb-5 font-semibold text-[11px] text-neutral-500 uppercase tracking-[0.16em]">
 							{t.landing.hero.eyebrow}
