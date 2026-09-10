@@ -80,32 +80,41 @@ const VIEW_DIRECTION: Record<PlannerView, Vector3> = {
 };
 
 /**
- * Where this pointer ray crosses the vertical plane the cabinet stands in, in
- * run millimetres.
+ * Where this pointer ray crosses the vertical plane the cabinet stands in.
+ *
+ * `xMm` is along the run from its left end; `yMm` is height above the floor.
  *
  * The plane has to be the cabinet's own, not the floor. A wall unit hangs a
- * metre and a half up against the back wall, and the same ray reaches the floor
- * a long way in front of it — dragging against the floor plane therefore moves
- * the cabinet at a different rate from the cursor, and the further the camera
- * tilts the worse it gets.
+ * metre and a half up against the back wall, and the same ray reaches the
+ * floor a long way in front of it — dragging against the floor plane
+ * therefore moves the cabinet at a different rate from the cursor, and the
+ * further the camera tilts the worse it gets.
  *
- * Read off the ray rather than `e.point`, which is wherever the ray happened to
- * strike a mesh and would offset the grab by the height of the door it hit.
+ * Read off the ray rather than `e.point`, which is wherever the ray happened
+ * to strike a mesh and would offset the grab by the height of the door it hit.
  */
-function runXFromRay(
+function runPointFromRay(
 	e: ThreeEvent<PointerEvent>,
 	planeZ: number,
 	runWidthMm: number,
-): number {
+): { xMm: number; yMm: number } {
 	const { origin, direction } = e.ray;
 	// Looking straight along the wall there is no crossing to find; the last
-	// known x is better than a divide by zero.
-	const worldX =
-		Math.abs(direction.z) < 1e-6
-			? origin.x
-			: origin.x + direction.x * ((planeZ - origin.z) / direction.z);
-	return worldX * 1000 + runWidthMm / 2;
+	// known position is better than a divide by zero.
+	const t =
+		Math.abs(direction.z) < 1e-6 ? 0 : (planeZ - origin.z) / direction.z;
+	return {
+		xMm: (origin.x + direction.x * t) * 1000 + runWidthMm / 2,
+		yMm: (origin.y + direction.y * t) * 1000,
+	};
 }
+
+/** Just the distance along the run — what a drop or a sideways drag needs. */
+const runXFromRay = (
+	e: ThreeEvent<PointerEvent>,
+	planeZ: number,
+	runWidthMm: number,
+) => runPointFromRay(e, planeZ, runWidthMm).xMm;
 
 function FitCamera({
 	runWidthMm,
