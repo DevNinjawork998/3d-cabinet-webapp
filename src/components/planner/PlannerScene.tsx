@@ -678,6 +678,10 @@ function Run({
 							position={position}
 							runWidthMm={runWidthMm}
 							roomDepthMm={layout.roomDepthMm}
+							floorHeightMm={floorHeightMmOf(position, layout)}
+							vertical={
+								position.family.kind === "wall" && !layout.wallToCeiling
+							}
 							onGrab={(e, planeZ) => {
 								e.stopPropagation();
 								if (measureMode) return;
@@ -706,11 +710,17 @@ function MoveHandle({
 	position,
 	runWidthMm,
 	roomDepthMm,
+	floorHeightMm,
+	vertical,
 	onGrab,
 }: {
 	position: Positioned;
 	runWidthMm: number;
 	roomDepthMm: number;
+	/** The underside of this cabinet, from the floor. */
+	floorHeightMm: number;
+	/** Whether this one can be dragged up and down as well as along. */
+	vertical: boolean;
 	onGrab: (e: ThreeEvent<PointerEvent>, planeZ: number) => void;
 }) {
 	const centreX = m(position.xMm + position.widthMm / 2 - runWidthMm / 2);
@@ -720,13 +730,18 @@ function MoveHandle({
 	// drag reads a world ray, so the plane it solves against is a world z.
 	const planeZ =
 		-m(roomDepthMm) / 2 + m(WALL_GAP_MM) + m(position.family.depthMm) / 2;
-	// Just in front of the carcass, flat on the floor.
 	const localZ = m(position.family.depthMm) + 0.16;
+	// A cabinet on the floor gets its handle on the floor in front of it; one
+	// that hangs gets it just below its own underside, where it reads as
+	// belonging to that cabinet rather than to whatever stands beneath it.
+	const y = floorHeightMm > 0 ? m(floorHeightMm) - 0.14 : 0.012;
 
 	return (
 		<group
-			position={[centreX, 0.012, localZ]}
-			rotation={[-Math.PI / 2, 0, 0]}
+			position={[centreX, y, floorHeightMm > 0 ? localZ - 0.1 : localZ]}
+			// Flat on the floor for a cabinet that stands on it; facing the room
+			// for one that hangs.
+			rotation={floorHeightMm > 0 ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
 			onPointerDown={(e) => onGrab(e, planeZ)}
 		>
 			<mesh>
@@ -742,20 +757,24 @@ function MoveHandle({
 				<planeGeometry args={[0.13, 0.014]} />
 				<meshBasicMaterial color="#1f5138" />
 			</mesh>
-			<mesh position={[0, 0, 0.002]}>
-				<planeGeometry args={[0.014, 0.13]} />
-				<meshBasicMaterial color="#1f5138" />
-			</mesh>
-			{[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle) => (
-				<mesh
-					key={angle}
-					position={[Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.002]}
-					rotation={[0, 0, angle - Math.PI / 2]}
-				>
-					<circleGeometry args={[0.022, 3]} />
+			{vertical && (
+				<mesh position={[0, 0, 0.002]}>
+					<planeGeometry args={[0.014, 0.13]} />
 					<meshBasicMaterial color="#1f5138" />
 				</mesh>
-			))}
+			)}
+			{(vertical ? [0, Math.PI / 2, Math.PI, -Math.PI / 2] : [0, Math.PI]).map(
+				(angle) => (
+					<mesh
+						key={angle}
+						position={[Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.002]}
+						rotation={[0, 0, angle - Math.PI / 2]}
+					>
+						<circleGeometry args={[0.022, 3]} />
+						<meshBasicMaterial color="#1f5138" />
+					</mesh>
+				),
+			)}
 		</group>
 	);
 }
