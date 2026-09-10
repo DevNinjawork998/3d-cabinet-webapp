@@ -8,12 +8,10 @@ import { fill } from "@/lib/copy/fill";
 import { htmlLang } from "@/lib/copy/locales";
 import { splitDoorLeaves } from "@/lib/mesh/renderMesh";
 import {
-	CEILING_LIMITS,
 	type Construction,
 	constructionOf,
 	type FinishId,
 	familyIn,
-	ROOM_DEPTH_LIMITS,
 	type RoomTypeId,
 	roomTypeIn,
 	WALL_HANG_LIMITS,
@@ -24,7 +22,6 @@ import {
 	type Positioned,
 	setDoors,
 	setHinge,
-	WALL_LIMITS,
 } from "@/lib/planner/layout";
 import {
 	AXIS_COLOR,
@@ -45,6 +42,7 @@ import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
+import { RoomPanel } from "./studio/RoomPanel";
 import { PanelOption, PanelToggle, StudioPanel } from "./studio/StudioPanel";
 import { type StudioTool, ToolRail } from "./studio/ToolRail";
 import { FamilyThumb } from "./thumbs";
@@ -227,6 +225,7 @@ export function StudioScreen({
 		overhangMm,
 		removeModules,
 		rowEndMm,
+		runExtentMm,
 		setBaseSkirting,
 		setCeilingHeight,
 		setHangingHeight,
@@ -316,6 +315,7 @@ export function StudioScreen({
 	// Usually the run rather than the catalogue floor — worth naming which,
 	// because a slider that stops for no visible reason reads as broken.
 	const minWallMm = minWallWidthMm(layout);
+	const freeMm = layout.wallWidthMm - runExtentMm(layout);
 	const construction = constructionOf(catalogue);
 	const price = computePlannerPrice(layout, finish, catalogue);
 	// Named so the customer knows what the extra lines are for. Both are added
@@ -544,28 +544,6 @@ export function StudioScreen({
 					{ label: t.planner.crumbs.roomPlanner, onClick: onBackToStartAction },
 					{ label: t.planner.crumbs.studio },
 				]}
-				center={
-					<fieldset
-						aria-label={t.planner.view.ariaLabel}
-						className="hidden min-w-0 items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5 lg:flex"
-					>
-						{views(t).map((option) => (
-							<button
-								key={option.id}
-								type="button"
-								onClick={() => setView(option.id)}
-								aria-pressed={view === option.id}
-								className={`rounded-full px-3.5 py-1 text-[13px] transition ${
-									view === option.id
-										? "bg-white font-medium shadow-sm"
-										: "text-neutral-600 hover:text-neutral-900"
-								}`}
-							>
-								{option.label}
-							</button>
-						))}
-					</fieldset>
-				}
 			>
 				<button
 					type="button"
@@ -612,81 +590,25 @@ export function StudioScreen({
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				<ToolRail active={tool} onPressAction={pressTool} />
 
-				<aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[268px] lg:border-r lg:border-b-0">
-					<div className="rounded-lg border border-neutral-200 bg-[#f7f6f4] p-3">
-						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							{t.planner.room.heading}
-						</p>
-						<p className="mt-0.5 mb-3 text-[12px] text-neutral-500 leading-4">
-							{t.planner.room.subtitle}
-						</p>
-						<div className="mb-3 flex flex-wrap gap-1">
-							{catalogue.roomTypes.map((option) => (
-								<button
-									key={option.id}
-									type="button"
-									onClick={() => onChangeRoomAction(option.id)}
-									aria-current={option.id === roomId ? "true" : undefined}
-									className={`rounded-full px-2.5 py-1 text-[12px] transition ${
-										option.id === roomId
-											? "bg-neutral-900 text-white"
-											: "bg-white text-neutral-600 shadow-[inset_0_0_0_1px_#e5e5e5] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-									}`}
-								>
-									{option.label}
-								</button>
-							))}
-						</div>
-
-						<div className="flex flex-col gap-2.5">
-							<DimensionField
-								label={t.planner.room.wallLength}
-								valueMm={layout.wallWidthMm}
-								minMm={minWallMm}
-								maxMm={WALL_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setWallWidth(prev, mm))
-								}
-							/>
-
-							{minWallMm > WALL_LIMITS.minMm &&
-								layout.wallWidthMm === minWallMm && (
-									<p className="-mt-1 text-[11px] text-neutral-500 leading-4">
-										{fill(t.planner.room.narrowWallNote, { min: minWallMm })}
-									</p>
-								)}
-
-							<DimensionField
-								label={t.planner.room.ceiling}
-								valueMm={layout.ceilingHeightMm}
-								minMm={CEILING_LIMITS.minMm}
-								maxMm={CEILING_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setCeilingHeight(prev, mm))
-								}
-							/>
-
-							<DimensionField
-								label={t.planner.room.roomDepth}
-								valueMm={layout.roomDepthMm}
-								minMm={ROOM_DEPTH_LIMITS.minMm}
-								maxMm={ROOM_DEPTH_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setRoomDepth(prev, mm))
-								}
-							/>
-						</div>
-
-						{overhang > 0 && (
-							<p className="mt-2 text-[11px] text-amber-700 leading-4">
-								{fill(t.planner.room.overhangWarning, { overhang })}
-							</p>
-						)}
-					</div>
-				</aside>
+				<RoomPanel
+					catalogue={catalogue}
+					roomId={roomId}
+					layout={layout}
+					minWallMm={minWallMm}
+					freeMm={freeMm}
+					overhangMm={overhang}
+					onChangeRoomAction={onChangeRoomAction}
+					onWallWidthAction={(mm) =>
+						setLayoutAction((prev) => setWallWidth(prev, mm))
+					}
+					onCeilingAction={(mm) =>
+						setLayoutAction((prev) => setCeilingHeight(prev, mm))
+					}
+					onDepthAction={(mm) =>
+						setLayoutAction((prev) => setRoomDepth(prev, mm))
+					}
+					onOpenDefaultsAction={() => setTool("defaults")}
+				/>
 
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: the drop
 				    target is the 3D canvas; the palette buttons are the keyboard
