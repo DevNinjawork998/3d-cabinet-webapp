@@ -143,6 +143,8 @@ export const ms: Dictionary = {
 			threeDHint: "Lihat bilik seperti rupanya nanti.",
 			elevationHint: "Rata dari depan — terbaik untuk menetapkan saiz.",
 			planHint: "Dari atas — terbaik untuk kedalaman dan laluan.",
+			resetView: "Set semula pandangan",
+			resetViewHint: "Rangka semula keseluruhan larian.",
 			doorsTitle: "Pintu",
 			doorsHint:
 				"Terpakai untuk semua unit. Pintu satu kabinet dibuka melalui tindakan Buka pintu miliknya.",

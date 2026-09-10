@@ -139,6 +139,8 @@ export const zh: Dictionary = {
 			threeDHint: "看看房间完成后的样子。",
 			elevationHint: "正面平视——最适合确定尺寸。",
 			planHint: "俯视——最适合看进深与通道。",
+			resetView: "重置视角",
+			resetViewHint: "重新框住整排橱柜。",
 			doorsTitle: "门板",
 			doorsHint: "适用于所有柜子。单个柜子的门板由它自己的“打开门板”操作控制。",
 			defaultsTitle: "整排的默认设置",

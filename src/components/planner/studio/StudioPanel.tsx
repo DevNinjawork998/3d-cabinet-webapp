@@ -71,7 +71,9 @@ export function PanelOption({
 }: {
 	label: string;
 	hint: string;
-	pressed: boolean;
+	/** Omitted for a plain action — "reset view" is a button, not a state, and
+	 * announcing it as an unpressed toggle would be a lie to a screen reader. */
+	pressed?: boolean;
 	onPressAction: () => void;
 }) {
 	return (
@@ -79,7 +81,7 @@ export function PanelOption({
 			type="button"
 			onClick={onPressAction}
 			aria-pressed={pressed}
-			className={listBtn(pressed)}
+			className={listBtn(pressed ?? false)}
 		>
 			<span className="font-semibold text-[13px]">{label}</span>
 			<span className="text-[11px] text-neutral-500 leading-[15px]">

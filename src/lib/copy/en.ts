@@ -146,6 +146,8 @@ export const en = {
 			threeDHint: "See the room as it will look.",
 			elevationHint: "Flat front-on — best for sizing.",
 			planHint: "From above — best for depth and walkways.",
+			resetView: "Reset view",
+			resetViewHint: "Re-frame the whole run.",
 			doorsTitle: "Doors",
 			doorsHint:
 				"Applies to every unit. One cabinet's doors open from its own Open doors action.",

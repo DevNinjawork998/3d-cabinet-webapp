@@ -258,6 +258,9 @@ export function StudioScreen({
 	);
 	const [dragFamilyId, setDragFamilyId] = useState<string | null>(null);
 	const [view, setView] = useState<PlannerView>("3d");
+	// A pan now survives a layout change, so something has to be able to put
+	// the framing back. Bumping this is the only thing that refits the camera.
+	const [refitKey, setRefitKey] = useState(0);
 	// Which cabinets are standing open. Deliberately *not* on the layout: it is
 	// not something the customer buys, so it must not ride along in a share link
 	// or a quote. One set drives both the global toggle and the per-cabinet
@@ -467,6 +470,11 @@ export function StudioScreen({
 					onPressAction={() => setView(option.id)}
 				/>
 			))}
+			<PanelOption
+				label={t.planner.panel.resetView}
+				hint={t.planner.panel.resetViewHint}
+				onPressAction={() => setRefitKey((key) => key + 1)}
+			/>
 		</div>
 	);
 
@@ -708,6 +716,7 @@ export function StudioScreen({
 						measureAxis={measureAxis}
 						positionMode={verb === "move"}
 						view={view}
+						refitKey={refitKey}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
 						onMeasurePickAction={onMeasurePick}

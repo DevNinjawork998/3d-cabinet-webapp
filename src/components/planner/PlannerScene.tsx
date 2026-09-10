@@ -9,6 +9,7 @@ import {
 } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+	Group,
 	Object3D,
 	PerspectiveCamera,
 	Vector3 as Vector3Type,
@@ -16,11 +17,13 @@ import type {
 import {
 	type Mesh,
 	type MeshBasicMaterial,
+	Plane,
 	type PlaneGeometry,
 	Raycaster,
 	Vector2,
 	Vector3,
 } from "three";
+import { clampPanTarget, type RoomBoundsMm } from "@/lib/planner/camera";
 import {
 	CEILING_TRIM_MM,
 	type Construction,
@@ -60,6 +63,10 @@ import { PositionDimensions } from "./PositionDimensions";
 import { Room } from "./Room";
 
 const m = (mm: number) => mm / 1000;
+
+/** How far along the camera-to-target line the pan gizmo sits. Small enough to
+ * be in front of the run, large enough not to graze the near plane. */
+const GIZMO_LERP = 0.15;
 
 /**
  * The three ways to look at a run. `3d` is the selling angle; the other two
@@ -116,11 +123,14 @@ function FitCamera({
 	roomDepthMm,
 	ceilingHeightMm,
 	view,
+	refitKey,
 }: {
 	runWidthMm: number;
 	roomDepthMm: number;
 	ceilingHeightMm: number;
 	view: PlannerView;
+	/** Bumped to re-frame on demand — what "reset view" does. */
+	refitKey: number;
 }) {
 	const camera = useThree((s) => s.camera) as PerspectiveCamera;
 	const controls = useThree((s) => s.controls) as {
@@ -129,7 +139,18 @@ function FitCamera({
 	} | null;
 	const aspect = useThree((s) => s.size.width / s.size.height);
 
+	// Read through a ref, deliberately. These change as the customer builds,
+	// and refitting on them would throw away a pan the moment another cabinet
+	// went in — the framing has an owner now, and it is the customer.
+	const framing = useRef({ runWidthMm, roomDepthMm, ceilingHeightMm, aspect });
+	framing.current = { runWidthMm, roomDepthMm, ceilingHeightMm, aspect };
+
+	// `refitKey` is a trigger, not an input — nothing in here reads it, and
+	// that is the point: bumping it is how "reset view" asks for a refit.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: see above
 	useEffect(() => {
+		const { runWidthMm, roomDepthMm, ceilingHeightMm, aspect } =
+			framing.current;
 		const width = m(runWidthMm);
 		const height = m(ceilingHeightMm);
 		const depth = m(roomDepthMm);
@@ -166,17 +187,198 @@ function FitCamera({
 			controls.target.copy(centre);
 			controls.update();
 		}
-	}, [
-		runWidthMm,
-		roomDepthMm,
-		ceilingHeightMm,
-		view,
-		aspect,
-		camera,
-		controls,
-	]);
+	}, [view, refitKey, camera, controls]);
 
 	return null;
+}
+
+/**
+ * The camera's own handle: drag it and the whole view slides sideways.
+ *
+ * Orbiting alone is not enough once a run outgrows the frame. You can spin
+ * around a four-metre kitchen all day and never get the far end on screen,
+ * because rotation moves the eye and never the point it is looking at — which
+ * is exactly the complaint this answers.
+ *
+ * Why a gizmo rather than `enablePan` on OrbitControls: pan there is a
+ * right-drag on desktop and a two-finger drag on touch, and neither is
+ * discoverable on the mid-range Android this app is built for. A thing you can
+ * see and press is.
+ *
+ * It is drawn at `controls.target` because that is literally what it moves —
+ * grabbing it and dragging is grabbing the point the camera stares at. Blue,
+ * to keep it apart from the green `MoveHandle` that moves a cabinet, and drawn
+ * with depth testing off so a carcass standing between it and the camera
+ * cannot swallow the only affordance on screen.
+ */
+function PanGizmo({ bounds }: { bounds: RoomBoundsMm }) {
+	const camera = useThree((s) => s.camera);
+	const gl = useThree((s) => s.gl);
+	const controls = useThree((s) => s.controls) as {
+		target: Vector3Type;
+		enabled: boolean;
+		update: () => void;
+	} | null;
+	const ref = useRef<Group>(null);
+	// The plane fixed at grab time, and the world point that was grabbed.
+	// Solving against the *original* plane each move is what makes the ground
+	// stay stuck to the finger: the camera moves, so the next reading lands
+	// closer to the grab point, and the gesture converges instead of running away.
+	const drag = useRef<{ plane: Plane; grab: Vector3 } | null>(null);
+	const [grabbed, setGrabbed] = useState(false);
+
+	// Ride the target, face the camera, and hold one size on screen. Written
+	// straight to the object rather than through state — this runs every frame,
+	// and re-rendering the scene graph to move one marker is the mobile budget's
+	// problem, not its solution.
+	useFrame(() => {
+		const group = ref.current;
+		if (!group || !controls) return;
+		// On the line from the camera to the target, but close to the camera.
+		// It therefore projects to the same screen point as the target — the
+		// centre of the frame, which is where it belongs — while sitting nearer
+		// than any cabinet. That is a picking fix, not a drawing one:
+		// `depthTest` keeps it *visible* through a carcass, but R3F still hands
+		// a pointer to the nearest hit, so a gizmo drawn on top of a cabinet it
+		// sat behind would look pressable and not be.
+		group.position.lerpVectors(camera.position, controls.target, GIZMO_LERP);
+		group.quaternion.copy(camera.quaternion);
+		// Scale with its own distance from the camera so it is the same size on
+		// screen zoomed in or out.
+		group.scale.setScalar(
+			(camera.position.distanceTo(controls.target) * GIZMO_LERP) / 4,
+		);
+	});
+
+	const boundsRef = useRef(bounds);
+	boundsRef.current = bounds;
+
+	const release = useCallback(() => {
+		if (!drag.current) return;
+		drag.current = null;
+		setGrabbed(false);
+		if (controls) controls.enabled = true;
+	}, [controls]);
+
+	useEffect(() => {
+		const el = gl.domElement;
+		const raycaster = new Raycaster();
+		const ndc = new Vector2();
+		const hit = new Vector3();
+		const moved = new Vector3();
+
+		const onMove = (event: PointerEvent) => {
+			const current = drag.current;
+			if (!current || !controls) return;
+			const rect = el.getBoundingClientRect();
+			ndc.set(
+				((event.clientX - rect.left) / rect.width) * 2 - 1,
+				-((event.clientY - rect.top) / rect.height) * 2 + 1,
+			);
+			raycaster.setFromCamera(ndc, camera);
+			if (!raycaster.ray.intersectPlane(current.plane, hit)) return;
+
+			// Where the target wants to go, then the nearest place it is allowed.
+			moved.copy(controls.target).add(current.grab).sub(hit);
+			const clamped = clampPanTarget(
+				{ x: moved.x * 1000, y: moved.y * 1000, z: moved.z * 1000 },
+				boundsRef.current,
+			);
+			moved.set(m(clamped.x), m(clamped.y), m(clamped.z));
+			// The camera moves by whatever the target actually moved, so the
+			// angle and the distance survive a clamp and it reads as running out
+			// of room rather than as a lurch.
+			camera.position.add(moved).sub(controls.target);
+			controls.target.copy(moved);
+			controls.update();
+		};
+
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", release);
+		window.addEventListener("pointercancel", release);
+		return () => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", release);
+			window.removeEventListener("pointercancel", release);
+			// A gesture can end with this unmounting mid-drag. Orbiting has to
+			// come back either way.
+			if (controls) controls.enabled = true;
+		};
+	}, [camera, gl, controls, release]);
+
+	const grab = (e: ThreeEvent<PointerEvent>) => {
+		e.stopPropagation();
+		if (!controls) return;
+		// Synchronously, not from an effect: a frame later and OrbitControls has
+		// already claimed the pointer, so the camera spins instead of sliding —
+		// the same lesson `Run` records for the cabinet drag.
+		controls.enabled = false;
+		// Through the *target*, not through the gizmo. The plane sets the pan
+		// rate: solved at the gizmo's own distance the scene would crawl at a
+		// seventh of the finger, because the gizmo is deliberately near the
+		// camera. At the target the run tracks the finger one-to-one.
+		const plane = new Plane().setFromNormalAndCoplanarPoint(
+			camera.getWorldDirection(new Vector3()),
+			controls.target.clone(),
+		);
+		const hit = new Vector3();
+		if (!e.ray.intersectPlane(plane, hit)) {
+			controls.enabled = true;
+			return;
+		}
+		drag.current = { plane, grab: hit };
+		setGrabbed(true);
+	};
+
+	const colour = grabbed ? "#1b4f9c" : "#2f6fd0";
+
+	/*
+	 * Every layer is `transparent` with an explicit `renderOrder`, and both
+	 * halves of that matter. With `depthTest` off the local z-offsets below
+	 * decide nothing, so order is all there is — and three renders the whole
+	 * opaque list before the transparent one, so an opaque arrow can never
+	 * land on top of a translucent disc no matter what order it is given. The
+	 * first cut had exactly that bug: a white blob with the arrows buried
+	 * underneath it.
+	 */
+	return (
+		<group ref={ref} onPointerDown={grab}>
+			<mesh renderOrder={20}>
+				<circleGeometry args={[0.115, 32]} />
+				<meshBasicMaterial
+					color="#ffffff"
+					transparent
+					opacity={0.95}
+					depthTest={false}
+				/>
+			</mesh>
+			<mesh position={[0, 0, 0.001]} renderOrder={21}>
+				<ringGeometry args={[0.105, 0.115, 32]} />
+				<meshBasicMaterial color={colour} transparent depthTest={false} />
+			</mesh>
+			{/* Both bars and all four heads: unlike the cabinet handle, this one
+			    always moves in two axes. */}
+			<mesh position={[0, 0, 0.002]} renderOrder={22}>
+				<planeGeometry args={[0.13, 0.014]} />
+				<meshBasicMaterial color={colour} transparent depthTest={false} />
+			</mesh>
+			<mesh position={[0, 0, 0.002]} renderOrder={22}>
+				<planeGeometry args={[0.014, 0.13]} />
+				<meshBasicMaterial color={colour} transparent depthTest={false} />
+			</mesh>
+			{[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle) => (
+				<mesh
+					key={angle}
+					position={[Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.002]}
+					rotation={[0, 0, angle - Math.PI / 2]}
+					renderOrder={22}
+				>
+					<circleGeometry args={[0.022, 3]} />
+					<meshBasicMaterial color={colour} transparent depthTest={false} />
+				</mesh>
+			))}
+		</group>
+	);
 }
 
 /**
@@ -1164,6 +1366,7 @@ export default function PlannerScene({
 	measureAxis = "auto",
 	positionMode = false,
 	view = "3d",
+	refitKey = 0,
 	onLayoutChangeAction,
 	onSelectAction,
 	onMeasurePickAction,
@@ -1195,6 +1398,9 @@ export default function PlannerScene({
 	 * the quote screen's little preview keeps the selling angle without
 	 * having to know the toggle exists. */
 	view?: PlannerView;
+	/** Bump to re-frame the run. A pan otherwise survives everything short of
+	 * a view switch, so without this there is no way back from one. */
+	refitKey?: number;
 	/** The points picked so far — 0, 1, or 2 of them. */
 	measurePoints?: SnapPoint[];
 	/** Which axis the second pick is constrained to. Defaults to `auto`, which
@@ -1311,11 +1517,19 @@ export default function PlannerScene({
 				enableRotate={view === "3d"}
 				maxPolarAngle={Math.PI / 2 - 0.05}
 			/>
+			<PanGizmo
+				bounds={{
+					runWidthMm: Math.max(runWidthMm, engine.rowEndMm(layout, "floor")),
+					roomDepthMm: layout.roomDepthMm,
+					ceilingHeightMm: layout.ceilingHeightMm,
+				}}
+			/>
 			<FitCamera
 				runWidthMm={Math.max(runWidthMm, engine.rowEndMm(layout, "floor"))}
 				roomDepthMm={layout.roomDepthMm}
 				ceilingHeightMm={layout.ceilingHeightMm}
 				view={view}
+				refitKey={refitKey}
 			/>
 		</Canvas>
 	);
