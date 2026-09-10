@@ -56,6 +56,7 @@ const {
 	setWidth,
 	skirtingSpans,
 	starterFor,
+	swapWithNeighbour,
 	widthOptionsFor,
 } = plannerEngine(PLANNER_CATALOGUE);
 
@@ -1120,5 +1121,57 @@ describe("setHangAt", () => {
 		const [only] = positionsOf(reset, "wall");
 		expect(reset.wall[0].hangAtMm).toBeUndefined();
 		expect(floorHeightMmOf(only, reset)).toBe(reset.hangingHeightMm);
+	});
+});
+
+describe("swapWithNeighbour", () => {
+	it("trades places with the cabinet to its right, keeping the pair's span", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		const next = swapWithNeighbour(placed, "a", 1);
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(900);
+		expectNoOverlaps(next);
+	});
+
+	it("trades places with the cabinet to its left", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		const next = swapWithNeighbour(placed, "b", -1);
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(900);
+	});
+
+	it("leaves the run alone at the end of the row", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		expect(swapWithNeighbour(placed, "a", -1)).toBe(placed);
+		expect(swapWithNeighbour(placed, "b", 1)).toBe(placed);
+	});
+
+	it("only ever swaps within one row", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		placed = addModule(placed, "wall-cabinet", 0, "w", 600);
+		// The wall cabinet is the floor cabinet's neighbour in neither direction.
+		expect(swapWithNeighbour(placed, "a", 1)).toBe(placed);
+		expect(swapWithNeighbour(placed, "w", 1)).toBe(placed);
+	});
+
+	it("keeps a gap between the two rather than closing it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 900, "b", 600);
+		const next = swapWithNeighbour(placed, "a", 1);
+		// The pair still spans 0..1500 and neither has grown into the gap.
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(1200);
+		expectNoOverlaps(next);
+	});
+
+	it("refuses a swap that would put a wall unit over a tall one", () => {
+		let placed = addModule(layout, "wall-cabinet", 0, "w1", 400);
+		placed = addModule(placed, "wall-cabinet", 400, "w2", 900);
+		// A tall unit under w2's stretch: w1 cannot take that place.
+		placed = addModule(placed, "tall-cabinet", 800, "t", 600);
+		expect(swapWithNeighbour(placed, "w1", 1)).toBe(placed);
 	});
 });

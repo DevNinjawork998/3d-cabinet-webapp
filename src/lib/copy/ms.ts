@@ -249,6 +249,11 @@ export const ms: Dictionary = {
 				"Klik kabinet untuk menukar saiz atau pintunya. Seret di sepanjang dinding untuk menggerakkannya.",
 		},
 		selection: {
+			hangAtThis: "Yang ini digantung pada",
+			swapLeft: "Tukar tempat dengan kabinet di kirinya",
+			swapRight: "Tukar tempat dengan kabinet di kanannya",
+			swapHint:
+				"Anak panah menukar tempatnya dengan kabinet di sebelah, jadi baris yang padat kekal padat. Taip satu angka untuk memindahkannya ke tempat yang ada ruang.",
 			verbResize: "Ubah saiz",
 			verbReplace: "Ganti",
 			verbMove: "Alih",
@@ -296,12 +301,10 @@ export const ms: Dictionary = {
 			addCabinet: "Tambah kabinet",
 		},
 		gizmo: {
-			left: "Alih ke kiri sepanjang dinding",
-			right: "Alih ke kanan sepanjang dinding",
-			raise: "Naikkan kabinet ini",
-			lower: "Turunkan kabinet ini",
-			vertLocked: "Hanya kabinet dinding boleh bergerak menegak",
-			vertHint: "Ubah ketinggian gantung kabinet ini",
+			left: "Alih pandangan ke kiri",
+			right: "Alih pandangan ke kanan",
+			up: "Alih pandangan lebih ke dalam",
+			down: "Alih pandangan lebih dekat",
 		},
 		finish: {
 			heading: "Kemasan pintu · seluruh susunan",

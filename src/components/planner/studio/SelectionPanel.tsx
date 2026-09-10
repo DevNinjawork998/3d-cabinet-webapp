@@ -33,6 +33,9 @@ export function SelectionPanel({
 	onWidthAction,
 	onReplaceAction,
 	onOffsetAction,
+	onSwapAction,
+	canSwap,
+	onHangAtAction,
 	onToggleDoorAction,
 	onHingeAction,
 	onDoorStyleAction,
@@ -60,6 +63,12 @@ export function SelectionPanel({
 	onWidthAction: (widthMm: number) => void;
 	onReplaceAction: (familyId: string) => void;
 	onOffsetAction: (xMm: number) => void;
+	onSwapAction: (direction: 1 | -1) => void;
+	/** Wall cabinets only — the row hangs at one height and this one may sit
+	 * off it. */
+	onHangAtAction: (mm: number) => void;
+	/** Whether there is a cabinet on that side to trade places with. */
+	canSwap: { left: boolean; right: boolean };
 	onToggleDoorAction: () => void;
 	onHingeAction: (side: HingeSide) => void;
 	onDoorStyleAction: (doorStyleId: string | null) => void;
@@ -213,6 +222,29 @@ export function SelectionPanel({
 					<p className="font-semibold text-[12px] text-neutral-700">
 						{t.planner.selection.positionHeading}
 					</p>
+					<div className="flex gap-1">
+						<button
+							type="button"
+							onClick={() => onSwapAction(-1)}
+							disabled={!canSwap.left}
+							aria-label={t.planner.selection.swapLeft}
+							title={t.planner.selection.swapLeft}
+							className="flex h-9 flex-1 items-center justify-center rounded-lg border border-neutral-300 text-[15px] text-[#1f5138] hover:bg-[#e7efe9] disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300 disabled:hover:bg-transparent"
+						>
+							←
+						</button>
+						<button
+							type="button"
+							onClick={() => onSwapAction(1)}
+							disabled={!canSwap.right}
+							aria-label={t.planner.selection.swapRight}
+							title={t.planner.selection.swapRight}
+							className="flex h-9 flex-1 items-center justify-center rounded-lg border border-neutral-300 text-[15px] text-[#1f5138] hover:bg-[#e7efe9] disabled:cursor-not-allowed disabled:border-neutral-200 disabled:text-neutral-300 disabled:hover:bg-transparent"
+						>
+							→
+						</button>
+					</div>
+
 					<div className="flex items-center justify-between gap-2">
 						<label htmlFor="offsetmm" className="text-[12px] text-neutral-500">
 							{t.planner.selection.fromLeftWall}
@@ -228,10 +260,30 @@ export function SelectionPanel({
 							<span className="text-[11px] text-[#8a857c]">mm</span>
 						</span>
 					</div>
+					{isWall && (
+						<div className="flex items-center justify-between gap-2">
+							<label
+								htmlFor="hangatmm"
+								className="text-[12px] text-neutral-500"
+							>
+								{t.planner.selection.hangAtThis}
+							</label>
+							<span className="flex items-center gap-1">
+								<input
+									id="hangatmm"
+									type="number"
+									step={10}
+									value={hangAtMm}
+									onChange={(e) => onHangAtAction(Number(e.target.value))}
+									className="w-[70px] rounded-[7px] border border-neutral-300 px-2 py-1.5 text-right text-[12px]"
+								/>
+								<span className="text-[11px] text-[#8a857c]">mm</span>
+							</span>
+						</div>
+					)}
+
 					<p className="text-[11px] text-[#8a857c] leading-[15px]">
-						{isWall
-							? t.planner.selection.moveHintWall
-							: t.planner.selection.moveHintFloor}
+						{t.planner.selection.swapHint}
 					</p>
 				</section>
 			)}

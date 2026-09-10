@@ -9,6 +9,7 @@ import {
 } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+	Group,
 	Object3D,
 	PerspectiveCamera,
 	Vector3 as Vector3Type,
@@ -16,6 +17,7 @@ import type {
 import {
 	type Mesh,
 	type MeshBasicMaterial,
+	Plane,
 	type PlaneGeometry,
 	Raycaster,
 	Vector2,
@@ -56,6 +58,7 @@ import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
 import { Room } from "./Room";
+import { ViewGizmo } from "./studio/ViewGizmo";
 
 const m = (mm: number) => mm / 1000;
 
@@ -1001,6 +1004,146 @@ function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
 /** Module-level so the default never changes identity between renders. */
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 
+export type ViewPadLabels = {
+	left: string;
+	right: string;
+	up: string;
+	down: string;
+};
+
+/** How far one press slides the view. A quarter of a metre is a visible step
+ *  on a 4m run without throwing the room off screen. */
+const PAN_STEP_M = 0.25;
+
+/**
+ * The pad on the floor in front of the run.
+ *
+ * It slides the view across the floor plane — a pan, not a turn. Dragging
+ * already rotates and `OrbitControls` has panning switched off, so before this
+ * there was no way to shift a long run sideways to look at its far end; you
+ * could only spin around it.
+ *
+ * The step is taken along the camera's own axes flattened onto the floor, so
+ * left is always screen-left however the room has been turned. Camera and
+ * target move together, which is what keeps it a pan rather than an orbit.
+ */
+function ViewPad({
+	labels,
+	roomDepthMm,
+}: {
+	labels: ViewPadLabels;
+	roomDepthMm: number;
+}) {
+	const camera = useThree((s) => s.camera);
+	const gl = useThree((s) => s.gl);
+	const controls = useThree((s) => s.controls) as {
+		target: Vector3Type;
+		update: () => void;
+	} | null;
+
+	/** The floor, as maths rather than geometry: the drag reads a point on it
+	 *  even where the room's own floor plane has been panned out of frame. */
+	const FLOOR = useMemo(() => new Plane(new Vector3(0, 1, 0), 0), []);
+	const raycaster = useMemo(() => new Raycaster(), []);
+	const ndc = useMemo(() => new Vector2(), []);
+	const grabbed = useRef<Vector3 | null>(null);
+
+	/** Where this pointer crosses the floor, in world metres. */
+	const floorPointOf = (clientX: number, clientY: number) => {
+		const rect = gl.domElement.getBoundingClientRect();
+		ndc.set(
+			((clientX - rect.left) / rect.width) * 2 - 1,
+			-((clientY - rect.top) / rect.height) * 2 + 1,
+		);
+		raycaster.setFromCamera(ndc, camera);
+		const hit = new Vector3();
+		return raycaster.ray.intersectPlane(FLOOR, hit) ? hit : null;
+	};
+
+	/**
+	 * Grab the floor and pull it. Camera and target both move by whatever it
+	 * takes to put the grabbed point back under the pointer, which is why the
+	 * anchor stays good for the whole drag: after each step the same screen
+	 * point maps to the same floor point again.
+	 */
+	const onPointerDown = (e: React.PointerEvent) => {
+		const point = floorPointOf(e.clientX, e.clientY);
+		if (!point) return;
+		grabbed.current = point;
+		(e.target as Element).setPointerCapture?.(e.pointerId);
+	};
+	const onPointerMove = (e: React.PointerEvent) => {
+		if (!grabbed.current || !controls) return;
+		const point = floorPointOf(e.clientX, e.clientY);
+		if (!point) return;
+		const delta = grabbed.current.clone().sub(point);
+		camera.position.add(delta);
+		controls.target.add(delta);
+		controls.update();
+	};
+	const endDrag = (e: React.PointerEvent) => {
+		grabbed.current = null;
+		(e.target as Element).releasePointerCapture?.(e.pointerId);
+	};
+
+	/** `x` slides across the screen, `z` into and out of it. */
+	const pan = (x: number, z: number) => () => {
+		if (!controls) return;
+		// The camera's own right and forward, flattened onto the floor: panning
+		// must not fly the view upwards when the camera is tilted down.
+		const right = new Vector3()
+			.setFromMatrixColumn(camera.matrix, 0)
+			.setY(0)
+			.normalize();
+		const forward = new Vector3(0, 1, 0).cross(right).normalize();
+		const step = right
+			.multiplyScalar(x * PAN_STEP_M)
+			.addScaledVector(forward, z * PAN_STEP_M);
+
+		camera.position.add(step);
+		controls.target.add(step);
+		controls.update();
+	};
+
+	// The pad rides the view's own centre rather than a fixed spot on the
+	// floor. Anchored to the room it would slide off screen after a few
+	// presses — taking with it the only control that could bring the view
+	// back.
+	const anchor = useRef<Group>(null);
+	useFrame(() => {
+		if (!anchor.current || !controls) return;
+		anchor.current.position.set(
+			controls.target.x,
+			0.02,
+			controls.target.z + m(roomDepthMm) / 4,
+		);
+	});
+
+	return (
+		<group ref={anchor}>
+			<Html position={[0, 0, 0]} center zIndexRange={[5, 0]}>
+				{/* The arrows inside are the keyboard path; this wrapper only
+				    adds dragging for a pointer. */}
+				<div
+					onPointerDown={onPointerDown}
+					onPointerMove={onPointerMove}
+					onPointerUp={endDrag}
+					onPointerCancel={endDrag}
+					className="cursor-grab touch-none active:cursor-grabbing"
+				>
+					<ViewGizmo
+						labels={labels}
+						onLeftAction={pan(-1, 0)}
+						onRightAction={pan(1, 0)}
+						onUpAction={pan(0, 1)}
+						onDownAction={pan(0, -1)}
+					/>
+				</div>
+			</Html>
+		</group>
+	);
+}
+
 export default function PlannerScene({
 	layout,
 	finish,
@@ -1018,7 +1161,7 @@ export default function PlannerScene({
 	onMeasurePickAction,
 	pickerRef,
 	hitTestRef,
-	gizmo,
+	viewPadLabels,
 }: {
 	layout: PlannerLayout;
 	finish: FinishId;
@@ -1060,10 +1203,10 @@ export default function PlannerScene({
 	hitTestRef: React.RefObject<
 		((clientX: number, clientY: number) => string | null) | null
 	>;
-	/** A DOM overlay pinned to a point in the scene, in run millimetres.
-	 * `<Html>` keeps it pinned as the camera orbits, which a screen position
-	 * projected once could not. */
-	gizmo?: { anchorMm: [number, number, number]; node: React.ReactNode };
+	/** Copy for the floor pad that turns the room. Absent means no pad — the
+	 * quote screen draws the same scene with no controls on it. Passed as
+	 * strings because React context does not cross into the canvas. */
+	viewPadLabels?: ViewPadLabels;
 }) {
 	const catalogue = useCatalogue();
 	const engine = useEngine();
@@ -1149,18 +1292,10 @@ export default function PlannerScene({
 				view={view}
 			/>
 
-			{gizmo && (
-				<Html
-					position={[
-						m(gizmo.anchorMm[0]),
-						m(gizmo.anchorMm[1]),
-						m(gizmo.anchorMm[2]),
-					]}
-					center
-					zIndexRange={[5, 0]}
-				>
-					{gizmo.node}
-				</Html>
+			{/* Only in 3D: the flat views are axis-locked on purpose — the point
+			    of an elevation is that it stays square. */}
+			{viewPadLabels && view === "3d" && (
+				<ViewPad labels={viewPadLabels} roomDepthMm={layout.roomDepthMm} />
 			)}
 		</Canvas>
 	);

@@ -1197,6 +1197,64 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Trade places with the cabinet next to it, in one row.
+	 *
+	 * This is what an arrow press means in a packed run. Sliding by a fixed
+	 * step does nothing at all when the neighbour is flush — which in a
+	 * starter layout is nearly every cabinet — and a control that is refused
+	 * without saying so reads as broken. A swap always moves something.
+	 *
+	 * The pair keeps its own outer bounds, so a gap between the two stays the
+	 * same size and the rest of the run never shifts. Refused when the
+	 * destination is blocked by something in the other row: a wall cabinet
+	 * cannot take a place where a tall unit stands floor to ceiling.
+	 */
+	function swapWithNeighbour(
+		layout: PlannerLayout,
+		id: string,
+		direction: 1 | -1,
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (!found) return layout;
+
+		const row = positionsOf(layout, found.row);
+		const index = row.findIndex((position) => position.placed.id === id);
+		const neighbour = row[index + direction];
+		if (index === -1 || !neighbour) return layout;
+
+		const self = row[index];
+		const left = direction === 1 ? self : neighbour;
+		const right = direction === 1 ? neighbour : self;
+		const gapMm = right.xMm - (left.xMm + left.widthMm);
+
+		// Each takes the other's place against the pair's outer edges, so the
+		// gap between them survives and nothing outside the pair moves.
+		const leftToMm = left.xMm + right.widthMm + gapMm;
+		const rightToMm = left.xMm;
+
+		const spans = occupiedSpans(layout, found.row, id).filter(
+			(span) =>
+				!(
+					span.startMm === neighbour.xMm &&
+					span.endMm === neighbour.xMm + neighbour.widthMm
+				),
+		);
+		if (
+			overlapsAnything(leftToMm, left.widthMm, spans) ||
+			overlapsAnything(rightToMm, right.widthMm, spans)
+		) {
+			return layout;
+		}
+
+		return withX(
+			withX(layout, found.row, left.placed.id, leftToMm),
+			found.row,
+			right.placed.id,
+			rightToMm,
+		);
+	}
+
+	/**
 	 * The room's own starter, so no room ever opens on a blank wall — the same
 	 * rule the wardrobe configurator follows. Dropped at 0 each time, so each one
 	 * takes the leftmost gap that holds it and the run comes out packed from the
@@ -1247,6 +1305,7 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		setWidth,
 		widthOptionsFor,
 		starterFor,
+		swapWithNeighbour,
 	};
 }
 

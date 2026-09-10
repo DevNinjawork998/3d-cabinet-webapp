@@ -232,6 +232,11 @@ export const zh: Dictionary = {
 			hintDefault: "点击橱柜可更改尺寸或门板。沿墙面拖曳可移动位置。",
 		},
 		selection: {
+			hangAtThis: "此柜悬挂于",
+			swapLeft: "与左边的柜子对调",
+			swapRight: "与右边的柜子对调",
+			swapHint:
+				"方向键让它与旁边的柜子对调，整排始终保持紧凑。若要移到有空位的地方，请直接输入数值。",
 			verbResize: "改尺寸",
 			verbReplace: "更换",
 			verbMove: "移动",
@@ -276,12 +281,10 @@ export const zh: Dictionary = {
 			addCabinet: "添加柜子",
 		},
 		gizmo: {
-			left: "沿墙向左移动",
-			right: "沿墙向右移动",
-			raise: "升高此柜",
-			lower: "降低此柜",
-			vertLocked: "只有壁柜可以上下移动",
-			vertHint: "调整此柜的悬挂高度",
+			left: "视图向左平移",
+			right: "视图向右平移",
+			up: "视图向里平移",
+			down: "视图向外平移",
 		},
 		finish: {
 			heading: "整排门板颜色",

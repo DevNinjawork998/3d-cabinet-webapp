@@ -246,6 +246,11 @@ export const en = {
 				"Click a cabinet to change its size or front. Drag it along the wall to move it.",
 		},
 		selection: {
+			hangAtThis: "This one hangs at",
+			swapLeft: "Swap with the cabinet on its left",
+			swapRight: "Swap with the cabinet on its right",
+			swapHint:
+				"The arrows trade places with the cabinet beside it, so a packed run stays packed. Type a figure to put it somewhere with room.",
 			verbResize: "Resize",
 			verbReplace: "Replace",
 			verbMove: "Move",
@@ -292,12 +297,10 @@ export const en = {
 			addCabinet: "Add a cabinet",
 		},
 		gizmo: {
-			left: "Move left along the wall",
-			right: "Move right along the wall",
-			raise: "Raise this cabinet",
-			lower: "Lower this cabinet",
-			vertLocked: "Only wall cabinets move vertically",
-			vertHint: "Change this cabinet's hang height",
+			left: "Slide the view left",
+			right: "Slide the view right",
+			up: "Slide the view further in",
+			down: "Slide the view closer",
 		},
 		finish: {
 			heading: "Front finish · whole run",

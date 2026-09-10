@@ -21,7 +21,6 @@ import {
 	type PlannerLayout,
 	type Positioned,
 	rowFor,
-	SNAP_MM,
 	setDoors,
 	setHinge,
 } from "@/lib/planner/layout";
@@ -46,7 +45,6 @@ import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
 import { CabinetMenu } from "./studio/CabinetMenu";
 import { DesignRecap } from "./studio/DesignRecap";
-import { MoveGizmo } from "./studio/MoveGizmo";
 import { PriceFooter } from "./studio/PriceFooter";
 import { RoomPanel } from "./studio/RoomPanel";
 import { RunList } from "./studio/RunList";
@@ -231,6 +229,7 @@ export function StudioScreen({
 		hangingHeightMmOf,
 		minWallWidthMm,
 		overhangMm,
+		positionsOf,
 		removeModules,
 		replaceFamily,
 		rowEndMm,
@@ -238,7 +237,6 @@ export function StudioScreen({
 		moveModule,
 		setBaseSkirting,
 		setCeilingHeight,
-		floorHeightMmOf,
 		setHangAt,
 		setHangingHeight,
 		setRoomDepth,
@@ -247,6 +245,7 @@ export function StudioScreen({
 		setWallWidth,
 		setWidth,
 		starterFor,
+		swapWithNeighbour,
 		widthOptionsFor,
 	} = useEngine();
 	const room = roomTypeIn(catalogue, roomId);
@@ -310,6 +309,15 @@ export function StudioScreen({
 	const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(
 		null,
 	);
+
+	/** Whether this cabinet has anything to trade places with, each way. */
+	const neighboursOf = (position: Positioned) => {
+		const row = positionsOf(layout, rowFor(position.family.kind));
+		const index = row.findIndex(
+			(other) => other.placed.id === position.placed.id,
+		);
+		return { left: index > 0, right: index >= 0 && index < row.length - 1 };
+	};
 
 	/** The families this cabinet could become — same row, offered in this room. */
 	const replaceOptionsFor = (position: Positioned) =>
@@ -577,59 +585,6 @@ export function StudioScreen({
 		</div>
 	);
 
-	// The cabinet's own centre, in the frame `Cabinet` positions itself in: x
-	// measured from the middle of the run, y from the floor.
-	//
-	// z stays on the wall plane rather than out at the door face. `<Html>` is
-	// DOM drawn over the canvas, so depth buys no occlusion — all it does is
-	// swing the projected point sideways under a perspective camera, which
-	// left the cluster hanging off the cabinet's edge pointing at its
-	// neighbour.
-	const gizmo =
-		selected && verb === "move"
-			? {
-					anchorMm: [
-						selected.xMm + selected.widthMm / 2 - layout.wallWidthMm / 2,
-						floorHeightMmOf(selected, layout) + selected.family.heightMm / 2,
-						0,
-					] as [number, number, number],
-					node: (
-						<MoveGizmo
-							labels={t.planner.gizmo}
-							vertical={selected.family.kind === "wall"}
-							onLeftAction={() =>
-								setLayoutAction((prev) =>
-									moveModule(prev, selected.placed.id, selected.xMm - SNAP_MM),
-								)
-							}
-							onRightAction={() =>
-								setLayoutAction((prev) =>
-									moveModule(prev, selected.placed.id, selected.xMm + SNAP_MM),
-								)
-							}
-							onUpAction={() =>
-								setLayoutAction((prev) =>
-									setHangAt(
-										prev,
-										selected.placed.id,
-										(selected.placed.hangAtMm ?? prev.hangingHeightMm) + 50,
-									),
-								)
-							}
-							onDownAction={() =>
-								setLayoutAction((prev) =>
-									setHangAt(
-										prev,
-										selected.placed.id,
-										(selected.placed.hangAtMm ?? prev.hangingHeightMm) - 50,
-									),
-								)
-							}
-						/>
-					),
-				}
-			: undefined;
-
 	return (
 		<main className="flex h-screen flex-col bg-[#f4f3f1] text-neutral-900">
 			<PlannerHeader
@@ -757,7 +712,7 @@ export function StudioScreen({
 						onMeasurePickAction={onMeasurePick}
 						pickerRef={pickerRef}
 						hitTestRef={hitTestRef}
-						gizmo={gizmo}
+						viewPadLabels={t.planner.gizmo}
 					/>
 
 					{menu && (
@@ -962,6 +917,17 @@ export function StudioScreen({
 								onOffsetAction={(xMm) =>
 									setLayoutAction((prev) =>
 										moveModule(prev, selected.placed.id, xMm),
+									)
+								}
+								onSwapAction={(direction) =>
+									setLayoutAction((prev) =>
+										swapWithNeighbour(prev, selected.placed.id, direction),
+									)
+								}
+								canSwap={neighboursOf(selected)}
+								onHangAtAction={(mm) =>
+									setLayoutAction((prev) =>
+										setHangAt(prev, selected.placed.id, mm),
 									)
 								}
 								onToggleDoorAction={() =>
