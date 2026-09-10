@@ -64,10 +64,6 @@ import { Room } from "./Room";
 
 const m = (mm: number) => mm / 1000;
 
-/** How far along the camera-to-target line the pan gizmo sits. Small enough to
- * be in front of the run, large enough not to graze the near plane. */
-const GIZMO_LERP = 0.15;
-
 /**
  * The three ways to look at a run. `3d` is the selling angle; the other two
  * are the drawings a fitter actually works from, which is why the toggle
@@ -192,8 +188,64 @@ function FitCamera({
 	return null;
 }
 
+/** A hair above the floor, so the puck sits on it rather than in it. */
+const PUCK_LIFT = 0.012;
+
+/** How fast the camera closes on a released puck. Higher is snappier; this is
+ * roughly a quarter-second glide, long enough to read as travel and short
+ * enough not to feel like waiting. */
+const GLIDE_RATE = 9;
+
 /**
- * The camera's own handle: drag it and the whole view slides sideways.
+ * Where the puck rests: on the floor, directly under the point the camera is
+ * looking at.
+ *
+ * Elevation is the exception, and has to be. A straight-on drawing shows the
+ * floor edge-on as a sliver at the bottom of the frame, so a puck lying on it
+ * would be an unusable ellipse — and the pan an elevation needs is up and down
+ * the wall, which no point on the floor can express. There it rests on the
+ * plane of the run instead.
+ */
+function panAnchor(target: Vector3Type, view: PlannerView, out: Vector3) {
+	return view === "elevation"
+		? out.copy(target)
+		: out.set(target.x, PUCK_LIFT, target.z);
+}
+
+/**
+ * Which axes the puck is allowed to move the camera in, per view.
+ *
+ * 3D is deliberately sideways-only. Depth is what zoom already does, and
+ * letting the puck have it put the camera *behind the run*, looking at carcass
+ * backs: the clamp bounds the target inside the room, but the camera trails the
+ * target by a whole viewing distance, so a target against the back wall is a
+ * camera well through it. Sideways reach was the thing that was missing.
+ *
+ * The flat views get the two axes of the drawing they are — the floor is the
+ * page in plan, the wall is the page in elevation — and neither can put the
+ * camera anywhere awkward, because neither has anything behind it.
+ */
+const PAN_AXES: Record<PlannerView, { x: boolean; y: boolean; z: boolean }> = {
+	"3d": { x: true, y: false, z: false },
+	elevation: { x: true, y: true, z: false },
+	plan: { x: true, y: false, z: true },
+};
+
+/** The surface the puck slides on, which is the same choice again: the floor,
+ * or the run's own vertical plane in elevation. */
+const panPlane = (target: Vector3Type, view: PlannerView) =>
+	view === "elevation"
+		? new Plane(new Vector3(0, 0, 1), -target.z)
+		: new Plane(new Vector3(0, 1, 0), -PUCK_LIFT);
+
+/** Scratch vectors for the glide and the drag below. Allocating one per frame
+ * is how a scene starts stuttering on the phones this app targets. */
+const PUCK_WAS = new Vector3();
+const PUCK_ANCHOR = new Vector3();
+
+/**
+ * The camera's own handle: a puck on the floor. Drag it somewhere and the view
+ * travels there.
  *
  * Orbiting alone is not enough once a run outgrows the frame. You can spin
  * around a four-metre kitchen all day and never get the far end on screen,
@@ -205,13 +257,28 @@ function FitCamera({
  * discoverable on the mid-range Android this app is built for. A thing you can
  * see and press is.
  *
- * It is drawn at `controls.target` because that is literally what it moves —
- * grabbing it and dragging is grabbing the point the camera stares at. Blue,
- * to keep it apart from the green `MoveHandle` that moves a cabinet, and drawn
- * with depth testing off so a carcass standing between it and the camera
+ * **The camera holds still for the whole drag and only travels on release.**
+ * That is what lets the puck be a thing on the floor. Panning live would mean
+ * moving the point the camera looks at, and the puck marks that point — so it
+ * would be pinned to the centre of the frame and could never slide anywhere,
+ * which is precisely what the first cut got wrong. Drag the puck, let go, the
+ * view comes to it.
+ *
+ * Blue, to keep it apart from the green `MoveHandle` that moves a cabinet, and
+ * drawn with depth testing off so a carcass standing between it and the camera
  * cannot swallow the only affordance on screen.
  */
-function PanGizmo({ bounds }: { bounds: RoomBoundsMm }) {
+function PanGizmo({
+	bounds,
+	view,
+	refitKey,
+}: {
+	bounds: RoomBoundsMm;
+	view: PlannerView;
+	/** Same trigger `FitCamera` refits on. Watched here only to abandon a
+	 * journey the refit has just overruled. */
+	refitKey: number;
+}) {
 	const camera = useThree((s) => s.camera);
 	const gl = useThree((s) => s.gl);
 	const controls = useThree((s) => s.controls) as {
@@ -220,56 +287,92 @@ function PanGizmo({ bounds }: { bounds: RoomBoundsMm }) {
 		update: () => void;
 	} | null;
 	const ref = useRef<Group>(null);
-	// The plane fixed at grab time, and the world point that was grabbed.
-	// Solving against the *original* plane each move is what makes the ground
-	// stay stuck to the finger: the camera moves, so the next reading lands
-	// closer to the grab point, and the gesture converges instead of running away.
-	const drag = useRef<{ plane: Plane; grab: Vector3 } | null>(null);
+	// The surface fixed at grab time, and the offset from the pointer's hit on
+	// it to the puck's own centre — so pressing near the puck's edge slides it
+	// from where it is rather than snapping it under the cursor.
+	const drag = useRef<{ plane: Plane; grip: Vector3 } | null>(null);
+	// Where the puck is. Not React state: it changes with every pointer move
+	// and every frame of a glide, and re-rendering the scene graph that often
+	// is the mobile budget's problem rather than its solution.
+	const spot = useRef(new Vector3());
+	// Where the camera is heading, while it is heading there.
+	const glide = useRef<Vector3 | null>(null);
 	const [grabbed, setGrabbed] = useState(false);
-
-	// Ride the target, face the camera, and hold one size on screen. Written
-	// straight to the object rather than through state — this runs every frame,
-	// and re-rendering the scene graph to move one marker is the mobile budget's
-	// problem, not its solution.
-	useFrame(() => {
-		const group = ref.current;
-		if (!group || !controls) return;
-		// On the line from the camera to the target, but close to the camera.
-		// It therefore projects to the same screen point as the target — the
-		// centre of the frame, which is where it belongs — while sitting nearer
-		// than any cabinet. That is a picking fix, not a drawing one:
-		// `depthTest` keeps it *visible* through a carcass, but R3F still hands
-		// a pointer to the nearest hit, so a gizmo drawn on top of a cabinet it
-		// sat behind would look pressable and not be.
-		group.position.lerpVectors(camera.position, controls.target, GIZMO_LERP);
-		group.quaternion.copy(camera.quaternion);
-		// Scale with its own distance from the camera so it is the same size on
-		// screen zoomed in or out.
-		group.scale.setScalar(
-			(camera.position.distanceTo(controls.target) * GIZMO_LERP) / 4,
-		);
-	});
 
 	const boundsRef = useRef(bounds);
 	boundsRef.current = bounds;
+
+	// `FitCamera` re-frames on exactly these, and a glide still in flight would
+	// then drag the camera back off the framing it had just been given — a view
+	// switch a moment after letting go of the puck landed an elevation a few
+	// degrees off square, which is the one thing an elevation must not be.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: triggers, not inputs
+	useEffect(() => {
+		glide.current = null;
+	}, [view, refitKey]);
+
+	useFrame((_, delta) => {
+		if (!controls) return;
+
+		const goal = glide.current;
+		if (goal) {
+			// Exponential ease, framerate-independent. The camera moves by
+			// whatever the target actually moved, so the viewing angle and the
+			// distance come through the journey untouched.
+			PUCK_WAS.copy(controls.target);
+			controls.target.lerp(goal, Math.min(1, delta * GLIDE_RATE));
+			camera.position.add(controls.target).sub(PUCK_WAS);
+			controls.update();
+			if (controls.target.distanceToSquared(goal) < 1e-6) {
+				controls.target.copy(goal);
+				glide.current = null;
+			}
+		}
+
+		const group = ref.current;
+		if (!group) return;
+		// The puck owns its position while a drag or a glide is in flight; the
+		// rest of the time it is wherever the camera is looking. That is what
+		// re-centres it after an orbit or a zoom without any bookkeeping.
+		if (!drag.current && !glide.current) {
+			panAnchor(controls.target, view, spot.current);
+		}
+		group.position.copy(spot.current);
+		// Scale with distance so it is the same size on screen zoomed in or out.
+		group.scale.setScalar(camera.position.distanceTo(spot.current) / 4);
+	});
 
 	const release = useCallback(() => {
 		if (!drag.current) return;
 		drag.current = null;
 		setGrabbed(false);
-		if (controls) controls.enabled = true;
-	}, [controls]);
+		if (!controls) return;
+		controls.enabled = true;
+		// Only the axes this view hands over; the target keeps its own value in
+		// the rest. That is what makes a floor drag a *sideways* pan rather than
+		// a camera that dives at the floor every time it moves.
+		const axes = PAN_AXES[view];
+		const target = controls.target;
+		const clamped = clampPanTarget(
+			{
+				x: (axes.x ? spot.current.x : target.x) * 1000,
+				y: (axes.y ? spot.current.y : target.y) * 1000,
+				z: (axes.z ? spot.current.z : target.z) * 1000,
+			},
+			boundsRef.current,
+		);
+		glide.current = new Vector3(m(clamped.x), m(clamped.y), m(clamped.z));
+	}, [controls, view]);
 
 	useEffect(() => {
 		const el = gl.domElement;
 		const raycaster = new Raycaster();
 		const ndc = new Vector2();
 		const hit = new Vector3();
-		const moved = new Vector3();
 
 		const onMove = (event: PointerEvent) => {
 			const current = drag.current;
-			if (!current || !controls) return;
+			if (!current) return;
 			const rect = el.getBoundingClientRect();
 			ndc.set(
 				((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -277,56 +380,68 @@ function PanGizmo({ bounds }: { bounds: RoomBoundsMm }) {
 			);
 			raycaster.setFromCamera(ndc, camera);
 			if (!raycaster.ray.intersectPlane(current.plane, hit)) return;
-
-			// Where the target wants to go, then the nearest place it is allowed.
-			moved.copy(controls.target).add(current.grab).sub(hit);
+			hit.add(current.grip);
+			// Masked and clamped as it slides, not on release: a puck that can be
+			// dragged somewhere the camera will not follow is a promise the
+			// release breaks.
+			if (!controls) return;
+			const axes = PAN_AXES[view];
+			panAnchor(controls.target, view, PUCK_ANCHOR);
 			const clamped = clampPanTarget(
-				{ x: moved.x * 1000, y: moved.y * 1000, z: moved.z * 1000 },
+				{
+					x: (axes.x ? hit.x : PUCK_ANCHOR.x) * 1000,
+					y: (axes.y ? hit.y : PUCK_ANCHOR.y) * 1000,
+					z: (axes.z ? hit.z : PUCK_ANCHOR.z) * 1000,
+				},
 				boundsRef.current,
 			);
-			moved.set(m(clamped.x), m(clamped.y), m(clamped.z));
-			// The camera moves by whatever the target actually moved, so the
-			// angle and the distance survive a clamp and it reads as running out
-			// of room rather than as a lurch.
-			camera.position.add(moved).sub(controls.target);
-			controls.target.copy(moved);
-			controls.update();
+			spot.current.set(m(clamped.x), m(clamped.y), m(clamped.z));
 		};
 
 		window.addEventListener("pointermove", onMove);
 		window.addEventListener("pointerup", release);
 		window.addEventListener("pointercancel", release);
+		// The belt to that braces: whatever takes the capture away — another
+		// element grabbing it, the tab hiding — ends the drag.
+		el.addEventListener("lostpointercapture", release);
 		return () => {
 			window.removeEventListener("pointermove", onMove);
 			window.removeEventListener("pointerup", release);
 			window.removeEventListener("pointercancel", release);
+			el.removeEventListener("lostpointercapture", release);
 			// A gesture can end with this unmounting mid-drag. Orbiting has to
 			// come back either way.
 			if (controls) controls.enabled = true;
 		};
-	}, [camera, gl, controls, release]);
+	}, [camera, gl, controls, view, release]);
 
 	const grab = (e: ThreeEvent<PointerEvent>) => {
 		e.stopPropagation();
 		if (!controls) return;
+		// Capture the pointer, and stop the browser from starting a drag of its
+		// own. Without this the press can turn into an HTML5 drag — the palette
+		// next to the canvas uses one, so the machinery is right there — and a
+		// native drag delivers `dragend`, never `pointerup`. The release below
+		// then never runs: orbiting stays switched off, the drag stays open, and
+		// every later pointer move anywhere on the page keeps sliding the puck.
+		// It looked like elevation "not panning"; it was one lost pointerup.
+		e.nativeEvent.preventDefault();
+		gl.domElement.setPointerCapture(e.nativeEvent.pointerId);
 		// Synchronously, not from an effect: a frame later and OrbitControls has
-		// already claimed the pointer, so the camera spins instead of sliding —
-		// the same lesson `Run` records for the cabinet drag.
+		// already claimed the pointer, so the camera spins instead of the puck
+		// sliding — the same lesson `Run` records for the cabinet drag.
 		controls.enabled = false;
-		// Through the *target*, not through the gizmo. The plane sets the pan
-		// rate: solved at the gizmo's own distance the scene would crawl at a
-		// seventh of the finger, because the gizmo is deliberately near the
-		// camera. At the target the run tracks the finger one-to-one.
-		const plane = new Plane().setFromNormalAndCoplanarPoint(
-			camera.getWorldDirection(new Vector3()),
-			controls.target.clone(),
-		);
+		// Grabbing it again mid-journey takes it over rather than fighting it.
+		glide.current = null;
+		const plane = panPlane(controls.target, view);
 		const hit = new Vector3();
 		if (!e.ray.intersectPlane(plane, hit)) {
 			controls.enabled = true;
 			return;
 		}
-		drag.current = { plane, grab: hit };
+		// Allocated per grab, not per frame — a gesture starts far less often
+		// than sixty times a second.
+		drag.current = { plane, grip: new Vector3().subVectors(spot.current, hit) };
 		setGrabbed(true);
 	};
 
@@ -342,7 +457,12 @@ function PanGizmo({ bounds }: { bounds: RoomBoundsMm }) {
 	 * underneath it.
 	 */
 	return (
-		<group ref={ref} onPointerDown={grab}>
+		<group
+			ref={ref}
+			onPointerDown={grab}
+			// Lying on the floor, except in elevation, where it faces the room.
+			rotation={view === "elevation" ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
+		>
 			<mesh renderOrder={20}>
 				<circleGeometry args={[0.115, 32]} />
 				<meshBasicMaterial
@@ -1511,8 +1631,15 @@ export default function PlannerScene({
 			    an elevation is that it stays square, and one stray drag that
 			    left it at a slight angle would make it useless for eyeballing
 			    whether a run clears a window. Zoom stays on. */}
+			{/* Damping off. drei turns it on by default — three's own default is
+			    off — and nobody here chose it. It keeps the camera coasting after
+			    the finger has gone, which fights a gizmo whose whole promise is
+			    "travel to exactly where I put this", lets a zoom drift an
+			    elevation off square, and spends frames after every gesture on a
+			    phone that has none to spare. */}
 			<OrbitControls
 				makeDefault
+				enableDamping={false}
 				enablePan={false}
 				enableRotate={view === "3d"}
 				maxPolarAngle={Math.PI / 2 - 0.05}
@@ -1523,6 +1650,8 @@ export default function PlannerScene({
 					roomDepthMm: layout.roomDepthMm,
 					ceilingHeightMm: layout.ceilingHeightMm,
 				}}
+				view={view}
+				refitKey={refitKey}
 			/>
 			<FitCamera
 				runWidthMm={Math.max(runWidthMm, engine.rowEndMm(layout, "floor"))}
