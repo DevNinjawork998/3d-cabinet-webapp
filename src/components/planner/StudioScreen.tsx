@@ -21,6 +21,7 @@ import {
 	type PlannerLayout,
 	type Positioned,
 	rowFor,
+	SNAP_MM,
 	setDoors,
 	setHinge,
 } from "@/lib/planner/layout";
@@ -45,6 +46,7 @@ import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
 import { CabinetMenu } from "./studio/CabinetMenu";
 import { DesignRecap } from "./studio/DesignRecap";
+import { MoveGizmo } from "./studio/MoveGizmo";
 import { PriceFooter } from "./studio/PriceFooter";
 import { RoomPanel } from "./studio/RoomPanel";
 import { SelectionPanel, type SelectionVerb } from "./studio/SelectionPanel";
@@ -235,6 +237,8 @@ export function StudioScreen({
 		moveModule,
 		setBaseSkirting,
 		setCeilingHeight,
+		floorHeightMmOf,
+		setHangAt,
 		setHangingHeight,
 		setRoomDepth,
 		setWallToCeiling,
@@ -572,6 +576,59 @@ export function StudioScreen({
 		</div>
 	);
 
+	// The cabinet's own centre, in the frame `Cabinet` positions itself in: x
+	// measured from the middle of the run, y from the floor.
+	//
+	// z stays on the wall plane rather than out at the door face. `<Html>` is
+	// DOM drawn over the canvas, so depth buys no occlusion — all it does is
+	// swing the projected point sideways under a perspective camera, which
+	// left the cluster hanging off the cabinet's edge pointing at its
+	// neighbour.
+	const gizmo =
+		selected && verb === "move"
+			? {
+					anchorMm: [
+						selected.xMm + selected.widthMm / 2 - layout.wallWidthMm / 2,
+						floorHeightMmOf(selected, layout) + selected.family.heightMm / 2,
+						0,
+					] as [number, number, number],
+					node: (
+						<MoveGizmo
+							labels={t.planner.gizmo}
+							vertical={selected.family.kind === "wall"}
+							onLeftAction={() =>
+								setLayoutAction((prev) =>
+									moveModule(prev, selected.placed.id, selected.xMm - SNAP_MM),
+								)
+							}
+							onRightAction={() =>
+								setLayoutAction((prev) =>
+									moveModule(prev, selected.placed.id, selected.xMm + SNAP_MM),
+								)
+							}
+							onUpAction={() =>
+								setLayoutAction((prev) =>
+									setHangAt(
+										prev,
+										selected.placed.id,
+										(selected.placed.hangAtMm ?? prev.hangingHeightMm) + 50,
+									),
+								)
+							}
+							onDownAction={() =>
+								setLayoutAction((prev) =>
+									setHangAt(
+										prev,
+										selected.placed.id,
+										(selected.placed.hangAtMm ?? prev.hangingHeightMm) - 50,
+									),
+								)
+							}
+						/>
+					),
+				}
+			: undefined;
+
 	return (
 		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
 			<PlannerHeader
@@ -699,6 +756,7 @@ export function StudioScreen({
 						onMeasurePickAction={onMeasurePick}
 						pickerRef={pickerRef}
 						hitTestRef={hitTestRef}
+						gizmo={gizmo}
 					/>
 
 					{menu && (

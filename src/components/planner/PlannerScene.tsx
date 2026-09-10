@@ -1,6 +1,6 @@
 "use client";
 
-import { OrbitControls, Shadow } from "@react-three/drei";
+import { Html, OrbitControls, Shadow } from "@react-three/drei";
 import {
 	Canvas,
 	type ThreeEvent,
@@ -1018,6 +1018,7 @@ export default function PlannerScene({
 	onMeasurePickAction,
 	pickerRef,
 	hitTestRef,
+	gizmo,
 }: {
 	layout: PlannerLayout;
 	finish: FinishId;
@@ -1059,6 +1060,10 @@ export default function PlannerScene({
 	hitTestRef: React.RefObject<
 		((clientX: number, clientY: number) => string | null) | null
 	>;
+	/** A DOM overlay pinned to a point in the scene, in run millimetres.
+	 * `<Html>` keeps it pinned as the camera orbits, which a screen position
+	 * projected once could not. */
+	gizmo?: { anchorMm: [number, number, number]; node: React.ReactNode };
 }) {
 	const catalogue = useCatalogue();
 	const engine = useEngine();
@@ -1143,6 +1148,20 @@ export default function PlannerScene({
 				ceilingHeightMm={layout.ceilingHeightMm}
 				view={view}
 			/>
+
+			{gizmo && (
+				<Html
+					position={[
+						m(gizmo.anchorMm[0]),
+						m(gizmo.anchorMm[1]),
+						m(gizmo.anchorMm[2]),
+					]}
+					center
+					zIndexRange={[5, 0]}
+				>
+					{gizmo.node}
+				</Html>
+			)}
 		</Canvas>
 	);
 }
