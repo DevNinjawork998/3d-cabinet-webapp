@@ -452,7 +452,9 @@ export function DesignedCabinet({
 	}, [groups]);
 
 	const emphasis = highlighted ? 0.6 : selected ? 0.35 : 0;
-	const emissive = highlighted ? "#15803d" : "#2b6cb0";
+	// See `Cabinet.tsx`: both tones are green now, and the hover has to stay
+	// the lighter of the two.
+	const emissive = highlighted ? "#2f7d54" : "#1f5138";
 
 	let leafIndex = 0;
 

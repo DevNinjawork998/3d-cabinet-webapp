@@ -9,7 +9,7 @@ import {
 
 const m = (mm: number) => mm / 1000;
 
-const MARKER_COLOR = "#2b6cb0";
+const MARKER_COLOR = "#1f5138";
 const PREVIEW_COLOR = "#d97706";
 
 /**

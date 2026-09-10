@@ -630,7 +630,7 @@ export function StudioScreen({
 			: undefined;
 
 	return (
-		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
+		<main className="flex h-screen flex-col bg-[#f4f3f1] text-neutral-900">
 			<PlannerHeader
 				trail={[
 					{ label: t.common.brand, href: "/" },
@@ -707,7 +707,7 @@ export function StudioScreen({
 				    target is the 3D canvas; the palette buttons are the keyboard
 				    path. */}
 				<div
-					className="relative min-h-[45vh] flex-1"
+					className="relative min-h-[45vh] flex-1 bg-[#faf9f7]"
 					onDragOver={(e) => {
 						e.preventDefault();
 						e.dataTransfer.dropEffect = "copy";
@@ -864,7 +864,7 @@ export function StudioScreen({
 									<button
 										type="button"
 										onClick={() => setMeasurePoints([])}
-										className="text-[12px] text-[#2b6cb0] hover:underline"
+										className="text-[12px] text-[#1f5138] hover:underline"
 									>
 										{t.planner.clear}
 									</button>
@@ -1005,7 +1005,7 @@ export function StudioScreen({
 							/>
 						) : (
 							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
+								<p className="font-semibold text-[11px] text-[#1f5138] uppercase tracking-[0.06em]">
 									{fill(t.planner.selection.nSelected, { n: selection.length })}
 								</p>
 								<div className="mt-3 flex flex-col gap-2.5">
