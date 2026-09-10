@@ -55,6 +55,7 @@ import { useCatalogue, useEngine } from "./CatalogueContext";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
+import { PositionDimensions } from "./PositionDimensions";
 import { Room } from "./Room";
 
 const m = (mm: number) => mm / 1000;
@@ -441,6 +442,22 @@ function Run({
 	layoutRef.current = layout;
 	const runWidthMm = layout.wallWidthMm;
 
+	/** Take hold of a cabinet. The grab offset is what stops it snapping its
+	 *  left edge to the pointer — see `dragRef`. */
+	const beginDrag = (
+		e: ThreeEvent<PointerEvent>,
+		position: Positioned,
+		planeZ: number,
+	) => {
+		dragRef.current = {
+			id: position.placed.id,
+			grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
+			planeZ,
+		};
+		setDragging(true);
+		if (controls) controls.enabled = false;
+	};
+
 	const endDrag = useCallback(() => {
 		const drag = dragRef.current;
 		if (!drag) return;
@@ -638,19 +655,105 @@ function Run({
 						}
 						// The group is on the wall plane, so the cabinet's own centre
 						// plane is half its depth in front of it.
-						const planeZ =
+						beginDrag(
+							e,
+							position,
 							-m(layout.roomDepthMm) / 2 +
-							m(WALL_GAP_MM) +
-							m(position.family.depthMm) / 2;
-						dragRef.current = {
-							id: position.placed.id,
-							grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
-							planeZ,
-						};
-						setDragging(true);
-						if (controls) controls.enabled = false;
+								m(WALL_GAP_MM) +
+								m(position.family.depthMm) / 2,
+						);
 					}}
 				/>
+			))}
+
+			{/* Only for a lone selection: four handles over a multi-selection
+			    would each claim to move "the" cabinet. */}
+			{selectedIds.size === 1 &&
+				allPositions(layout)
+					.filter((position) => selectedIds.has(position.placed.id))
+					.map((position) => (
+						<MoveHandle
+							key={position.placed.id}
+							position={position}
+							runWidthMm={runWidthMm}
+							roomDepthMm={layout.roomDepthMm}
+							onGrab={(e, planeZ) => {
+								e.stopPropagation();
+								if (measureMode) return;
+								beginDrag(e, position, planeZ);
+							}}
+						/>
+					))}
+		</group>
+	);
+}
+
+/**
+ * The move handle on the floor under the selected cabinet.
+ *
+ * Dragging the cabinet itself already works, but nothing on screen says so —
+ * this is the affordance, sitting in front of the carcass where it cannot be
+ * confused with the door you are about to open. Pressing it starts exactly
+ * the same drag the carcass starts, so it inherits the live movement, the
+ * neighbour clamping and the snap on release for free.
+ *
+ * Drawn as geometry rather than a DOM overlay on purpose: an HTML element
+ * would capture the pointer and the scene would stop receiving the moves that
+ * drive the drag.
+ */
+function MoveHandle({
+	position,
+	runWidthMm,
+	roomDepthMm,
+	onGrab,
+}: {
+	position: Positioned;
+	runWidthMm: number;
+	roomDepthMm: number;
+	onGrab: (e: ThreeEvent<PointerEvent>, planeZ: number) => void;
+}) {
+	const centreX = m(position.xMm + position.widthMm / 2 - runWidthMm / 2);
+	// Two different frames, and mixing them is the bug this comment exists to
+	// stop: the handle is drawn inside the run's group, which already sits on
+	// the wall plane, so its own position is measured from there — but the
+	// drag reads a world ray, so the plane it solves against is a world z.
+	const planeZ =
+		-m(roomDepthMm) / 2 + m(WALL_GAP_MM) + m(position.family.depthMm) / 2;
+	// Just in front of the carcass, flat on the floor.
+	const localZ = m(position.family.depthMm) + 0.16;
+
+	return (
+		<group
+			position={[centreX, 0.012, localZ]}
+			rotation={[-Math.PI / 2, 0, 0]}
+			onPointerDown={(e) => onGrab(e, planeZ)}
+		>
+			<mesh>
+				<circleGeometry args={[0.115, 32]} />
+				<meshBasicMaterial color="#ffffff" transparent opacity={0.95} />
+			</mesh>
+			<mesh position={[0, 0, 0.001]}>
+				<ringGeometry args={[0.105, 0.115, 32]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			{/* Two bars and four heads: the ✥ that says "drag me along". */}
+			<mesh position={[0, 0, 0.002]}>
+				<planeGeometry args={[0.13, 0.014]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			<mesh position={[0, 0, 0.002]}>
+				<planeGeometry args={[0.014, 0.13]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			{[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle) => (
+				<mesh
+					key={angle}
+					position={[Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.002]}
+					rotation={[0, 0, angle - Math.PI / 2]}
+				>
+					<circleGeometry args={[0.022, 3]} />
+					<meshBasicMaterial color="#1f5138" />
+				</mesh>
 			))}
 		</group>
 	);
@@ -723,7 +826,7 @@ function ContactShadows({
 	runWidthMm: number;
 	engine: PlannerEngine;
 }) {
-	const { positionsOf, hangingHeightMmOf } = engine;
+	const { positionsOf, floorHeightMmOf } = engine;
 	return (
 		<>
 			{positionsOf(layout, "floor").map((position) => (
@@ -753,7 +856,9 @@ function ContactShadows({
 					key={position.placed.id}
 					position={[
 						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
-						m(hangingHeightMmOf(layout) + position.family.heightMm / 2) - 0.06,
+						m(
+							floorHeightMmOf(position, layout) + position.family.heightMm / 2,
+						) - 0.06,
 						0.002,
 					]}
 					scale={[
@@ -1019,6 +1124,7 @@ export default function PlannerScene({
 	measureMode = false,
 	measurePoints = [],
 	measureAxis = "auto",
+	positionMode = false,
 	view = "3d",
 	onLayoutChangeAction,
 	onSelectAction,
@@ -1056,6 +1162,9 @@ export default function PlannerScene({
 	/** Which axis the second pick is constrained to. Defaults to `auto`, which
 	 * is what makes a roughly-vertical pick read as a clean height. */
 	measureAxis?: MeasureAxis;
+	/** Whether the Position verb is open. The offset callouts are that panel's
+	 * readout, so they come up with it and not on plain selection. */
+	positionMode?: boolean;
 	onLayoutChangeAction: (next: PlannerLayout) => void;
 	onSelectAction: (id: string | null, additive: boolean) => void;
 	onMeasurePickAction?: (snap: SnapPoint) => void;
@@ -1080,6 +1189,18 @@ export default function PlannerScene({
 	// a fresh measurement, which has nothing to constrain against.
 	const measureAnchor =
 		measurePoints.length === 1 ? measurePoints[0].point : null;
+
+	// Where the one selected cabinet sits. Only ever one: two selected cabinets
+	// have two sets of gaps and the lines would cross each other's labels, and
+	// the measuring tool owns the screen while it is up.
+	const lonelyId =
+		positionMode && selectedIds.size === 1 && !measureMode
+			? [...selectedIds][0]
+			: null;
+	const positioned = lonelyId
+		? engine.allPositions(layout).find((p) => p.placed.id === lonelyId)
+		: undefined;
+	const offsets = lonelyId ? engine.offsetsOf(layout, lonelyId) : null;
 
 	return (
 		<Canvas
@@ -1129,6 +1250,14 @@ export default function PlannerScene({
 				points={measurePoints}
 				previewPoint={measureMode ? hoverPoint : null}
 			/>
+			{positioned && offsets && (
+				<PositionDimensions
+					position={positioned}
+					offsets={offsets}
+					layout={layout}
+					engine={engine}
+				/>
+			)}
 
 			<DropPicker runWidthMm={runWidthMm} pickerRef={pickerRef} />
 			<CabinetHitTest hitTestRef={hitTestRef} />

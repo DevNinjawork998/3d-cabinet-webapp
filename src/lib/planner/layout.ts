@@ -60,6 +60,17 @@ type PlacedModule = {
 	hinge: HingeSide;
 	/** Left edge of the carcass, from the left end of the run. */
 	xMm: number;
+	/**
+	 * This one cabinet's underside height, when the customer has raised or
+	 * lowered it away from the row. Absent means "hangs with the row", which
+	 * is what every wall unit does until somebody drags its arrow — a real
+	 * override and an unset one have to stay distinguishable, so this is
+	 * optional rather than defaulted to the row's height.
+	 *
+	 * Ignored in ceiling mode: lining the tops up is the whole point of that
+	 * mode, and it wins.
+	 */
+	hangAtMm?: number;
 };
 
 /** The stile a door hangs on. Left is what the scene has always drawn — a lone
@@ -697,6 +708,37 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Raise or lower one wall cabinet out of the row. `null` puts it back.
+	 *
+	 * Clamped to the same range the hang slider allows, so a cabinet can never
+	 * be nudged somewhere the slider could not have put the whole row — the
+	 * gizmo is a shortcut, not a second set of rules.
+	 */
+	function setHangAt(
+		layout: PlannerLayout,
+		id: string,
+		hangAtMm: number | null,
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (found?.row !== "wall") return layout;
+
+		const next = { ...found.placed };
+		if (hangAtMm === null) {
+			delete next.hangAtMm;
+		} else {
+			next.hangAtMm = Math.max(
+				WALL_HANG_LIMITS.minMm,
+				Math.min(WALL_HANG_LIMITS.maxMm, Math.round(hangAtMm)),
+			);
+		}
+
+		return {
+			...layout,
+			wall: layout.wall.map((module) => (module.id === id ? next : module)),
+		};
+	}
+
+	/**
 	 * Switch the wall row between hanging at a set height and running to the
 	 * ceiling. `hangingHeightMm` is deliberately left alone: this is a mode, not
 	 * an edit, and a customer who flips it on to look at it must get their own
@@ -867,9 +909,11 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		position: Positioned,
 		layout: PlannerLayout,
 	): number {
-		return position.family.kind === "wall"
-			? hangingHeightMmOf(layout)
-			: position.family.floorHeightMm;
+		if (position.family.kind !== "wall") return position.family.floorHeightMm;
+		// Ceiling mode aligns the tops, so a per-cabinet figure has nothing to
+		// say there.
+		if (layout.wallToCeiling) return hangingHeightMmOf(layout);
+		return position.placed.hangAtMm ?? layout.hangingHeightMm;
 	}
 
 	/**
@@ -1108,6 +1152,109 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
+	 * Swap what a cabinet *is* without moving it.
+	 *
+	 * The left edge is the thing the customer is not asking to change, so it
+	 * stays and the new family takes the nearest width its own ladder offers.
+	 * Refused rather than half-applied when the neighbours leave no room —
+	 * same rule as `setWidth`, for the same reason: a swap that silently slid
+	 * the run would move cabinets the customer never touched.
+	 *
+	 * A swap across rows is refused too. The rows are separate arrays and a
+	 * wall cabinet standing where a base unit stood is not a resize, it is a
+	 * different design decision — remove and add is the honest path for that.
+	 */
+	function replaceFamily(
+		layout: PlannerLayout,
+		id: string,
+		familyId: string,
+	): PlannerLayout {
+		const found = find(layout, id);
+		const family = familyIn(catalogue, familyId);
+		if (!found || !family) return layout;
+		if (family.id === found.placed.familyId) return layout;
+		if (rowFor(family.kind) !== found.row) return layout;
+
+		const widthMm = family.sizes.reduce(
+			(best, size) =>
+				Math.abs(size.widthMm - found.placed.widthMm) <
+				Math.abs(best - found.placed.widthMm)
+					? size.widthMm
+					: best,
+			family.sizes[0].widthMm,
+		);
+
+		const spans = occupiedSpans(layout, found.row, id);
+		if (found.placed.xMm + widthMm > layout.wallWidthMm) return layout;
+		if (overlapsAnything(found.placed.xMm, widthMm, spans)) return layout;
+
+		return {
+			...layout,
+			[found.row]: layout[found.row].map((module) =>
+				module.id === id ? { ...module, familyId, widthMm } : module,
+			),
+		};
+	}
+
+	/**
+	 * Trade places with the cabinet next to it, in one row.
+	 *
+	 * This is what an arrow press means in a packed run. Sliding by a fixed
+	 * step does nothing at all when the neighbour is flush — which in a
+	 * starter layout is nearly every cabinet — and a control that is refused
+	 * without saying so reads as broken. A swap always moves something.
+	 *
+	 * The pair keeps its own outer bounds, so a gap between the two stays the
+	 * same size and the rest of the run never shifts. Refused when the
+	 * destination is blocked by something in the other row: a wall cabinet
+	 * cannot take a place where a tall unit stands floor to ceiling.
+	 */
+	function swapWithNeighbour(
+		layout: PlannerLayout,
+		id: string,
+		direction: 1 | -1,
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (!found) return layout;
+
+		const row = positionsOf(layout, found.row);
+		const index = row.findIndex((position) => position.placed.id === id);
+		const neighbour = row[index + direction];
+		if (index === -1 || !neighbour) return layout;
+
+		const self = row[index];
+		const left = direction === 1 ? self : neighbour;
+		const right = direction === 1 ? neighbour : self;
+		const gapMm = right.xMm - (left.xMm + left.widthMm);
+
+		// Each takes the other's place against the pair's outer edges, so the
+		// gap between them survives and nothing outside the pair moves.
+		const leftToMm = left.xMm + right.widthMm + gapMm;
+		const rightToMm = left.xMm;
+
+		const spans = occupiedSpans(layout, found.row, id).filter(
+			(span) =>
+				!(
+					span.startMm === neighbour.xMm &&
+					span.endMm === neighbour.xMm + neighbour.widthMm
+				),
+		);
+		if (
+			overlapsAnything(leftToMm, left.widthMm, spans) ||
+			overlapsAnything(rightToMm, right.widthMm, spans)
+		) {
+			return layout;
+		}
+
+		return withX(
+			withX(layout, found.row, left.placed.id, leftToMm),
+			found.row,
+			right.placed.id,
+			rightToMm,
+		);
+	}
+
+	/**
 	 * The room's own starter, so no room ever opens on a blank wall — the same
 	 * rule the wardrobe configurator follows. Dropped at 0 each time, so each one
 	 * takes the leftmost gap that holds it and the run comes out packed from the
@@ -1135,6 +1282,7 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		addModule,
 		removeModules,
 		removeModule,
+		replaceFamily,
 		duplicateModule,
 		setHangingHeight,
 		setWallToCeiling,
@@ -1150,12 +1298,14 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		setWallWidth,
 		setRoomDepth,
 		setCeilingHeight,
+		setHangAt,
 		overhangMm,
 		overhangingIds,
 		closeGaps,
 		setWidth,
 		widthOptionsFor,
 		starterFor,
+		swapWithNeighbour,
 	};
 }
 

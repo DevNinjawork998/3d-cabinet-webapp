@@ -233,11 +233,14 @@ export function Cabinet({
 	// is the colour the sidebar warning already uses, so the two read as one
 	// message rather than two unrelated signals.
 	const emphasis = overhanging ? 0.55 : highlighted ? 0.6 : selected ? 0.35 : 0;
+	// Green, matching the panels' accent. The highlighted tone has to stay
+	// clearly lighter than the selected one now that both are green, or the
+	// measure hover becomes invisible on an already-selected cabinet.
 	const emissive = overhanging
 		? "#b45309"
 		: highlighted
-			? "#15803d"
-			: "#2b6cb0";
+			? "#2f7d54"
+			: "#1f5138";
 
 	// Same trick the doors use: a fraction derived from where the cabinet sits,
 	// so two end panels in one room are cut from different parts of the sheet

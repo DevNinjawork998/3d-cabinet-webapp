@@ -43,9 +43,11 @@ const {
 	positionsOf,
 	removeModule,
 	removeModules,
+	replaceFamily,
 	runExtentMm,
 	setBaseSkirting,
 	setCeilingHeight,
+	setHangAt,
 	setHangingHeight,
 	setRoomDepth,
 	setWallToCeiling,
@@ -54,6 +56,7 @@ const {
 	setWidth,
 	skirtingSpans,
 	starterFor,
+	swapWithNeighbour,
 	widthOptionsFor,
 } = plannerEngine(PLANNER_CATALOGUE);
 
@@ -1034,5 +1037,141 @@ describe("the engine is bound to the catalogue it was given", () => {
 		});
 		expect(a.fits(emptyLayout(4000), "base-cabinet")).toBe(true);
 		expect(b.fits(emptyLayout(4000), "base-cabinet")).toBe(false);
+	});
+});
+
+describe("replaceFamily", () => {
+	it("swaps the family and keeps the left edge", () => {
+		const placed = addModule(layout, "base-cabinet", 600, "a", 600);
+		const next = replaceFamily(placed, "a", "base-drawers");
+		const module = next.floor.find((m) => m.id === "a");
+		expect(module?.familyId).toBe("base-drawers");
+		expect(module?.xMm).toBe(600);
+	});
+
+	it("lands on the nearest rung of the new ladder", () => {
+		// base-cabinet has a 300 rung; base-drawers starts at 400.
+		const placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		const next = replaceFamily(placed, "a", "base-drawers");
+		expect(next.floor.find((m) => m.id === "a")?.widthMm).toBe(400);
+	});
+
+	it("refuses a swap the neighbours leave no room for", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 300);
+		// The nearest drawer rung is 400, which would run into "b".
+		expect(replaceFamily(placed, "a", "base-drawers")).toBe(placed);
+	});
+
+	it("refuses a swap that would change row", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		expect(replaceFamily(placed, "a", "wall-cabinet")).toBe(placed);
+	});
+
+	it("keeps the door and the hinge", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		placed = setDoor(placed, "a", "shaker");
+		placed = setHinge(placed, "a", "right");
+		const next = replaceFamily(placed, "a", "base-drawers");
+		const module = next.floor.find((m) => m.id === "a");
+		expect(module?.doorStyleId).toBe("shaker");
+		expect(module?.hinge).toBe("right");
+	});
+
+	it("leaves an unknown family or id alone", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		expect(replaceFamily(placed, "a", "nope")).toBe(placed);
+		expect(replaceFamily(placed, "nope", "base-drawers")).toBe(placed);
+	});
+});
+
+describe("setHangAt", () => {
+	const hung = () => addModule(layout, "wall-cabinet", 0, "w", 600);
+
+	it("raises one wall cabinet without moving the row", () => {
+		const placed = addModule(hung(), "wall-cabinet", 600, "w2", 600);
+		const next = setHangAt(placed, "w", 1600);
+		const [a, b] = positionsOf(next, "wall");
+		expect(floorHeightMmOf(a, next)).toBe(1600);
+		expect(floorHeightMmOf(b, next)).toBe(next.hangingHeightMm);
+	});
+
+	it("clamps to the hang limits", () => {
+		expect(setHangAt(hung(), "w", 100).wall[0].hangAtMm).toBe(
+			WALL_HANG_LIMITS.minMm,
+		);
+		expect(setHangAt(hung(), "w", 9000).wall[0].hangAtMm).toBe(
+			WALL_HANG_LIMITS.maxMm,
+		);
+	});
+
+	it("ignores a floor unit — only the hung row moves vertically", () => {
+		const placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		expect(setHangAt(placed, "b", 1600)).toBe(placed);
+	});
+
+	it("is overridden by ceiling mode, which lines every top up", () => {
+		const raised = setWallToCeiling(setHangAt(hung(), "w", 1250), true);
+		const [only] = positionsOf(raised, "wall");
+		expect(floorHeightMmOf(only, raised)).toBe(hangingHeightMmOf(raised));
+	});
+
+	it("is dropped by passing null, so the unit rejoins the row", () => {
+		const reset = setHangAt(setHangAt(hung(), "w", 1600), "w", null);
+		const [only] = positionsOf(reset, "wall");
+		expect(reset.wall[0].hangAtMm).toBeUndefined();
+		expect(floorHeightMmOf(only, reset)).toBe(reset.hangingHeightMm);
+	});
+});
+
+describe("swapWithNeighbour", () => {
+	it("trades places with the cabinet to its right, keeping the pair's span", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		const next = swapWithNeighbour(placed, "a", 1);
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(900);
+		expectNoOverlaps(next);
+	});
+
+	it("trades places with the cabinet to its left", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		const next = swapWithNeighbour(placed, "b", -1);
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(900);
+	});
+
+	it("leaves the run alone at the end of the row", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 300, "b", 900);
+		expect(swapWithNeighbour(placed, "a", -1)).toBe(placed);
+		expect(swapWithNeighbour(placed, "b", 1)).toBe(placed);
+	});
+
+	it("only ever swaps within one row", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 600);
+		placed = addModule(placed, "wall-cabinet", 0, "w", 600);
+		// The wall cabinet is the floor cabinet's neighbour in neither direction.
+		expect(swapWithNeighbour(placed, "a", 1)).toBe(placed);
+		expect(swapWithNeighbour(placed, "w", 1)).toBe(placed);
+	});
+
+	it("keeps a gap between the two rather than closing it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 300);
+		placed = addModule(placed, "base-cabinet", 900, "b", 600);
+		const next = swapWithNeighbour(placed, "a", 1);
+		// The pair still spans 0..1500 and neither has grown into the gap.
+		expect(at(next, "b")).toBe(0);
+		expect(at(next, "a")).toBe(1200);
+		expectNoOverlaps(next);
+	});
+
+	it("refuses a swap that would put a wall unit over a tall one", () => {
+		let placed = addModule(layout, "wall-cabinet", 0, "w1", 400);
+		placed = addModule(placed, "wall-cabinet", 400, "w2", 900);
+		// A tall unit under w2's stretch: w1 cannot take that place.
+		placed = addModule(placed, "tall-cabinet", 800, "t", 600);
+		expect(swapWithNeighbour(placed, "w1", 1)).toBe(placed);
 	});
 });

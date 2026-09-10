@@ -121,6 +121,37 @@ export const en = {
 		diyTutorials: "DIY tutorials",
 		clear: "Clear",
 		dimensionAriaSuffix: "{label} in millimetres",
+		tools: {
+			ariaLabel: "Tools",
+			select: "Select",
+			add: "Add",
+			measure: "Measure",
+			view: "View",
+			doors: "Doors",
+			defaults: "Setup",
+			selectTitle: "Select and move cabinets",
+			addTitle: "Add cabinet",
+			measureTitle: "Measure between two points",
+			viewTitle: "View: 3D, elevation or plan",
+			doorsTitle: "Doors: open, closed or hidden",
+			defaultsTitle: "Defaults for the whole run",
+		},
+		panel: {
+			close: "Close panel",
+			addTitle: "Add a cabinet",
+			addHint:
+				"Click one to drop it at the end of the run, or drag it onto the wall.",
+			viewTitle: "View",
+			viewHint: "How the room is drawn.",
+			threeDHint: "See the room as it will look.",
+			elevationHint: "Flat front-on — best for sizing.",
+			planHint: "From above — best for depth and walkways.",
+			doorsTitle: "Doors",
+			doorsHint:
+				"Applies to every unit. One cabinet's doors open from its own Open doors action.",
+			defaultsTitle: "Defaults for this run",
+			defaultsHint: "Set once, applies to everything — placed or not.",
+		},
 		start: {
 			heading: "What room are you planning?",
 			subtitle:
@@ -141,6 +172,10 @@ export const en = {
 			cta: "Start planning",
 		},
 		room: {
+			fitFree: "{mm} mm of wall still free.",
+			fitOver:
+				"The run is {mm} mm longer than the wall. Remove a cabinet or lengthen the wall.",
+			moreSettings: "Skirting, ends, hang height…",
 			heading: "The room",
 			subtitle: "Sets the space every cabinet has to fit in.",
 			wallLength: "Wall length",
@@ -193,6 +228,7 @@ export const en = {
 			sizeRange: "{min}–{max}mm · from {price}",
 		},
 		canvas: {
+			selectHint: "Click a cabinet to select it · right-click for its actions",
 			runOfWall: "{run} m run of {wall} m wall",
 			loading: "Loading 3D view…",
 		},
@@ -210,6 +246,28 @@ export const en = {
 				"Click a cabinet to change its size or front. Drag it along the wall to move it.",
 		},
 		selection: {
+			hangAtThis: "This one hangs at",
+			swapLeft: "Swap with the cabinet on its left",
+			swapRight: "Swap with the cabinet on its right",
+			swapHint:
+				"The arrows trade places with the cabinet beside it, so a packed run stays packed. Type a figure to put it somewhere with room.",
+			verbResize: "Resize",
+			verbReplace: "Replace",
+			verbMove: "Move",
+			verbOpenDoors: "Open doors",
+			verbCloseDoors: "Close doors",
+			moveMeta: "arrows + mm",
+			replaceHeading: "Replace with",
+			positionHeading: "Position",
+			fromLeftWall: "From left wall",
+			widthHint:
+				"Neighbours stay put — a size with no room for it is greyed out. {name} comes in {n} widths.",
+			moveHintFloor:
+				"The arrows slide it along the wall. Vertical is locked for floor units.",
+			moveHintWall:
+				"The arrows slide it along the wall and set its hang height.",
+			hangsAt: "hangs at {mm} mm",
+			sizeRangeMeta: "{min}–{max} mm",
 			heading: "Selected cabinet",
 			emptyHint: "Click a cabinet in the room to size it or change its front.",
 			nameWidth: "{name} · {width} mm",
@@ -227,6 +285,17 @@ export const en = {
 			nSelected: "{n} cabinets selected",
 			removeAll: "Remove all {n}",
 		},
+		design: {
+			heading: "This design",
+			hint: "Click a cabinet in the room to size it, swap it or move it.",
+			room: "Room",
+			wall: "Wall",
+			run: "Run",
+			wallFree: "Wall free",
+			overBy: "over by {mm} mm",
+			finish: "Finish",
+			addCabinet: "Add a cabinet",
+		},
 		finish: {
 			heading: "Front finish · whole run",
 			currentLabel: "{label} · one colour for the whole room",
@@ -241,6 +310,8 @@ export const en = {
 			reset: "Reset this room",
 		},
 		price: {
+			breakdown: "Breakdown",
+			breakdownTitle: "What makes up {total}",
 			trimStrip: "a trim strip capping the run at the ceiling",
 			skirtingBoard: "a skirting board over the legs",
 			endPanels: "a finished panel over each cabinet side left in the open",

@@ -33,7 +33,7 @@ export function PlannerHeader({
 }) {
 	const t = useCopy();
 	return (
-		<div className="flex h-14 shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
+		<div className="flex h-[52px] shrink-0 items-center justify-between gap-6 border-neutral-200 border-b bg-white px-5">
 			{/* Padding on the crumbs rather than gap: the tap target is the padded
 			    box, not just the glyphs. */}
 			<nav

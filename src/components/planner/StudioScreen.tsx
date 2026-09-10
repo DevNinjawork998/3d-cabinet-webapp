@@ -8,12 +8,10 @@ import { fill } from "@/lib/copy/fill";
 import { htmlLang } from "@/lib/copy/locales";
 import { splitDoorLeaves } from "@/lib/mesh/renderMesh";
 import {
-	CEILING_LIMITS,
 	type Construction,
 	constructionOf,
 	type FinishId,
 	familyIn,
-	ROOM_DEPTH_LIMITS,
 	type RoomTypeId,
 	roomTypeIn,
 	WALL_HANG_LIMITS,
@@ -22,9 +20,9 @@ import {
 	type HingeSide,
 	type PlannerLayout,
 	type Positioned,
+	rowFor,
 	setDoors,
 	setHinge,
-	WALL_LIMITS,
 } from "@/lib/planner/layout";
 import {
 	AXIS_COLOR,
@@ -45,6 +43,14 @@ import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
+import { CabinetMenu } from "./studio/CabinetMenu";
+import { DesignRecap } from "./studio/DesignRecap";
+import { PriceFooter } from "./studio/PriceFooter";
+import { RoomPanel } from "./studio/RoomPanel";
+import { RunList } from "./studio/RunList";
+import { SelectionPanel, type SelectionVerb } from "./studio/SelectionPanel";
+import { PanelOption, PanelToggle, StudioPanel } from "./studio/StudioPanel";
+import { type StudioTool, ToolRail } from "./studio/ToolRail";
 import { FamilyThumb } from "./thumbs";
 
 function ScenePlaceholder() {
@@ -223,10 +229,15 @@ export function StudioScreen({
 		hangingHeightMmOf,
 		minWallWidthMm,
 		overhangMm,
+		positionsOf,
 		removeModules,
+		replaceFamily,
 		rowEndMm,
+		runExtentMm,
+		moveModule,
 		setBaseSkirting,
 		setCeilingHeight,
+		setHangAt,
 		setHangingHeight,
 		setRoomDepth,
 		setWallToCeiling,
@@ -234,6 +245,7 @@ export function StudioScreen({
 		setWallWidth,
 		setWidth,
 		starterFor,
+		swapWithNeighbour,
 		widthOptionsFor,
 	} = useEngine();
 	const room = roomTypeIn(catalogue, roomId);
@@ -254,7 +266,13 @@ export function StudioScreen({
 	// A view mode, not a property of the design — same reasoning as `openIds`,
 	// and it must not ride along in a share link or a quote either.
 	const [doorsHidden, setDoorsHidden] = useState(false);
-	const [measureMode, setMeasureMode] = useState(false);
+	// The rail's active tool. `select` is the resting state, `measure` is what
+	// used to be `measureMode`, and the other four open the overlay panel. One
+	// piece of state rather than two, so the rail and the panel can never
+	// disagree about what is open.
+	const [tool, setTool] = useState<StudioTool>("select");
+	const panel = tool === "select" || tool === "measure" ? null : tool;
+	const measureMode = tool === "measure";
 	const [measurePoints, setMeasurePoints] = useState<SnapPoint[]>([]);
 	// Which axis the second pick is pulled onto. `auto` infers it from the
 	// direction of the pick, which is what turns a roughly-vertical pair of
@@ -262,6 +280,7 @@ export function StudioScreen({
 	const [measureAxis, setMeasureAxis] = useState<MeasureAxis>("auto");
 
 	const select = (id: string | null, additive: boolean) => {
+		setVerb(null);
 		if (id === null) return setSelectedIdsAction([]);
 		if (!additive) return setSelectedIdsAction([id]);
 		setSelectedIdsAction(
@@ -270,6 +289,53 @@ export function StudioScreen({
 				: [...selectedIds, id],
 		);
 	};
+
+	const pressTool = (next: StudioTool) => {
+		setTool((current) => (current === next ? "select" : next));
+		if (next !== "measure") return;
+		setMeasurePoints([]);
+		// A dimension line taken to a door drawn open is a wrong number shown to
+		// a customer: `snapToCabinet` snaps against the closed geometry either
+		// way. Shut them rather than measure a lie.
+		setOpenIds(new Set());
+	};
+
+	// Which verb has a section open under the list. Cleared whenever the
+	// selection changes: a Resize panel left open over a different cabinet is
+	// a control pointing at the wrong thing.
+	const [verb, setVerb] = useState<SelectionVerb>(null);
+	// Where the right-click menu is, and what it is about. Screen coordinates,
+	// because the menu is `position: fixed` over everything.
+	const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(
+		null,
+	);
+
+	/** Whether this cabinet has anything to trade places with, each way. */
+	const neighboursOf = (position: Positioned) => {
+		const row = positionsOf(layout, rowFor(position.family.kind));
+		const index = row.findIndex(
+			(other) => other.placed.id === position.placed.id,
+		);
+		return { left: index > 0, right: index >= 0 && index < row.length - 1 };
+	};
+
+	/** The families this cabinet could become — same row, offered in this room. */
+	const replaceOptionsFor = (position: Positioned) =>
+		catalogue.families
+			.filter(
+				(family) =>
+					rowFor(family.kind) === rowFor(position.family.kind) &&
+					room.familyIds.includes(family.id),
+			)
+			.map((family) => ({
+				id: family.id,
+				label: family.label,
+				meta: fill(t.planner.selection.sizeRangeMeta, {
+					min: family.sizes[0].widthMm,
+					max: family.sizes[family.sizes.length - 1].widthMm,
+				}),
+				current: family.id === position.family.id,
+			}));
 
 	const removeSelected = () => {
 		setLayoutAction((prev) => removeModules(prev, selectedIds));
@@ -298,6 +364,7 @@ export function StudioScreen({
 	// Usually the run rather than the catalogue floor — worth naming which,
 	// because a slider that stops for no visible reason reads as broken.
 	const minWallMm = minWallWidthMm(layout);
+	const freeMm = layout.wallWidthMm - runExtentMm(layout);
 	const construction = constructionOf(catalogue);
 	const price = computePlannerPrice(layout, finish, catalogue);
 	// Named so the customer knows what the extra lines are for. Both are added
@@ -337,47 +404,199 @@ export function StudioScreen({
 		? Math.max(measurement.widthMm, measurement.heightMm, measurement.depthMm)
 		: 0;
 
+	const canFlush = placed.some((position) => position.family.kind === "tall");
+
+	const addBody = (
+		<div className="grid grid-cols-2 gap-2">
+			{room.familyIds.map((familyId) => {
+				const option = familyIn(catalogue, familyId);
+				if (!option) return null;
+				const canFit = fits(layout, familyId);
+				return (
+					<button
+						key={familyId}
+						type="button"
+						draggable={canFit}
+						onDragStart={(e) => {
+							e.dataTransfer.setData("text/plain", `family:${familyId}`);
+							e.dataTransfer.effectAllowed = "copy";
+							setDragFamilyId(familyId);
+						}}
+						onDragEnd={() => setDragFamilyId(null)}
+						onClick={() =>
+							setLayoutAction((prev) => addModule(prev, familyId, 0))
+						}
+						disabled={!canFit}
+						className={`rounded-lg border p-2 text-left transition ${
+							canFit
+								? "cursor-grab border-neutral-200 hover:border-neutral-500 active:cursor-grabbing"
+								: "cursor-not-allowed border-neutral-100 opacity-40"
+						}`}
+					>
+						<FamilyThumb family={option} />
+						<p className="mt-1.5 font-medium text-[12px]">{option.label}</p>
+						<p className="text-[11px] text-neutral-500">
+							{fill(t.planner.addCabinets.sizeRange, {
+								min: option.sizes[0].widthMm,
+								max: option.sizes[option.sizes.length - 1].widthMm,
+								price: formatRm(option.sizes[0].priceRm, {
+									maximumFractionDigits: 0,
+								}),
+							})}
+						</p>
+					</button>
+				);
+			})}
+		</div>
+	);
+
+	const viewBody = (
+		<div className="flex flex-col gap-1.5">
+			{views(t).map((option) => (
+				<PanelOption
+					key={option.id}
+					label={option.label}
+					hint={
+						option.id === "3d"
+							? t.planner.panel.threeDHint
+							: option.id === "elevation"
+								? t.planner.panel.elevationHint
+								: t.planner.panel.planHint
+					}
+					pressed={view === option.id}
+					onPressAction={() => setView(option.id)}
+				/>
+			))}
+		</div>
+	);
+
+	const doorsBody = (
+		<div className="flex flex-col gap-1.5">
+			{doorModes(t).map((mode) => (
+				<PanelOption
+					key={mode.id}
+					label={mode.label}
+					hint={
+						mode.id === "hidden"
+							? t.planner.room.frontsOffNote
+							: mode.id === "open"
+								? t.planner.room.interiorsShownNote
+								: t.planner.room.openDoorsNote
+					}
+					pressed={doorView === mode.id}
+					onPressAction={() => {
+						setDoorsHidden(mode.id === "hidden");
+						setOpenIds(
+							mode.id === "open"
+								? new Set(withDoors.map((position) => position.placed.id))
+								: new Set(),
+						);
+					}}
+				/>
+			))}
+		</div>
+	);
+
+	const defaultsBody = (
+		<div className="flex flex-col gap-4">
+			<PanelToggle
+				label={t.planner.room.baseUnitsAria}
+				hint={
+					layout.baseSkirting
+						? t.planner.room.kickBoardNote
+						: t.planner.room.levellersNote
+				}
+				value={layout.baseSkirting}
+				options={baseModes(t).map((mode) => ({
+					value: mode.skirted,
+					label: mode.label,
+				}))}
+				onPickAction={(skirted) =>
+					setLayoutAction((prev) => setBaseSkirting(prev, skirted))
+				}
+			/>
+
+			<PanelToggle
+				label={t.planner.room.runAria}
+				hint={
+					layout.wallToWall
+						? t.planner.room.noPanelNeededNote
+						: t.planner.room.panelNeededNote
+				}
+				value={layout.wallToWall}
+				options={runModes(t).map((mode) => ({
+					value: mode.toWall,
+					label: mode.label,
+				}))}
+				onPickAction={(toWall) =>
+					setLayoutAction((prev) => setWallToWall(prev, toWall))
+				}
+			/>
+
+			<PanelToggle
+				label={t.planner.room.wallUnitsAria}
+				hint={fill(t.planner.room.undersidesNote, {
+					height: hangingHeightMmOf(layout),
+				})}
+				value={layout.wallToCeiling}
+				options={wallModes(t).map((mode) => ({
+					value: mode.toCeiling,
+					label: mode.label,
+				}))}
+				onPickAction={(toCeiling) =>
+					setLayoutAction((prev) => setWallToCeiling(prev, toCeiling))
+				}
+			/>
+
+			{!layout.wallToCeiling && (
+				<DimensionField
+					label={t.planner.room.wallUnitsHangAt}
+					valueMm={layout.hangingHeightMm}
+					minMm={WALL_HANG_LIMITS.minMm}
+					maxMm={WALL_HANG_LIMITS.maxMm}
+					stepMm={10}
+					onChangeAction={(mm) =>
+						setLayoutAction((prev) => setHangingHeight(prev, mm))
+					}
+				/>
+			)}
+
+			<button
+				type="button"
+				onClick={() => setLayoutAction((prev) => flushWallToTallTops(prev))}
+				disabled={!canFlush}
+				className="self-start text-[12px] text-[#1f5138] underline hover:text-[#17402c] disabled:text-neutral-300 disabled:no-underline"
+			>
+				{canFlush
+					? t.planner.room.flushWallUnitTops
+					: t.planner.room.addTallFirst}
+			</button>
+
+			<button
+				type="button"
+				onClick={() => setLayoutAction((prev) => closeGaps(prev))}
+				disabled={gapCount === 0}
+				className="self-start text-[12px] text-[#1f5138] underline hover:text-[#17402c] disabled:text-neutral-300 disabled:no-underline"
+			>
+				{gapCount > 0
+					? fill(t.planner.run.closeGapsCount, { n: gapCount })
+					: t.planner.run.closeGaps}
+			</button>
+		</div>
+	);
+
 	return (
-		<main className="flex h-screen flex-col bg-[#e9e7e3] text-neutral-900">
+		<main className="flex h-screen flex-col bg-[#f4f3f1] text-neutral-900">
 			<PlannerHeader
 				trail={[
 					{ label: t.common.brand, href: "/" },
 					{ label: t.planner.crumbs.roomPlanner, onClick: onBackToStartAction },
 					{ label: t.planner.crumbs.studio },
 				]}
-				center={
-					<fieldset
-						aria-label={t.planner.view.ariaLabel}
-						className="hidden min-w-0 items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5 lg:flex"
-					>
-						{views(t).map((option) => (
-							<button
-								key={option.id}
-								type="button"
-								onClick={() => setView(option.id)}
-								aria-pressed={view === option.id}
-								className={`rounded-full px-3.5 py-1 text-[13px] transition ${
-									view === option.id
-										? "bg-white font-medium shadow-sm"
-										: "text-neutral-600 hover:text-neutral-900"
-								}`}
-							>
-								{option.label}
-							</button>
-						))}
-					</fieldset>
-				}
 			>
 				<button
 					type="button"
-					onClick={() => {
-						setMeasureMode((on) => !on);
-						setMeasurePoints([]);
-						// A dimension line taken to a door drawn open is a wrong number
-						// shown to a customer: `snapToCabinet` snaps against the closed
-						// geometry either way. Shut them rather than measure a lie.
-						setOpenIds(new Set());
-					}}
+					onClick={() => pressTool("measure")}
 					aria-pressed={measureMode}
 					title={t.planner.measure.tooltip}
 					className={`rounded-full px-3 py-1 text-[12px] transition ${
@@ -418,326 +637,44 @@ export function StudioScreen({
 			</PlannerHeader>
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-				<aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[268px] lg:border-r lg:border-b-0">
-					<div className="rounded-lg border border-neutral-200 bg-[#f7f6f4] p-3">
-						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							{t.planner.room.heading}
-						</p>
-						<p className="mt-0.5 mb-3 text-[12px] text-neutral-500 leading-4">
-							{t.planner.room.subtitle}
-						</p>
-						<div className="mb-3 flex flex-wrap gap-1">
-							{catalogue.roomTypes.map((option) => (
-								<button
-									key={option.id}
-									type="button"
-									onClick={() => onChangeRoomAction(option.id)}
-									aria-current={option.id === roomId ? "true" : undefined}
-									className={`rounded-full px-2.5 py-1 text-[12px] transition ${
-										option.id === roomId
-											? "bg-neutral-900 text-white"
-											: "bg-white text-neutral-600 shadow-[inset_0_0_0_1px_#e5e5e5] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-									}`}
-								>
-									{option.label}
-								</button>
-							))}
-						</div>
+				<ToolRail active={tool} onPressAction={pressTool} />
 
-						<div className="flex flex-col gap-2.5">
-							<DimensionField
-								label={t.planner.room.wallLength}
-								valueMm={layout.wallWidthMm}
-								minMm={minWallMm}
-								maxMm={WALL_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setWallWidth(prev, mm))
-								}
-							/>
-
-							{minWallMm > WALL_LIMITS.minMm &&
-								layout.wallWidthMm === minWallMm && (
-									<p className="-mt-1 text-[11px] text-neutral-500 leading-4">
-										{fill(t.planner.room.narrowWallNote, { min: minWallMm })}
-									</p>
-								)}
-
-							<DimensionField
-								label={t.planner.room.ceiling}
-								valueMm={layout.ceilingHeightMm}
-								minMm={CEILING_LIMITS.minMm}
-								maxMm={CEILING_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setCeilingHeight(prev, mm))
-								}
-							/>
-
-							<DimensionField
-								label={t.planner.room.roomDepth}
-								valueMm={layout.roomDepthMm}
-								minMm={ROOM_DEPTH_LIMITS.minMm}
-								maxMm={ROOM_DEPTH_LIMITS.maxMm}
-								stepMm={50}
-								onChangeAction={(mm) =>
-									setLayoutAction((prev) => setRoomDepth(prev, mm))
-								}
-							/>
-
-							{room.familyIds.some(
-								(id) => familyIn(catalogue, id)?.kind === "wall",
-							) && (
-								<div>
-									<fieldset
-										aria-label={t.planner.room.wallUnitsAria}
-										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
-									>
-										{wallModes(t).map((option) => (
-											<button
-												key={String(option.toCeiling)}
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) =>
-														setWallToCeiling(prev, option.toCeiling),
-													)
-												}
-												aria-pressed={layout.wallToCeiling === option.toCeiling}
-												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
-													layout.wallToCeiling === option.toCeiling
-														? "bg-white font-medium shadow-sm"
-														: "text-neutral-600 hover:text-neutral-900"
-												}`}
-											>
-												{option.label}
-											</button>
-										))}
-									</fieldset>
-
-									{layout.wallToCeiling ? (
-										<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-											{fill(t.planner.room.undersidesNote, {
-												height: hangingHeightMmOf(layout),
-											})}
-										</p>
-									) : (
-										<>
-											<div className="mt-2.5">
-												<DimensionField
-													label={t.planner.room.wallUnitsHangAt}
-													valueMm={layout.hangingHeightMm}
-													minMm={WALL_HANG_LIMITS.minMm}
-													maxMm={WALL_HANG_LIMITS.maxMm}
-													stepMm={10}
-													onChangeAction={(mm) =>
-														setLayoutAction((prev) =>
-															setHangingHeight(prev, mm),
-														)
-													}
-												/>
-											</div>
-											<button
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) => flushWallToTallTops(prev))
-												}
-												disabled={!placed.some((p) => p.family.kind === "tall")}
-												title={
-													placed.some((p) => p.family.kind === "tall")
-														? undefined
-														: t.planner.room.addTallFirst
-												}
-												className="mt-2 rounded-full border border-neutral-300 px-3 py-1 text-[11px] transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
-											>
-												{t.planner.room.flushWallUnitTops}
-											</button>
-										</>
-									)}
-								</div>
-							)}
-
-							{placed.some((p) => p.family.kind !== "wall") && (
-								<div>
-									<fieldset
-										aria-label={t.planner.room.baseUnitsAria}
-										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
-									>
-										{baseModes(t).map((option) => (
-											<button
-												key={String(option.skirted)}
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) =>
-														setBaseSkirting(prev, option.skirted),
-													)
-												}
-												aria-pressed={layout.baseSkirting === option.skirted}
-												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
-													layout.baseSkirting === option.skirted
-														? "bg-white font-medium shadow-sm"
-														: "text-neutral-600 hover:text-neutral-900"
-												}`}
-											>
-												{option.label}
-											</button>
-										))}
-									</fieldset>
-
-									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-										{layout.baseSkirting
-											? t.planner.room.kickBoardNote
-											: t.planner.room.levellersNote}
-									</p>
-								</div>
-							)}
-
-							{placed.length > 0 && (
-								<div>
-									<fieldset
-										aria-label={t.planner.room.runAria}
-										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
-									>
-										{runModes(t).map((option) => (
-											<button
-												key={String(option.toWall)}
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) =>
-														setWallToWall(prev, option.toWall),
-													)
-												}
-												aria-pressed={layout.wallToWall === option.toWall}
-												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
-													layout.wallToWall === option.toWall
-														? "bg-white font-medium shadow-sm"
-														: "text-neutral-600 hover:text-neutral-900"
-												}`}
-											>
-												{option.label}
-											</button>
-										))}
-									</fieldset>
-
-									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-										{layout.wallToWall
-											? t.planner.room.noPanelNeededNote
-											: t.planner.room.panelNeededNote}
-									</p>
-								</div>
-							)}
-
-							{withDoors.length > 0 && (
-								<div>
-									<fieldset
-										aria-label={t.planner.room.doorsAria}
-										className="flex items-center gap-1 rounded-full border-0 bg-neutral-100 p-0.5"
-									>
-										{doorModes(t).map((option) => (
-											<button
-												key={option.id}
-												type="button"
-												onClick={() => {
-													setDoorsHidden(option.id === "hidden");
-													setOpenIds(
-														option.id === "open"
-															? new Set(withDoors.map((p) => p.placed.id))
-															: new Set(),
-													);
-												}}
-												aria-pressed={doorView === option.id}
-												className={`flex-1 rounded-full px-3 py-1 text-[12px] transition ${
-													doorView === option.id
-														? "bg-white font-medium shadow-sm"
-														: "text-neutral-600 hover:text-neutral-900"
-												}`}
-											>
-												{option.label}
-											</button>
-										))}
-									</fieldset>
-
-									<p className="mt-2 text-[11px] text-neutral-500 leading-4">
-										{doorView === "hidden"
-											? t.planner.room.frontsOffNote
-											: doorView === "open"
-												? t.planner.room.interiorsShownNote
-												: t.planner.room.openDoorsNote}
-									</p>
-								</div>
-							)}
-						</div>
-
-						{overhang > 0 && (
-							<p className="mt-2 text-[11px] text-amber-700 leading-4">
-								{fill(t.planner.room.overhangWarning, { overhang })}
-							</p>
-						)}
-					</div>
-
-					<div>
-						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-							{t.planner.addCabinets.heading}
-						</p>
-						<p className="mt-0.5 mb-2.5 text-[12px] text-neutral-500 leading-4">
-							{t.planner.addCabinets.subtitle}
-						</p>
-						<div className="grid grid-cols-2 gap-2">
-							{room.familyIds.map((familyId) => {
-								const option = familyIn(catalogue, familyId);
-								if (!option) return null;
-								const canFit = fits(layout, familyId);
-								return (
-									<button
-										key={familyId}
-										type="button"
-										draggable={canFit}
-										onDragStart={(e) => {
-											e.dataTransfer.setData(
-												"text/plain",
-												`family:${familyId}`,
-											);
-											e.dataTransfer.effectAllowed = "copy";
-											setDragFamilyId(familyId);
-										}}
-										onDragEnd={() => setDragFamilyId(null)}
-										onClick={() =>
-											setLayoutAction((prev) => addModule(prev, familyId, 0))
-										}
-										disabled={!canFit}
-										className={`rounded-lg border p-2 text-left transition ${
-											canFit
-												? "cursor-grab border-neutral-200 hover:border-neutral-500 active:cursor-grabbing"
-												: "cursor-not-allowed border-neutral-100 opacity-40"
-										}`}
-									>
-										<FamilyThumb family={option} />
-										<p className="mt-1.5 font-medium text-[12px]">
-											{option.label}
-										</p>
-										<p className="text-[11px] text-neutral-500">
-											{fill(t.planner.addCabinets.sizeRange, {
-												min: option.sizes[0].widthMm,
-												max: option.sizes[option.sizes.length - 1].widthMm,
-												price: formatRm(option.sizes[0].priceRm, {
-													maximumFractionDigits: 0,
-												}),
-											})}
-										</p>
-									</button>
-								);
-							})}
-						</div>
-					</div>
-				</aside>
+				<RoomPanel
+					catalogue={catalogue}
+					roomId={roomId}
+					layout={layout}
+					minWallMm={minWallMm}
+					freeMm={freeMm}
+					overhangMm={overhang}
+					onChangeRoomAction={onChangeRoomAction}
+					onWallWidthAction={(mm) =>
+						setLayoutAction((prev) => setWallWidth(prev, mm))
+					}
+					onCeilingAction={(mm) =>
+						setLayoutAction((prev) => setCeilingHeight(prev, mm))
+					}
+					onDepthAction={(mm) =>
+						setLayoutAction((prev) => setRoomDepth(prev, mm))
+					}
+					onOpenDefaultsAction={() => setTool("defaults")}
+				/>
 
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: the drop
 				    target is the 3D canvas; the palette buttons are the keyboard
 				    path. */}
 				<div
-					className="relative min-h-[45vh] flex-1"
+					className="relative min-h-[45vh] flex-1 bg-[#faf9f7]"
 					onDragOver={(e) => {
 						e.preventDefault();
 						e.dataTransfer.dropEffect = "copy";
+					}}
+					onContextMenu={(e) => {
+						const id = hitTestRef.current?.(e.clientX, e.clientY) ?? null;
+						if (!id) return;
+						e.preventDefault();
+						setSelectedIdsAction([id]);
+						setVerb(null);
+						setMenu({ x: e.clientX, y: e.clientY, id });
 					}}
 					onDrop={(e) => {
 						e.preventDefault();
@@ -749,6 +686,15 @@ export function StudioScreen({
 						setDragFamilyId(null);
 					}}
 				>
+					{panel && (
+						<StudioPanel kind={panel} onCloseAction={() => setTool("select")}>
+							{panel === "add" && addBody}
+							{panel === "view" && viewBody}
+							{panel === "doors" && doorsBody}
+							{panel === "defaults" && defaultsBody}
+						</StudioPanel>
+					)}
+
 					<PlannerScene
 						layout={layout}
 						finish={finish}
@@ -760,6 +706,7 @@ export function StudioScreen({
 						measureMode={measureMode}
 						measurePoints={measurePoints}
 						measureAxis={measureAxis}
+						positionMode={verb === "move"}
 						view={view}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
@@ -768,17 +715,54 @@ export function StudioScreen({
 						hitTestRef={hitTestRef}
 					/>
 
-					<div className="absolute top-3.5 left-3.5 flex items-center gap-2 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
-						<span className="text-[12px] text-neutral-600">
+					{menu && (
+						<CabinetMenu
+							x={menu.x}
+							y={menu.y}
+							onDismissAction={() => setMenu(null)}
+							items={[
+								{
+									key: "resize",
+									label: t.planner.selection.verbResize,
+									press: () => setVerb("resize"),
+								},
+								{
+									key: "replace",
+									label: t.planner.selection.verbReplace,
+									press: () => setVerb("replace"),
+								},
+								{
+									key: "move",
+									label: t.planner.selection.verbMove,
+									press: () => setVerb("move"),
+								},
+								{
+									key: "duplicate",
+									label: t.planner.selection.duplicate,
+									press: () =>
+										setLayoutAction((prev) => duplicateModule(prev, menu.id)),
+								},
+								{
+									key: "remove",
+									label: t.planner.selection.remove,
+									danger: true,
+									press: removeSelected,
+								},
+							]}
+						/>
+					)}
+
+					<div className="absolute top-3 left-3.5 z-[6] flex flex-wrap items-center gap-2">
+						<span className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-neutral-700 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
 							{fill(t.planner.canvas.runOfWall, {
 								run: (floorEnd / 1000).toFixed(2),
 								wall: (layout.wallWidthMm / 1000).toFixed(2),
-							})}
-						</span>
-						<span className="h-3.5 w-px bg-neutral-200" />
-						<span className="text-[12px] text-neutral-600">
-							{placed.length}{" "}
+							})}{" "}
+							· {placed.length}{" "}
 							{placed.length === 1 ? t.planner.unit : t.planner.units}
+						</span>
+						<span className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-[#8a857c] shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+							{views(t).find((option) => option.id === view)?.label}
 						</span>
 					</div>
 
@@ -836,7 +820,7 @@ export function StudioScreen({
 									<button
 										type="button"
 										onClick={() => setMeasurePoints([])}
-										className="text-[12px] text-[#2b6cb0] hover:underline"
+										className="text-[12px] text-[#1f5138] hover:underline"
 									>
 										{t.planner.clear}
 									</button>
@@ -856,6 +840,12 @@ export function StudioScreen({
 						</div>
 					)}
 
+					{selection.length === 0 && panel === null && !measureMode && (
+						<p className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[12px] text-[#a2998c]">
+							{t.planner.canvas.selectHint}
+						</p>
+					)}
+
 					<p className="absolute right-3.5 bottom-3.5 hidden max-w-[260px] text-right text-[12px] text-[#8a8580] leading-4 lg:block">
 						{measureMode
 							? t.planner.measure.hintMeasuring
@@ -864,198 +854,111 @@ export function StudioScreen({
 				</div>
 
 				<aside className="flex w-full shrink-0 flex-col border-neutral-200 border-t bg-white lg:h-full lg:w-[312px] lg:border-t-0 lg:border-l">
-					<div className="border-neutral-200 border-b bg-[#f2f6fb] p-3.5">
+					<div className="min-h-0 flex-1 overflow-y-auto">
 						{selection.length === 0 ? (
-							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									{t.planner.selection.heading}
-								</p>
-								<p className="mt-1 text-[13px] text-neutral-500">
-									{t.planner.selection.emptyHint}
-								</p>
-							</>
+							<DesignRecap
+								rows={[
+									{ label: t.planner.design.room, value: room.label },
+									{
+										label: t.planner.design.wall,
+										value: `${(layout.wallWidthMm / 1000).toFixed(2)} m · ${(
+											layout.ceilingHeightMm / 1000
+										).toFixed(2)} m`,
+									},
+									{
+										label: t.planner.design.run,
+										value: `${(runExtentMm(layout) / 1000).toFixed(2)} m · ${
+											placed.length
+										} ${placed.length === 1 ? t.planner.unit : t.planner.units}`,
+									},
+									{
+										label: t.planner.design.wallFree,
+										value:
+											freeMm < 0
+												? fill(t.planner.design.overBy, { mm: -freeMm })
+												: `${freeMm} mm`,
+									},
+									{
+										label: t.planner.design.finish,
+										value:
+											catalogue.finishes.find((f) => f.id === finish)?.label ??
+											"",
+									},
+								]}
+								onAddAction={() => setTool("add")}
+							/>
 						) : selected ? (
-							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									{t.planner.selection.heading}
-								</p>
-								<p className="mt-0.5 font-semibold text-[15px]">
-									{fill(t.planner.selection.nameWidth, {
-										name: selected.family.label,
-										width: selected.widthMm,
-									})}
-								</p>
-								<div className="mt-3 flex flex-col gap-2.5">
-									<div>
-										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											{t.planner.selection.width}
-										</p>
-										<div className="flex flex-wrap gap-1.5">
-											{widthOptionsFor(layout, selected.placed.id).map(
-												(option) => (
-													<button
-														key={option.widthMm}
-														type="button"
-														disabled={!option.fits}
-														onClick={() =>
-															setLayoutAction((prev) =>
-																setWidth(
-																	prev,
-																	selected.placed.id,
-																	option.widthMm,
-																),
-															)
-														}
-														className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-															option.widthMm === selected.widthMm
-																? "bg-neutral-900 font-medium text-white"
-																: option.fits
-																	? "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-																	: "cursor-not-allowed bg-white text-neutral-300 shadow-[inset_0_0_0_1px_#e5e5e5]"
-														}`}
-													>
-														{option.widthMm}
-														{!option.fits && ` · ${t.planner.selection.noRoom}`}
-													</button>
-												),
-											)}
-										</div>
-									</div>
-
-									<div>
-										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											{t.planner.selection.front}
-										</p>
-										<div className="flex flex-wrap gap-1.5">
-											{catalogue.doorStyles.map((style) => (
-												<button
-													key={style.id}
-													type="button"
-													onClick={() =>
-														setLayoutAction((prev) =>
-															setDoors(prev, [selected.placed.id], style.id),
-														)
-													}
-													className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-														selected.placed.doorStyleId === style.id
-															? "bg-neutral-900 font-medium text-white"
-															: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-													}`}
-												>
-													{style.label}
-												</button>
-											))}
-											{selected.placed.doorStyleId && (
-												<button
-													type="button"
-													onClick={() =>
-														setLayoutAction((prev) =>
-															setDoors(prev, [selected.placed.id], null),
-														)
-													}
-													className="rounded-md px-2.5 py-1 text-[12px] text-neutral-500 underline hover:text-neutral-900"
-												>
-													{t.planner.selection.noDoor}
-												</button>
-											)}
-										</div>
-									</div>
-
-									{selected.placed.doorStyleId && (
-										<div>
-											<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-												{t.planner.selection.swing}
-											</p>
-											<div className="flex flex-wrap gap-1.5">
-												<button
-													type="button"
-													onClick={() =>
-														setOpenIds((prev) => {
-															const next = new Set(prev);
-															if (!next.delete(selected.placed.id)) {
-																next.add(selected.placed.id);
-															}
-															return next;
-														})
-													}
-													aria-pressed={openIds.has(selected.placed.id)}
-													className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-														openIds.has(selected.placed.id)
-															? "bg-neutral-900 font-medium text-white"
-															: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-													}`}
-												>
-													{openIds.has(selected.placed.id)
-														? t.planner.selection.closeDoor
-														: t.planner.selection.openDoor}
-												</button>
-
-												{/* Only a lone leaf gets a choice: a pair always hinges
-											    outward from the middle, which is the only way a pair
-											    is hung. */}
-												{leavesOn(selected, construction) === 1 &&
-													hingeSides(t).map((option) => (
-														<button
-															key={option.side}
-															type="button"
-															onClick={() =>
-																setLayoutAction((prev) =>
-																	setHinge(
-																		prev,
-																		selected.placed.id,
-																		option.side,
-																	),
-																)
-															}
-															aria-pressed={
-																selected.placed.hinge === option.side
-															}
-															className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-																selected.placed.hinge === option.side
-																	? "bg-neutral-900 font-medium text-white"
-																	: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-															}`}
-														>
-															{option.label}
-														</button>
-													))}
-											</div>
-										</div>
-									)}
-									<div className="flex items-center justify-between">
-										<span className="tabular-nums text-[13px]">
-											{formatRm(
-												price.cabinets.find((l) => l.id === selected.placed.id)
-													?.amountRm ?? 0,
-												{ minimumFractionDigits: 2, maximumFractionDigits: 2 },
-											)}
-										</span>
-										<span className="flex gap-3">
-											<button
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) =>
-														duplicateModule(prev, selected.placed.id),
-													)
-												}
-												className="text-[12px] text-neutral-500 underline hover:text-neutral-900"
-											>
-												{t.planner.selection.duplicate}
-											</button>
-											<button
-												type="button"
-												onClick={removeSelected}
-												className="text-[12px] text-[#b45309] underline hover:text-[#92400e]"
-											>
-												{t.planner.selection.remove}
-											</button>
-										</span>
-									</div>
-								</div>
-							</>
+							<SelectionPanel
+								catalogue={catalogue}
+								layout={layout}
+								selected={selected}
+								verb={verb}
+								onVerbAction={setVerb}
+								widthOptions={widthOptionsFor(layout, selected.placed.id)}
+								replaceOptions={replaceOptionsFor(selected)}
+								doorsOpen={openIds.has(selected.placed.id)}
+								hingeOptions={hingeSides(t)}
+								leaves={leavesOn(selected, construction)}
+								priceLabel={formatRm(
+									price.cabinets.find((l) => l.id === selected.placed.id)
+										?.amountRm ?? 0,
+									{ maximumFractionDigits: 0 },
+								)}
+								onWidthAction={(widthMm) =>
+									setLayoutAction((prev) =>
+										setWidth(prev, selected.placed.id, widthMm),
+									)
+								}
+								onReplaceAction={(familyId) =>
+									setLayoutAction((prev) =>
+										replaceFamily(prev, selected.placed.id, familyId),
+									)
+								}
+								onOffsetAction={(xMm) =>
+									setLayoutAction((prev) =>
+										moveModule(prev, selected.placed.id, xMm),
+									)
+								}
+								onSwapAction={(direction) =>
+									setLayoutAction((prev) =>
+										swapWithNeighbour(prev, selected.placed.id, direction),
+									)
+								}
+								canSwap={neighboursOf(selected)}
+								onHangAtAction={(mm) =>
+									setLayoutAction((prev) =>
+										setHangAt(prev, selected.placed.id, mm),
+									)
+								}
+								onToggleDoorAction={() =>
+									setOpenIds((prev) => {
+										const next = new Set(prev);
+										if (!next.delete(selected.placed.id)) {
+											next.add(selected.placed.id);
+										}
+										return next;
+									})
+								}
+								onHingeAction={(side) =>
+									setLayoutAction((prev) =>
+										setHinge(prev, selected.placed.id, side),
+									)
+								}
+								onDoorStyleAction={(doorStyleId) =>
+									setLayoutAction((prev) =>
+										setDoors(prev, [selected.placed.id], doorStyleId),
+									)
+								}
+								onDuplicateAction={() =>
+									setLayoutAction((prev) =>
+										duplicateModule(prev, selected.placed.id),
+									)
+								}
+								onRemoveAction={removeSelected}
+							/>
 						) : (
-							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
+							<div className="p-4">
+								<p className="font-semibold text-[11px] text-[#1f5138] uppercase tracking-[0.06em]">
 									{fill(t.planner.selection.nSelected, { n: selection.length })}
 								</p>
 								<div className="mt-3 flex flex-col gap-2.5">
@@ -1111,8 +1014,25 @@ export function StudioScreen({
 										</button>
 									</div>
 								</div>
-							</>
+							</div>
 						)}
+
+						<RunList
+							placed={placed}
+							selectedIds={selectedSet}
+							gapCount={gapCount}
+							prices={Object.fromEntries(
+								price.cabinets.map((line) => [line.id, line.amountRm]),
+							)}
+							onSelectAction={select}
+							onCloseGapsAction={() =>
+								setLayoutAction((prev) => closeGaps(prev))
+							}
+							onResetAction={() => {
+								setLayoutAction(starterFor(roomId));
+								setSelectedIdsAction([]);
+							}}
+						/>
 					</div>
 
 					<div className="border-neutral-200 border-b p-3.5">
@@ -1157,138 +1077,26 @@ export function StudioScreen({
 						</p>
 					</div>
 
-					<div className="flex-1 overflow-y-auto p-3.5">
-						<div className="mb-2 flex items-baseline justify-between gap-2">
-							<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-								{fill(t.planner.run.heading, {
-									count: placed.length,
-									unit: placed.length === 1 ? t.planner.unit : t.planner.units,
-								})}
-							</p>
-							<button
-								type="button"
-								onClick={() => setLayoutAction(closeGaps(layout))}
-								disabled={gapCount === 0}
-								className="text-[11px] text-neutral-500 hover:text-neutral-900 disabled:opacity-40"
-							>
-								{gapCount > 0
-									? fill(t.planner.run.closeGapsCount, { n: gapCount })
-									: t.planner.run.closeGaps}
-							</button>
-						</div>
-						<div className="flex flex-col">
-							{placed.map((position) => {
-								const isSelected = selectedSet.has(position.placed.id);
-								const line = price.cabinets.find(
-									(l) => l.id === position.placed.id,
-								);
-								return (
-									<div
-										key={position.placed.id}
-										className={`flex items-center gap-2 border-neutral-100 border-t py-1.5 text-[13px] ${
-											isSelected ? "bg-[#f2f6fb]" : ""
-										}`}
-									>
-										<input
-											type="checkbox"
-											checked={isSelected}
-											aria-label={fill(t.planner.run.selectAria, {
-												name: position.family.label,
-											})}
-											onChange={() => select(position.placed.id, true)}
-										/>
-										<button
-											type="button"
-											onClick={(e) =>
-												select(
-													position.placed.id,
-													e.shiftKey || e.metaKey || e.ctrlKey,
-												)
-											}
-											className="flex-1 text-left"
-										>
-											{position.family.label} {position.widthMm}{" "}
-											<span className="text-[11px] text-neutral-400">
-												{position.placed.doorStyleId ??
-													t.planner.run.noDoorInline}
-											</span>
-										</button>
-										<span className="tabular-nums text-[13px] text-neutral-600">
-											{line ? Math.round(line.amountRm) : 0}
-										</span>
-									</div>
-								);
-							})}
-						</div>
-						{placed.length === 0 && (
-							<p className="text-[12px] text-neutral-500">
-								{t.planner.run.emptyHint}
-							</p>
-						)}
-						<button
-							type="button"
-							onClick={() => {
-								setLayoutAction(starterFor(roomId));
-								setSelectedIdsAction([]);
-							}}
-							className="mt-2 text-[11px] text-neutral-500 underline hover:text-neutral-900"
-						>
-							{t.planner.run.reset}
-						</button>
-					</div>
-
-					<div className="flex flex-col gap-2.5 border-neutral-200 border-t p-3.5">
-						<ul className="flex flex-col gap-1">
-							{price.categories.map((line) => (
-								<li
-									key={line.id}
-									className="flex items-baseline justify-between gap-2 text-[12px]"
-								>
-									<span className="min-w-0 text-neutral-600">
-										{priceLineLabel(t, line)}{" "}
-										<span className="text-[11px] text-neutral-400">
-											{priceLineDetail(t, line)}
-										</span>
-									</span>
-									<span className="shrink-0 tabular-nums">
-										{rm(line.amountRm)}
-									</span>
-								</li>
-							))}
-						</ul>
-
-						{coverPieces.length > 0 && (
-							<p className="text-[11px] text-neutral-500 leading-4">
-								{coverPieces.join(` ${t.planner.price.and} `)}{" "}
-								{coverPieces.length === 1
-									? t.planner.price.includedAboveSingular
-									: t.planner.price.includedAbovePlural}
-							</p>
-						)}
-
-						<div className="flex items-baseline justify-between border-neutral-200 border-t pt-2.5">
-							<span className="text-[13px] text-neutral-500">
-								{t.planner.price.estimatedTotal}
-							</span>
-							<span className="font-semibold text-xl">
-								{formatRm(price.totalRm, { maximumFractionDigits: 0 })}
-							</span>
-						</div>
-						<p className="flex items-center gap-1.5 text-[#b45309] text-[11px] leading-4">
-							<span className="rounded border border-[#b45309] px-1 py-0.5 font-semibold">
-								{t.planner.price.estimateBadge}
-							</span>{" "}
-							{t.planner.price.placeholderNote}
-						</p>
-						<button
-							type="button"
-							onClick={onGoToQuoteAction}
-							disabled={placed.length === 0}
-							className="rounded-lg bg-neutral-900 px-3 py-2.5 font-medium text-[14px] text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							{t.planner.price.cta}
-						</button>
-					</div>
+					<PriceFooter
+						lines={price.categories.map((line) => ({
+							id: line.id,
+							label: priceLineLabel(t, line),
+							detail: priceLineDetail(t, line),
+							amount: rm(line.amountRm),
+						}))}
+						coverNote={
+							coverPieces.length > 0
+								? `${coverPieces.join(` ${t.planner.price.and} `)} ${
+										coverPieces.length === 1
+											? t.planner.price.includedAboveSingular
+											: t.planner.price.includedAbovePlural
+									}`
+								: null
+						}
+						totalLabel={formatRm(price.totalRm, { maximumFractionDigits: 0 })}
+						ctaDisabled={placed.length === 0}
+						onQuoteAction={onGoToQuoteAction}
+					/>
 				</aside>
 			</div>
 		</main>
