@@ -81,7 +81,7 @@ function PlannerScreens({
 	 * cabinet show the same board. */
 	finishTextures: Record<string, string>;
 }) {
-	const { removeModules } = useEngine();
+	const { duplicateModule, removeModules } = useEngine();
 
 	const [screen, setScreen] = useState<Screen>("start");
 	const [roomId, setRoomId] = useState<RoomTypeId>(initialRoomId);
@@ -117,16 +117,29 @@ function PlannerScreens({
 	useEffect(() => {
 		if (screen !== "studio") return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.key !== "Delete" && e.key !== "Backspace") return;
 			const target = e.target as HTMLElement | null;
 			if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+
+			if (e.key === "Escape") {
+				setSelectedIds([]);
+				return;
+			}
+			// Duplicating two cabinets at once has no obvious answer for where the
+			// copies go, so the shortcut is for a single selection only.
+			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
+				if (selectedIds.length !== 1) return;
+				e.preventDefault();
+				setLayout((prev) => duplicateModule(prev, selectedIds[0]));
+				return;
+			}
+			if (e.key !== "Delete" && e.key !== "Backspace") return;
 			if (selectedIds.length === 0) return;
 			e.preventDefault();
 			removeSelected();
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [screen, selectedIds, removeSelected]);
+	}, [screen, selectedIds, removeSelected, setLayout, duplicateModule]);
 
 	if (screen === "start") {
 		return (

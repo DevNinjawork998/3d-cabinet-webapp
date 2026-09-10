@@ -43,6 +43,7 @@ import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
+import { CabinetMenu } from "./studio/CabinetMenu";
 import { DesignRecap } from "./studio/DesignRecap";
 import { PriceFooter } from "./studio/PriceFooter";
 import { RoomPanel } from "./studio/RoomPanel";
@@ -299,6 +300,11 @@ export function StudioScreen({
 	// selection changes: a Resize panel left open over a different cabinet is
 	// a control pointing at the wrong thing.
 	const [verb, setVerb] = useState<SelectionVerb>(null);
+	// Where the right-click menu is, and what it is about. Screen coordinates,
+	// because the menu is `position: fixed` over everything.
+	const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(
+		null,
+	);
 
 	/** The families this cabinet could become — same row, offered in this room. */
 	const replaceOptionsFor = (position: Positioned) =>
@@ -649,6 +655,14 @@ export function StudioScreen({
 						e.preventDefault();
 						e.dataTransfer.dropEffect = "copy";
 					}}
+					onContextMenu={(e) => {
+						const id = hitTestRef.current?.(e.clientX, e.clientY) ?? null;
+						if (!id) return;
+						e.preventDefault();
+						setSelectedIdsAction([id]);
+						setVerb(null);
+						setMenu({ x: e.clientX, y: e.clientY, id });
+					}}
 					onDrop={(e) => {
 						e.preventDefault();
 						const payload = e.dataTransfer.getData("text/plain");
@@ -687,17 +701,54 @@ export function StudioScreen({
 						hitTestRef={hitTestRef}
 					/>
 
-					<div className="absolute top-3.5 left-3.5 flex items-center gap-2 rounded-lg bg-white/92 px-2.5 py-2 shadow-sm backdrop-blur">
-						<span className="text-[12px] text-neutral-600">
+					{menu && (
+						<CabinetMenu
+							x={menu.x}
+							y={menu.y}
+							onDismissAction={() => setMenu(null)}
+							items={[
+								{
+									key: "resize",
+									label: t.planner.selection.verbResize,
+									press: () => setVerb("resize"),
+								},
+								{
+									key: "replace",
+									label: t.planner.selection.verbReplace,
+									press: () => setVerb("replace"),
+								},
+								{
+									key: "move",
+									label: t.planner.selection.verbMove,
+									press: () => setVerb("move"),
+								},
+								{
+									key: "duplicate",
+									label: t.planner.selection.duplicate,
+									press: () =>
+										setLayoutAction((prev) => duplicateModule(prev, menu.id)),
+								},
+								{
+									key: "remove",
+									label: t.planner.selection.remove,
+									danger: true,
+									press: removeSelected,
+								},
+							]}
+						/>
+					)}
+
+					<div className="absolute top-3 left-3.5 z-[6] flex flex-wrap items-center gap-2">
+						<span className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-neutral-700 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
 							{fill(t.planner.canvas.runOfWall, {
 								run: (floorEnd / 1000).toFixed(2),
 								wall: (layout.wallWidthMm / 1000).toFixed(2),
-							})}
-						</span>
-						<span className="h-3.5 w-px bg-neutral-200" />
-						<span className="text-[12px] text-neutral-600">
-							{placed.length}{" "}
+							})}{" "}
+							· {placed.length}{" "}
 							{placed.length === 1 ? t.planner.unit : t.planner.units}
+						</span>
+						<span className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-[12px] text-[#8a857c] shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+							{views(t).find((option) => option.id === view)?.label}
 						</span>
 					</div>
 
@@ -773,6 +824,12 @@ export function StudioScreen({
 								</p>
 							)}
 						</div>
+					)}
+
+					{selection.length === 0 && panel === null && !measureMode && (
+						<p className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[12px] text-[#a2998c]">
+							{t.planner.canvas.selectHint}
+						</p>
 					)}
 
 					<p className="absolute right-3.5 bottom-3.5 hidden max-w-[260px] text-right text-[12px] text-[#8a8580] leading-4 lg:block">
