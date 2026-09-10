@@ -300,12 +300,6 @@ export const ms: Dictionary = {
 			finish: "Kemasan",
 			addCabinet: "Tambah kabinet",
 		},
-		gizmo: {
-			left: "Alih pandangan ke kiri",
-			right: "Alih pandangan ke kanan",
-			up: "Alih pandangan lebih ke dalam",
-			down: "Alih pandangan lebih dekat",
-		},
 		finish: {
 			heading: "Kemasan pintu · seluruh susunan",
 			currentLabel: "{label} · satu warna untuk seluruh bilik",

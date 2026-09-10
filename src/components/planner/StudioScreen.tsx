@@ -706,13 +706,13 @@ export function StudioScreen({
 						measureMode={measureMode}
 						measurePoints={measurePoints}
 						measureAxis={measureAxis}
+						positionMode={verb === "move"}
 						view={view}
 						onLayoutChangeAction={setLayoutAction}
 						onSelectAction={select}
 						onMeasurePickAction={onMeasurePick}
 						pickerRef={pickerRef}
 						hitTestRef={hitTestRef}
-						viewPadLabels={t.planner.gizmo}
 					/>
 
 					{menu && (

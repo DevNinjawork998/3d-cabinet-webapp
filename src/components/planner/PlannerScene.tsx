@@ -1,6 +1,6 @@
 "use client";
 
-import { Html, OrbitControls, Shadow } from "@react-three/drei";
+import { OrbitControls, Shadow } from "@react-three/drei";
 import {
 	Canvas,
 	type ThreeEvent,
@@ -9,7 +9,6 @@ import {
 } from "@react-three/fiber";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-	Group,
 	Object3D,
 	PerspectiveCamera,
 	Vector3 as Vector3Type,
@@ -17,7 +16,6 @@ import type {
 import {
 	type Mesh,
 	type MeshBasicMaterial,
-	Plane,
 	type PlaneGeometry,
 	Raycaster,
 	Vector2,
@@ -57,8 +55,8 @@ import { useCatalogue, useEngine } from "./CatalogueContext";
 import { designPartBoxes, peekDesignMesh } from "./DesignedCabinet";
 import { useFrontSurface, useGrain } from "./grain";
 import { MeasureOverlay } from "./MeasureOverlay";
+import { PositionDimensions } from "./PositionDimensions";
 import { Room } from "./Room";
-import { ViewGizmo } from "./studio/ViewGizmo";
 
 const m = (mm: number) => mm / 1000;
 
@@ -435,6 +433,22 @@ function Run({
 	layoutRef.current = layout;
 	const runWidthMm = layout.wallWidthMm;
 
+	/** Take hold of a cabinet. The grab offset is what stops it snapping its
+	 *  left edge to the pointer — see `dragRef`. */
+	const beginDrag = (
+		e: ThreeEvent<PointerEvent>,
+		position: Positioned,
+		planeZ: number,
+	) => {
+		dragRef.current = {
+			id: position.placed.id,
+			grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
+			planeZ,
+		};
+		setDragging(true);
+		if (controls) controls.enabled = false;
+	};
+
 	const endDrag = useCallback(() => {
 		const drag = dragRef.current;
 		if (!drag) return;
@@ -632,19 +646,105 @@ function Run({
 						}
 						// The group is on the wall plane, so the cabinet's own centre
 						// plane is half its depth in front of it.
-						const planeZ =
+						beginDrag(
+							e,
+							position,
 							-m(layout.roomDepthMm) / 2 +
-							m(WALL_GAP_MM) +
-							m(position.family.depthMm) / 2;
-						dragRef.current = {
-							id: position.placed.id,
-							grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
-							planeZ,
-						};
-						setDragging(true);
-						if (controls) controls.enabled = false;
+								m(WALL_GAP_MM) +
+								m(position.family.depthMm) / 2,
+						);
 					}}
 				/>
+			))}
+
+			{/* Only for a lone selection: four handles over a multi-selection
+			    would each claim to move "the" cabinet. */}
+			{selectedIds.size === 1 &&
+				allPositions(layout)
+					.filter((position) => selectedIds.has(position.placed.id))
+					.map((position) => (
+						<MoveHandle
+							key={position.placed.id}
+							position={position}
+							runWidthMm={runWidthMm}
+							roomDepthMm={layout.roomDepthMm}
+							onGrab={(e, planeZ) => {
+								e.stopPropagation();
+								if (measureMode) return;
+								beginDrag(e, position, planeZ);
+							}}
+						/>
+					))}
+		</group>
+	);
+}
+
+/**
+ * The move handle on the floor under the selected cabinet.
+ *
+ * Dragging the cabinet itself already works, but nothing on screen says so —
+ * this is the affordance, sitting in front of the carcass where it cannot be
+ * confused with the door you are about to open. Pressing it starts exactly
+ * the same drag the carcass starts, so it inherits the live movement, the
+ * neighbour clamping and the snap on release for free.
+ *
+ * Drawn as geometry rather than a DOM overlay on purpose: an HTML element
+ * would capture the pointer and the scene would stop receiving the moves that
+ * drive the drag.
+ */
+function MoveHandle({
+	position,
+	runWidthMm,
+	roomDepthMm,
+	onGrab,
+}: {
+	position: Positioned;
+	runWidthMm: number;
+	roomDepthMm: number;
+	onGrab: (e: ThreeEvent<PointerEvent>, planeZ: number) => void;
+}) {
+	const centreX = m(position.xMm + position.widthMm / 2 - runWidthMm / 2);
+	// Two different frames, and mixing them is the bug this comment exists to
+	// stop: the handle is drawn inside the run's group, which already sits on
+	// the wall plane, so its own position is measured from there — but the
+	// drag reads a world ray, so the plane it solves against is a world z.
+	const planeZ =
+		-m(roomDepthMm) / 2 + m(WALL_GAP_MM) + m(position.family.depthMm) / 2;
+	// Just in front of the carcass, flat on the floor.
+	const localZ = m(position.family.depthMm) + 0.16;
+
+	return (
+		<group
+			position={[centreX, 0.012, localZ]}
+			rotation={[-Math.PI / 2, 0, 0]}
+			onPointerDown={(e) => onGrab(e, planeZ)}
+		>
+			<mesh>
+				<circleGeometry args={[0.115, 32]} />
+				<meshBasicMaterial color="#ffffff" transparent opacity={0.95} />
+			</mesh>
+			<mesh position={[0, 0, 0.001]}>
+				<ringGeometry args={[0.105, 0.115, 32]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			{/* Two bars and four heads: the ✥ that says "drag me along". */}
+			<mesh position={[0, 0, 0.002]}>
+				<planeGeometry args={[0.13, 0.014]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			<mesh position={[0, 0, 0.002]}>
+				<planeGeometry args={[0.014, 0.13]} />
+				<meshBasicMaterial color="#1f5138" />
+			</mesh>
+			{[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle) => (
+				<mesh
+					key={angle}
+					position={[Math.cos(angle) * 0.075, Math.sin(angle) * 0.075, 0.002]}
+					rotation={[0, 0, angle - Math.PI / 2]}
+				>
+					<circleGeometry args={[0.022, 3]} />
+					<meshBasicMaterial color="#1f5138" />
+				</mesh>
 			))}
 		</group>
 	);
@@ -1004,146 +1104,6 @@ function WorktopMaterial({ width, depth }: { width: number; depth: number }) {
 /** Module-level so the default never changes identity between renders. */
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 
-export type ViewPadLabels = {
-	left: string;
-	right: string;
-	up: string;
-	down: string;
-};
-
-/** How far one press slides the view. A quarter of a metre is a visible step
- *  on a 4m run without throwing the room off screen. */
-const PAN_STEP_M = 0.25;
-
-/**
- * The pad on the floor in front of the run.
- *
- * It slides the view across the floor plane — a pan, not a turn. Dragging
- * already rotates and `OrbitControls` has panning switched off, so before this
- * there was no way to shift a long run sideways to look at its far end; you
- * could only spin around it.
- *
- * The step is taken along the camera's own axes flattened onto the floor, so
- * left is always screen-left however the room has been turned. Camera and
- * target move together, which is what keeps it a pan rather than an orbit.
- */
-function ViewPad({
-	labels,
-	roomDepthMm,
-}: {
-	labels: ViewPadLabels;
-	roomDepthMm: number;
-}) {
-	const camera = useThree((s) => s.camera);
-	const gl = useThree((s) => s.gl);
-	const controls = useThree((s) => s.controls) as {
-		target: Vector3Type;
-		update: () => void;
-	} | null;
-
-	/** The floor, as maths rather than geometry: the drag reads a point on it
-	 *  even where the room's own floor plane has been panned out of frame. */
-	const FLOOR = useMemo(() => new Plane(new Vector3(0, 1, 0), 0), []);
-	const raycaster = useMemo(() => new Raycaster(), []);
-	const ndc = useMemo(() => new Vector2(), []);
-	const grabbed = useRef<Vector3 | null>(null);
-
-	/** Where this pointer crosses the floor, in world metres. */
-	const floorPointOf = (clientX: number, clientY: number) => {
-		const rect = gl.domElement.getBoundingClientRect();
-		ndc.set(
-			((clientX - rect.left) / rect.width) * 2 - 1,
-			-((clientY - rect.top) / rect.height) * 2 + 1,
-		);
-		raycaster.setFromCamera(ndc, camera);
-		const hit = new Vector3();
-		return raycaster.ray.intersectPlane(FLOOR, hit) ? hit : null;
-	};
-
-	/**
-	 * Grab the floor and pull it. Camera and target both move by whatever it
-	 * takes to put the grabbed point back under the pointer, which is why the
-	 * anchor stays good for the whole drag: after each step the same screen
-	 * point maps to the same floor point again.
-	 */
-	const onPointerDown = (e: React.PointerEvent) => {
-		const point = floorPointOf(e.clientX, e.clientY);
-		if (!point) return;
-		grabbed.current = point;
-		(e.target as Element).setPointerCapture?.(e.pointerId);
-	};
-	const onPointerMove = (e: React.PointerEvent) => {
-		if (!grabbed.current || !controls) return;
-		const point = floorPointOf(e.clientX, e.clientY);
-		if (!point) return;
-		const delta = grabbed.current.clone().sub(point);
-		camera.position.add(delta);
-		controls.target.add(delta);
-		controls.update();
-	};
-	const endDrag = (e: React.PointerEvent) => {
-		grabbed.current = null;
-		(e.target as Element).releasePointerCapture?.(e.pointerId);
-	};
-
-	/** `x` slides across the screen, `z` into and out of it. */
-	const pan = (x: number, z: number) => () => {
-		if (!controls) return;
-		// The camera's own right and forward, flattened onto the floor: panning
-		// must not fly the view upwards when the camera is tilted down.
-		const right = new Vector3()
-			.setFromMatrixColumn(camera.matrix, 0)
-			.setY(0)
-			.normalize();
-		const forward = new Vector3(0, 1, 0).cross(right).normalize();
-		const step = right
-			.multiplyScalar(x * PAN_STEP_M)
-			.addScaledVector(forward, z * PAN_STEP_M);
-
-		camera.position.add(step);
-		controls.target.add(step);
-		controls.update();
-	};
-
-	// The pad rides the view's own centre rather than a fixed spot on the
-	// floor. Anchored to the room it would slide off screen after a few
-	// presses — taking with it the only control that could bring the view
-	// back.
-	const anchor = useRef<Group>(null);
-	useFrame(() => {
-		if (!anchor.current || !controls) return;
-		anchor.current.position.set(
-			controls.target.x,
-			0.02,
-			controls.target.z + m(roomDepthMm) / 4,
-		);
-	});
-
-	return (
-		<group ref={anchor}>
-			<Html position={[0, 0, 0]} center zIndexRange={[5, 0]}>
-				{/* The arrows inside are the keyboard path; this wrapper only
-				    adds dragging for a pointer. */}
-				<div
-					onPointerDown={onPointerDown}
-					onPointerMove={onPointerMove}
-					onPointerUp={endDrag}
-					onPointerCancel={endDrag}
-					className="cursor-grab touch-none active:cursor-grabbing"
-				>
-					<ViewGizmo
-						labels={labels}
-						onLeftAction={pan(-1, 0)}
-						onRightAction={pan(1, 0)}
-						onUpAction={pan(0, 1)}
-						onDownAction={pan(0, -1)}
-					/>
-				</div>
-			</Html>
-		</group>
-	);
-}
-
 export default function PlannerScene({
 	layout,
 	finish,
@@ -1155,13 +1115,13 @@ export default function PlannerScene({
 	measureMode = false,
 	measurePoints = [],
 	measureAxis = "auto",
+	positionMode = false,
 	view = "3d",
 	onLayoutChangeAction,
 	onSelectAction,
 	onMeasurePickAction,
 	pickerRef,
 	hitTestRef,
-	viewPadLabels,
 }: {
 	layout: PlannerLayout;
 	finish: FinishId;
@@ -1193,6 +1153,9 @@ export default function PlannerScene({
 	/** Which axis the second pick is constrained to. Defaults to `auto`, which
 	 * is what makes a roughly-vertical pick read as a clean height. */
 	measureAxis?: MeasureAxis;
+	/** Whether the Position verb is open. The offset callouts are that panel's
+	 * readout, so they come up with it and not on plain selection. */
+	positionMode?: boolean;
 	onLayoutChangeAction: (next: PlannerLayout) => void;
 	onSelectAction: (id: string | null, additive: boolean) => void;
 	onMeasurePickAction?: (snap: SnapPoint) => void;
@@ -1203,10 +1166,6 @@ export default function PlannerScene({
 	hitTestRef: React.RefObject<
 		((clientX: number, clientY: number) => string | null) | null
 	>;
-	/** Copy for the floor pad that turns the room. Absent means no pad — the
-	 * quote screen draws the same scene with no controls on it. Passed as
-	 * strings because React context does not cross into the canvas. */
-	viewPadLabels?: ViewPadLabels;
 }) {
 	const catalogue = useCatalogue();
 	const engine = useEngine();
@@ -1221,6 +1180,18 @@ export default function PlannerScene({
 	// a fresh measurement, which has nothing to constrain against.
 	const measureAnchor =
 		measurePoints.length === 1 ? measurePoints[0].point : null;
+
+	// Where the one selected cabinet sits. Only ever one: two selected cabinets
+	// have two sets of gaps and the lines would cross each other's labels, and
+	// the measuring tool owns the screen while it is up.
+	const lonelyId =
+		positionMode && selectedIds.size === 1 && !measureMode
+			? [...selectedIds][0]
+			: null;
+	const positioned = lonelyId
+		? engine.allPositions(layout).find((p) => p.placed.id === lonelyId)
+		: undefined;
+	const offsets = lonelyId ? engine.offsetsOf(layout, lonelyId) : null;
 
 	return (
 		<Canvas
@@ -1270,6 +1241,14 @@ export default function PlannerScene({
 				points={measurePoints}
 				previewPoint={measureMode ? hoverPoint : null}
 			/>
+			{positioned && offsets && (
+				<PositionDimensions
+					position={positioned}
+					offsets={offsets}
+					layout={layout}
+					engine={engine}
+				/>
+			)}
 
 			<DropPicker runWidthMm={runWidthMm} pickerRef={pickerRef} />
 			<CabinetHitTest hitTestRef={hitTestRef} />
@@ -1291,12 +1270,6 @@ export default function PlannerScene({
 				ceilingHeightMm={layout.ceilingHeightMm}
 				view={view}
 			/>
-
-			{/* Only in 3D: the flat views are axis-locked on purpose — the point
-			    of an elevation is that it stays square. */}
-			{viewPadLabels && view === "3d" && (
-				<ViewPad labels={viewPadLabels} roomDepthMm={layout.roomDepthMm} />
-			)}
 		</Canvas>
 	);
 }

@@ -280,12 +280,6 @@ export const zh: Dictionary = {
 			finish: "饰面",
 			addCabinet: "添加柜子",
 		},
-		gizmo: {
-			left: "视图向左平移",
-			right: "视图向右平移",
-			up: "视图向里平移",
-			down: "视图向外平移",
-		},
 		finish: {
 			heading: "整排门板颜色",
 			currentLabel: "{label} · 整个房间统一色调",

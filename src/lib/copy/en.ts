@@ -296,12 +296,6 @@ export const en = {
 			finish: "Finish",
 			addCabinet: "Add a cabinet",
 		},
-		gizmo: {
-			left: "Slide the view left",
-			right: "Slide the view right",
-			up: "Slide the view further in",
-			down: "Slide the view closer",
-		},
 		finish: {
 			heading: "Front finish · whole run",
 			currentLabel: "{label} · one colour for the whole room",
