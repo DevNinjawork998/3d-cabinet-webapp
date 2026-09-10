@@ -27,6 +27,7 @@ import {
 	fetchMeshFile,
 	putRenderMeshFile,
 	renderMeshPathname,
+	sha256Hex,
 } from "./meshBlob";
 import { getPublishedPlannerCatalogue } from "./store";
 import { createDraftVersion, latestDraftVersion, mergeBase } from "./versions";
@@ -184,7 +185,10 @@ async function prepare(
 			meshNote = `${design.filename} holds ${mesh.triangleCount.toLocaleString()} triangles, past the ${MAX_TRIANGLES.toLocaleString()} a customer on mobile data should download. Drawing this one procedurally instead.`;
 		} else {
 			const bytes = encodeRenderMesh(mesh);
-			const pathname = renderMeshPathname(design.id, design.sha256);
+			// Hashed on the mesh, not on `design.sha256`: the URL is immutable
+			// for a year, so it has to move when a `lib/mesh` fix rewrites the
+			// geometry out of an unchanged source file.
+			const pathname = renderMeshPathname(design.id, sha256Hex(bytes));
 			await putRenderMeshFile(pathname, bytes);
 			await prisma.cabinetDesign.update({
 				where: { id: design.id },

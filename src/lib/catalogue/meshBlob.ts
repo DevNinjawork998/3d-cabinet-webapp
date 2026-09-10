@@ -75,10 +75,15 @@ export async function deleteMeshFile(pathname: string): Promise<void> {
 /**
  * Where a design's derived render mesh lives: `render/<designId>/<sha256>.icbmesh`.
  *
- * The source export's own sha256 is in the name, which makes the pathname
- * change whenever the design does. That is what lets `/api/cabinet-mesh/[id]`
- * serve the bytes `immutable` — a given URL's contents can never change, and a
- * re-upload simply gets a different URL rather than fighting a year-long cache.
+ * The sha256 is of the **mesh bytes**, not of the source export. Both make the
+ * pathname change whenever the design does, which is what lets
+ * `/api/cabinet-mesh/[id]` serve the bytes `immutable`. Only this one also
+ * changes when the *converter* does — and it had to, because a fix to
+ * `lib/mesh` is exactly the case that rewrites the geometry while leaving the
+ * drafter's file untouched. Keyed on the source, a corrected mesh landed at the
+ * URL every browser and every CDN node already held the wrong one for, with a
+ * year to live. An unchanged design reconverted by unchanged code still hashes
+ * to the same name, so republishing is still an overwrite rather than a leak.
  */
 export const renderMeshPathname = (designId: string, sha256: string) =>
 	`render/${designId}/${sha256}.icbmesh`;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PLANNER_CATALOGUE } from "@/lib/planner/catalogue";
 
@@ -125,6 +126,8 @@ vi.mock("../meshBlob", () => ({
 	putRenderMeshFile: async () => undefined,
 	renderMeshPathname: (id: string, sha: string) =>
 		`render/${id}/${sha}.icbmesh`,
+	sha256Hex: (bytes: Uint8Array) =>
+		createHash("sha256").update(bytes).digest("hex"),
 }));
 
 vi.mock("../store", () => ({
