@@ -189,6 +189,16 @@ const find = (
 	return null;
 };
 
+/**
+ * Whether this cabinet has a hang height of its own to drag.
+ *
+ * The scene needs the same answer `dragModule` acts on — a handle that stands
+ * up and offers an axis the engine has stopped granting is worse than no
+ * handle — so the rule lives here once and both read it.
+ */
+export const canHangAt = (layout: PlannerLayout, id: string): boolean =>
+	!layout.wallToCeiling && find(layout, id)?.row === "wall";
+
 const withX = (
 	layout: PlannerLayout,
 	row: Row,
@@ -1339,17 +1349,10 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		id: string,
 		to: { xMm: number; hangAtMm?: number },
 	): PlannerLayout {
-		const found = find(layout, id);
-		if (!found) return layout;
+		if (!find(layout, id)) return layout;
 
 		const moved = moveModule(layout, id, to.xMm);
-		if (
-			to.hangAtMm === undefined ||
-			found.row !== "wall" ||
-			moved.wallToCeiling
-		) {
-			return moved;
-		}
+		if (to.hangAtMm === undefined || !canHangAt(moved, id)) return moved;
 		return setHangAt(moved, id, to.hangAtMm);
 	}
 

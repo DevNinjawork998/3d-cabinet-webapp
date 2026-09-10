@@ -37,10 +37,11 @@ import {
 	type SideGaps,
 	sideGapsMm,
 } from "@/lib/planner/exposure";
-import type {
-	PlannerEngine,
-	PlannerLayout,
-	Positioned,
+import {
+	canHangAt,
+	type PlannerEngine,
+	type PlannerLayout,
+	type Positioned,
 } from "@/lib/planner/layout";
 import {
 	apertureMm,
@@ -109,13 +110,6 @@ function runPointFromRay(
 		yMm: (origin.y + direction.y * t) * 1000,
 	};
 }
-
-/** Just the distance along the run — what a drop or a sideways drag needs. */
-const runXFromRay = (
-	e: ThreeEvent<PointerEvent>,
-	planeZ: number,
-	runWidthMm: number,
-) => runPointFromRay(e, planeZ, runWidthMm).xMm;
 
 function FitCamera({
 	runWidthMm,
@@ -435,6 +429,14 @@ function Run({
 		 * touch it.
 		 */
 		grabYMm: number;
+		/**
+		 * Whether this grab may move the cabinet vertically. Decided once, at
+		 * the grab, because it is a property of the affordance taken hold of:
+		 * the handle offers both axes, the carcass only slides. Without it a
+		 * sideways nudge on a wall unit's door re-hangs it by whatever the
+		 * pointer wobbled.
+		 */
+		vertical: boolean;
 		/** World z of the plane this cabinet lives in — see runPointFromRay. */
 		planeZ: number;
 	} | null>(null);
@@ -455,12 +457,14 @@ function Run({
 		e: ThreeEvent<PointerEvent>,
 		position: Positioned,
 		planeZ: number,
+		vertical = false,
 	) => {
 		const pointer = runPointFromRay(e, planeZ, runWidthMm);
 		dragRef.current = {
 			id: position.placed.id,
 			grabMm: pointer.xMm - position.xMm,
 			grabYMm: pointer.yMm - floorHeightMmOf(position, layout),
+			vertical,
 			planeZ,
 		};
 		setDragging(true);
@@ -565,7 +569,7 @@ function Run({
 					const pointer = runPointFromRay(e, drag.planeZ, runWidthMm);
 					const next = dragModule(layoutRef.current, drag.id, {
 						xMm: pointer.xMm - drag.grabMm,
-						hangAtMm: pointer.yMm - drag.grabYMm,
+						hangAtMm: drag.vertical ? pointer.yMm - drag.grabYMm : undefined,
 					});
 					if (next === layoutRef.current) return;
 
@@ -686,13 +690,11 @@ function Run({
 							runWidthMm={runWidthMm}
 							roomDepthMm={layout.roomDepthMm}
 							floorHeightMm={floorHeightMmOf(position, layout)}
-							vertical={
-								position.family.kind === "wall" && !layout.wallToCeiling
-							}
-							onGrab={(e, planeZ) => {
+							vertical={canHangAt(layout, position.placed.id)}
+							onGrab={(e, planeZ, vertical) => {
 								e.stopPropagation();
 								if (measureMode) return;
-								beginDrag(e, position, planeZ);
+								beginDrag(e, position, planeZ, vertical);
 							}}
 						/>
 					))}
@@ -728,7 +730,11 @@ function MoveHandle({
 	floorHeightMm: number;
 	/** Whether this one can be dragged up and down as well as along. */
 	vertical: boolean;
-	onGrab: (e: ThreeEvent<PointerEvent>, planeZ: number) => void;
+	onGrab: (
+		e: ThreeEvent<PointerEvent>,
+		planeZ: number,
+		vertical: boolean,
+	) => void;
 }) {
 	const centreX = m(position.xMm + position.widthMm / 2 - runWidthMm / 2);
 	// Two different frames, and mixing them is the bug this comment exists to
@@ -738,18 +744,23 @@ function MoveHandle({
 	const planeZ =
 		-m(roomDepthMm) / 2 + m(WALL_GAP_MM) + m(position.family.depthMm) / 2;
 	const localZ = m(position.family.depthMm) + 0.16;
+	// What kind of cabinet it is, not how high it happens to sit:
+	// `floorHeightMm` is catalogue data an admin can set on a base family, and
+	// a floor unit raised that way would get the hung cabinet's upright handle
+	// while `vertical` stayed false — a handle that stands up and cannot move up.
+	const hangs = position.family.kind === "wall";
 	// A cabinet on the floor gets its handle on the floor in front of it; one
 	// that hangs gets it just below its own underside, where it reads as
 	// belonging to that cabinet rather than to whatever stands beneath it.
-	const y = floorHeightMm > 0 ? m(floorHeightMm) - 0.14 : 0.012;
+	const y = hangs ? m(floorHeightMm) - 0.14 : 0.012;
 
 	return (
 		<group
-			position={[centreX, y, floorHeightMm > 0 ? localZ - 0.1 : localZ]}
+			position={[centreX, y, hangs ? localZ - 0.1 : localZ]}
 			// Flat on the floor for a cabinet that stands on it; facing the room
 			// for one that hangs.
-			rotation={floorHeightMm > 0 ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
-			onPointerDown={(e) => onGrab(e, planeZ)}
+			rotation={hangs ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
+			onPointerDown={(e) => onGrab(e, planeZ, vertical)}
 		>
 			<mesh>
 				<circleGeometry args={[0.115, 32]} />

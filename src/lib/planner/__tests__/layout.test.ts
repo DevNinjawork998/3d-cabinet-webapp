@@ -440,8 +440,19 @@ describe("dragModule", () => {
 		const placed = addModule(layout, "wall-cabinet", 0, "w", 600);
 		const low = dragModule(placed, "w", { xMm: 0, hangAtMm: 100 });
 		const high = dragModule(placed, "w", { xMm: 0, hangAtMm: 9000 });
-		expect(low.wall[0].hangAtMm).toBe(WALL_HANG_LIMITS.minMm);
-		expect(high.wall[0].hangAtMm).toBe(WALL_HANG_LIMITS.maxMm);
+		// The literals, not WALL_HANG_LIMITS: asserting the constant `setHangAt`
+		// clamps with restates the implementation and would follow it anywhere.
+		expect(low.wall.find((m) => m.id === "w")?.hangAtMm).toBe(1200);
+		expect(high.wall.find((m) => m.id === "w")?.hangAtMm).toBe(1800);
+	});
+
+	it("clamps both axes in the one call", () => {
+		let placed = addModule(layout, "wall-cabinet", 0, "w", 600);
+		placed = addModule(placed, "wall-cabinet", 600, "n", 600);
+		const next = dragModule(placed, "w", { xMm: 500, hangAtMm: 9000 });
+		expect(at(next, "w")).toBe(0);
+		expect(next.wall.find((m) => m.id === "w")?.hangAtMm).toBe(1800);
+		expectNoOverlaps(next);
 	});
 
 	it("leaves the hang height alone in ceiling mode, which aligns the tops", () => {
@@ -458,6 +469,16 @@ describe("dragModule", () => {
 		const next = dragModule(placed, "a", { xMm: 500 });
 		// Clamped flush against "b" at 600, not sitting inside it.
 		expect(at(next, "a")).toBe(0);
+		expectNoOverlaps(next);
+	});
+
+	// The wall row is where the new axis lives, and its neighbour set is not
+	// the floor row's — a tall unit occupies both.
+	it("stops against a neighbour on the wall row too", () => {
+		let placed = addModule(layout, "wall-cabinet", 0, "w", 600);
+		placed = addModule(placed, "tall-cabinet", 600, "t", 600);
+		const next = dragModule(placed, "w", { xMm: 500, hangAtMm: 1500 });
+		expect(at(next, "w")).toBe(0);
 		expectNoOverlaps(next);
 	});
 
