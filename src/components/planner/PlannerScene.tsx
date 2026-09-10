@@ -110,13 +110,6 @@ function runPointFromRay(
 	};
 }
 
-/** Just the distance along the run — what a drop or a sideways drag needs. */
-const runXFromRay = (
-	e: ThreeEvent<PointerEvent>,
-	planeZ: number,
-	runWidthMm: number,
-) => runPointFromRay(e, planeZ, runWidthMm).xMm;
-
 function FitCamera({
 	runWidthMm,
 	roomDepthMm,
@@ -352,9 +345,9 @@ function Run({
 	const viewportHeightPx = useThree((s) => s.size.height);
 	const {
 		allPositions,
+		dragModule,
 		dropModule,
 		floorHeightMmOf,
-		moveModule,
 		overhangingIds,
 		positionsOf,
 	} = engine;
@@ -428,7 +421,14 @@ function Run({
 	const dragRef = useRef<{
 		id: string;
 		grabMm: number;
-		/** World z of the plane this cabinet lives in — see runXFromRay. */
+		/**
+		 * How far above the cabinet's underside the pointer took hold. The
+		 * vertical twin of `grabMm`, and it exists for the same reason: without
+		 * it a wall unit snaps its underside to the cursor the instant you
+		 * touch it.
+		 */
+		grabYMm: number;
+		/** World z of the plane this cabinet lives in — see runPointFromRay. */
 		planeZ: number;
 	} | null>(null);
 	const [dragging, setDragging] = useState(false);
@@ -449,9 +449,11 @@ function Run({
 		position: Positioned,
 		planeZ: number,
 	) => {
+		const pointer = runPointFromRay(e, planeZ, runWidthMm);
 		dragRef.current = {
 			id: position.placed.id,
-			grabMm: runXFromRay(e, planeZ, runWidthMm) - position.xMm,
+			grabMm: pointer.xMm - position.xMm,
+			grabYMm: pointer.yMm - floorHeightMmOf(position, layout),
 			planeZ,
 		};
 		setDragging(true);
@@ -553,20 +555,19 @@ function Run({
 					if (!drag) return;
 					e.stopPropagation();
 
-					const pointerMm = runXFromRay(e, drag.planeZ, runWidthMm);
-					const next = moveModule(
-						layoutRef.current,
-						drag.id,
-						pointerMm - drag.grabMm,
-					);
+					const pointer = runPointFromRay(e, drag.planeZ, runWidthMm);
+					const next = dragModule(layoutRef.current, drag.id, {
+						xMm: pointer.xMm - drag.grabMm,
+						hangAtMm: pointer.yMm - drag.grabYMm,
+					});
 					if (next === layoutRef.current) return;
 
-					// Re-anchor to where the cabinet actually ended up, so a cabinet
-					// held against its neighbour starts moving the instant you reverse.
+					// Re-anchor to where the cabinet actually ended up, so one held
+					// against its neighbour starts moving the instant you reverse.
 					const settled = [...next.floor, ...next.wall].find(
 						(placed) => placed.id === drag.id,
 					);
-					if (settled) drag.grabMm = pointerMm - settled.xMm;
+					if (settled) drag.grabMm = pointer.xMm - settled.xMm;
 					onLayoutChange(next);
 				}}
 			>
