@@ -45,6 +45,7 @@ import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
+import { type StudioTool, ToolRail } from "./studio/ToolRail";
 import { FamilyThumb } from "./thumbs";
 
 function ScenePlaceholder() {
@@ -254,7 +255,12 @@ export function StudioScreen({
 	// A view mode, not a property of the design — same reasoning as `openIds`,
 	// and it must not ride along in a share link or a quote either.
 	const [doorsHidden, setDoorsHidden] = useState(false);
-	const [measureMode, setMeasureMode] = useState(false);
+	// The rail's active tool. `select` is the resting state, `measure` is what
+	// used to be `measureMode`, and the other four open the overlay panel. One
+	// piece of state rather than two, so the rail and the panel can never
+	// disagree about what is open.
+	const [tool, setTool] = useState<StudioTool>("select");
+	const measureMode = tool === "measure";
 	const [measurePoints, setMeasurePoints] = useState<SnapPoint[]>([]);
 	// Which axis the second pick is pulled onto. `auto` infers it from the
 	// direction of the pick, which is what turns a roughly-vertical pair of
@@ -269,6 +275,16 @@ export function StudioScreen({
 				? selectedIds.filter((current) => current !== id)
 				: [...selectedIds, id],
 		);
+	};
+
+	const pressTool = (next: StudioTool) => {
+		setTool((current) => (current === next ? "select" : next));
+		if (next !== "measure") return;
+		setMeasurePoints([]);
+		// A dimension line taken to a door drawn open is a wrong number shown to
+		// a customer: `snapToCabinet` snaps against the closed geometry either
+		// way. Shut them rather than measure a lie.
+		setOpenIds(new Set());
 	};
 
 	const removeSelected = () => {
@@ -370,14 +386,7 @@ export function StudioScreen({
 			>
 				<button
 					type="button"
-					onClick={() => {
-						setMeasureMode((on) => !on);
-						setMeasurePoints([]);
-						// A dimension line taken to a door drawn open is a wrong number
-						// shown to a customer: `snapToCabinet` snaps against the closed
-						// geometry either way. Shut them rather than measure a lie.
-						setOpenIds(new Set());
-					}}
+					onClick={() => pressTool("measure")}
 					aria-pressed={measureMode}
 					title={t.planner.measure.tooltip}
 					className={`rounded-full px-3 py-1 text-[12px] transition ${
@@ -418,6 +427,8 @@ export function StudioScreen({
 			</PlannerHeader>
 
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+				<ToolRail active={tool} onPressAction={pressTool} />
+
 				<aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[268px] lg:border-r lg:border-b-0">
 					<div className="rounded-lg border border-neutral-200 bg-[#f7f6f4] p-3">
 						<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
