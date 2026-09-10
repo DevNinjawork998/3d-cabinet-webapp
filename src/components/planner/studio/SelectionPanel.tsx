@@ -1,0 +1,286 @@
+"use client";
+
+import { fill } from "@/lib/copy/fill";
+import type { PlannerCatalogue } from "@/lib/planner/catalogueSchema";
+import type {
+	HingeSide,
+	PlannerLayout,
+	Positioned,
+} from "@/lib/planner/layout";
+import { useCopy } from "../CopyContext";
+import { chip, verbBtn } from "./chrome";
+
+/**
+ * Which verb has an open section under the list.
+ *
+ * Duplicate and Remove are on the same list but are not verbs in this sense —
+ * they happen on press and open nothing, so they never become the value here.
+ */
+export type SelectionVerb = "resize" | "replace" | "move" | null;
+
+export function SelectionPanel({
+	catalogue,
+	layout,
+	selected,
+	verb,
+	onVerbAction,
+	widthOptions,
+	replaceOptions,
+	doorsOpen,
+	hingeOptions,
+	leaves,
+	priceLabel,
+	onWidthAction,
+	onReplaceAction,
+	onOffsetAction,
+	onToggleDoorAction,
+	onHingeAction,
+	onDoorStyleAction,
+	onDuplicateAction,
+	onRemoveAction,
+}: {
+	catalogue: PlannerCatalogue;
+	layout: PlannerLayout;
+	selected: Positioned;
+	verb: SelectionVerb;
+	onVerbAction: (verb: SelectionVerb) => void;
+	widthOptions: { widthMm: number; fits: boolean }[];
+	/** Families in the same row as this cabinet — the only legal swaps. */
+	replaceOptions: {
+		id: string;
+		label: string;
+		meta: string;
+		current: boolean;
+	}[];
+	doorsOpen: boolean;
+	hingeOptions: { side: HingeSide; label: string }[];
+	/** How many leaves this front is split into. A pair gets no hinge choice. */
+	leaves: number;
+	priceLabel: string;
+	onWidthAction: (widthMm: number) => void;
+	onReplaceAction: (familyId: string) => void;
+	onOffsetAction: (xMm: number) => void;
+	onToggleDoorAction: () => void;
+	onHingeAction: (side: HingeSide) => void;
+	onDoorStyleAction: (doorStyleId: string | null) => void;
+	onDuplicateAction: () => void;
+	onRemoveAction: () => void;
+}) {
+	const t = useCopy();
+	const isWall = selected.family.kind === "wall";
+	const hangAtMm = selected.placed.hangAtMm ?? layout.hangingHeightMm;
+
+	const verbs = [
+		{
+			key: "resize" as const,
+			label: t.planner.selection.verbResize,
+			meta: `${selected.widthMm} mm`,
+			press: () => onVerbAction(verb === "resize" ? null : "resize"),
+		},
+		{
+			key: "replace" as const,
+			label: t.planner.selection.verbReplace,
+			meta: selected.family.label,
+			press: () => onVerbAction(verb === "replace" ? null : "replace"),
+		},
+		{
+			key: "move" as const,
+			label: t.planner.selection.verbMove,
+			meta: t.planner.selection.moveMeta,
+			press: () => onVerbAction(verb === "move" ? null : "move"),
+		},
+		{
+			key: "doors" as const,
+			label: doorsOpen
+				? t.planner.selection.verbCloseDoors
+				: t.planner.selection.verbOpenDoors,
+			meta: "",
+			press: onToggleDoorAction,
+			disabled: selected.placed.doorStyleId === null,
+		},
+		{
+			key: "duplicate" as const,
+			label: t.planner.selection.duplicate,
+			meta: "⌘D",
+			press: onDuplicateAction,
+		},
+		{
+			key: "remove" as const,
+			label: t.planner.selection.remove,
+			meta: "Del",
+			danger: true,
+			press: onRemoveAction,
+		},
+	];
+
+	return (
+		<div>
+			<div className="border-[#f0efec] border-b px-4 py-3.5">
+				<p className="font-semibold text-[11px] text-[#1f5138] uppercase tracking-[0.06em]">
+					{t.planner.selection.heading}
+				</p>
+				<p className="mt-1 font-semibold text-[15px]">
+					{fill(t.planner.selection.nameWidth, {
+						name: selected.family.label,
+						width: selected.widthMm,
+					})}
+				</p>
+				<p className="mt-0.5 text-[12px] text-neutral-500">
+					{selected.widthMm} × {selected.family.heightMm} ×{" "}
+					{selected.family.depthMm} mm · {priceLabel}
+					{isWall
+						? ` · ${fill(t.planner.selection.hangsAt, { mm: hangAtMm })}`
+						: ""}
+				</p>
+			</div>
+
+			<div className="flex flex-col gap-1.5 border-[#f0efec] border-b px-4 py-3">
+				{verbs.map((option) => (
+					<button
+						key={option.key}
+						type="button"
+						onClick={option.press}
+						disabled={"disabled" in option ? option.disabled : false}
+						aria-pressed={option.key === verb}
+						className={`${verbBtn(
+							option.key === verb,
+							"danger" in option ? option.danger : false,
+						)} disabled:cursor-not-allowed disabled:text-neutral-300`}
+					>
+						<span className="font-medium text-[13px]">{option.label}</span>
+						<span className="ml-auto text-[11px] text-[#8a857c]">
+							{option.meta}
+						</span>
+					</button>
+				))}
+			</div>
+
+			{verb === "resize" && (
+				<section className="flex flex-col gap-2 border-[#f0efec] border-b px-4 py-3.5">
+					<p className="font-semibold text-[12px] text-neutral-700">
+						{t.planner.selection.width}
+					</p>
+					<div className="flex flex-wrap gap-1">
+						{widthOptions.map((option) => (
+							<button
+								key={option.widthMm}
+								type="button"
+								disabled={!option.fits}
+								onClick={() => onWidthAction(option.widthMm)}
+								aria-pressed={option.widthMm === selected.widthMm}
+								className={`${chip(
+									option.widthMm === selected.widthMm,
+								)} disabled:cursor-not-allowed disabled:text-neutral-300`}
+							>
+								{option.widthMm}
+								{!option.fits && ` · ${t.planner.selection.noRoom}`}
+							</button>
+						))}
+					</div>
+					<p className="text-[11px] text-[#8a857c] leading-[15px]">
+						{fill(t.planner.selection.widthHint, {
+							name: selected.family.label,
+							n: selected.family.sizes.length,
+						})}
+					</p>
+				</section>
+			)}
+
+			{verb === "replace" && (
+				<section className="flex flex-col gap-1.5 border-[#f0efec] border-b px-4 py-3.5">
+					<p className="font-semibold text-[12px] text-neutral-700">
+						{t.planner.selection.replaceHeading}
+					</p>
+					{replaceOptions.map((option) => (
+						<button
+							key={option.id}
+							type="button"
+							onClick={() => onReplaceAction(option.id)}
+							aria-pressed={option.current}
+							className={verbBtn(option.current)}
+						>
+							<span className="font-medium text-[13px]">{option.label}</span>
+							<span className="ml-auto text-[11px] text-[#8a857c]">
+								{option.meta}
+							</span>
+						</button>
+					))}
+				</section>
+			)}
+
+			{verb === "move" && (
+				<section className="flex flex-col gap-2 border-[#f0efec] border-b px-4 py-3.5">
+					<p className="font-semibold text-[12px] text-neutral-700">
+						{t.planner.selection.positionHeading}
+					</p>
+					<div className="flex items-center justify-between gap-2">
+						<label htmlFor="offsetmm" className="text-[12px] text-neutral-500">
+							{t.planner.selection.fromLeftWall}
+						</label>
+						<span className="flex items-center gap-1">
+							<input
+								id="offsetmm"
+								type="number"
+								value={Math.round(selected.xMm)}
+								onChange={(e) => onOffsetAction(Number(e.target.value))}
+								className="w-[70px] rounded-[7px] border border-neutral-300 px-2 py-1.5 text-right text-[12px]"
+							/>
+							<span className="text-[11px] text-[#8a857c]">mm</span>
+						</span>
+					</div>
+					<p className="text-[11px] text-[#8a857c] leading-[15px]">
+						{isWall
+							? t.planner.selection.moveHintWall
+							: t.planner.selection.moveHintFloor}
+					</p>
+				</section>
+			)}
+
+			<section className="flex flex-col gap-2 px-4 py-3.5">
+				<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-[0.06em]">
+					{t.planner.selection.front}
+				</p>
+				<div className="flex flex-wrap gap-1">
+					{catalogue.doorStyles.map((style) => (
+						<button
+							key={style.id}
+							type="button"
+							onClick={() => onDoorStyleAction(style.id)}
+							aria-pressed={selected.placed.doorStyleId === style.id}
+							className={chip(selected.placed.doorStyleId === style.id)}
+						>
+							{style.label}
+						</button>
+					))}
+					{selected.placed.doorStyleId && (
+						<button
+							type="button"
+							onClick={() => onDoorStyleAction(null)}
+							className="min-h-9 px-2 text-[12px] text-neutral-500 underline hover:text-neutral-900"
+						>
+							{t.planner.selection.noDoor}
+						</button>
+					)}
+				</div>
+
+				{/* Only a lone leaf gets a choice: a pair always hinges outward from
+				    the middle, which is the only way a pair is hung. */}
+				{selected.placed.doorStyleId && leaves === 1 && (
+					<div className="flex flex-wrap gap-1">
+						{hingeOptions.map((option) => (
+							<button
+								key={option.side}
+								type="button"
+								onClick={() => onHingeAction(option.side)}
+								aria-pressed={selected.placed.hinge === option.side}
+								className={chip(selected.placed.hinge === option.side)}
+							>
+								{option.label}
+							</button>
+						))}
+					</div>
+				)}
+			</section>
+		</div>
+	);
+}

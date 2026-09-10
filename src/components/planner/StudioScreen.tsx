@@ -20,6 +20,7 @@ import {
 	type HingeSide,
 	type PlannerLayout,
 	type Positioned,
+	rowFor,
 	setDoors,
 	setHinge,
 } from "@/lib/planner/layout";
@@ -43,6 +44,7 @@ import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
 import { RoomPanel } from "./studio/RoomPanel";
+import { SelectionPanel, type SelectionVerb } from "./studio/SelectionPanel";
 import { PanelOption, PanelToggle, StudioPanel } from "./studio/StudioPanel";
 import { type StudioTool, ToolRail } from "./studio/ToolRail";
 import { FamilyThumb } from "./thumbs";
@@ -224,8 +226,10 @@ export function StudioScreen({
 		minWallWidthMm,
 		overhangMm,
 		removeModules,
+		replaceFamily,
 		rowEndMm,
 		runExtentMm,
+		moveModule,
 		setBaseSkirting,
 		setCeilingHeight,
 		setHangingHeight,
@@ -269,6 +273,7 @@ export function StudioScreen({
 	const [measureAxis, setMeasureAxis] = useState<MeasureAxis>("auto");
 
 	const select = (id: string | null, additive: boolean) => {
+		setVerb(null);
 		if (id === null) return setSelectedIdsAction([]);
 		if (!additive) return setSelectedIdsAction([id]);
 		setSelectedIdsAction(
@@ -287,6 +292,29 @@ export function StudioScreen({
 		// way. Shut them rather than measure a lie.
 		setOpenIds(new Set());
 	};
+
+	// Which verb has a section open under the list. Cleared whenever the
+	// selection changes: a Resize panel left open over a different cabinet is
+	// a control pointing at the wrong thing.
+	const [verb, setVerb] = useState<SelectionVerb>(null);
+
+	/** The families this cabinet could become — same row, offered in this room. */
+	const replaceOptionsFor = (position: Positioned) =>
+		catalogue.families
+			.filter(
+				(family) =>
+					rowFor(family.kind) === rowFor(position.family.kind) &&
+					room.familyIds.includes(family.id),
+			)
+			.map((family) => ({
+				id: family.id,
+				label: family.label,
+				meta: fill(t.planner.selection.sizeRangeMeta, {
+					min: family.sizes[0].widthMm,
+					max: family.sizes[family.sizes.length - 1].widthMm,
+				}),
+				current: family.id === position.family.id,
+			}));
 
 	const removeSelected = () => {
 		setLayoutAction((prev) => removeModules(prev, selectedIds));
@@ -764,184 +792,63 @@ export function StudioScreen({
 								</p>
 							</>
 						) : selected ? (
-							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									{t.planner.selection.heading}
-								</p>
-								<p className="mt-0.5 font-semibold text-[15px]">
-									{fill(t.planner.selection.nameWidth, {
-										name: selected.family.label,
-										width: selected.widthMm,
-									})}
-								</p>
-								<div className="mt-3 flex flex-col gap-2.5">
-									<div>
-										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											{t.planner.selection.width}
-										</p>
-										<div className="flex flex-wrap gap-1.5">
-											{widthOptionsFor(layout, selected.placed.id).map(
-												(option) => (
-													<button
-														key={option.widthMm}
-														type="button"
-														disabled={!option.fits}
-														onClick={() =>
-															setLayoutAction((prev) =>
-																setWidth(
-																	prev,
-																	selected.placed.id,
-																	option.widthMm,
-																),
-															)
-														}
-														className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-															option.widthMm === selected.widthMm
-																? "bg-neutral-900 font-medium text-white"
-																: option.fits
-																	? "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-																	: "cursor-not-allowed bg-white text-neutral-300 shadow-[inset_0_0_0_1px_#e5e5e5]"
-														}`}
-													>
-														{option.widthMm}
-														{!option.fits && ` · ${t.planner.selection.noRoom}`}
-													</button>
-												),
-											)}
-										</div>
-									</div>
-
-									<div>
-										<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-											{t.planner.selection.front}
-										</p>
-										<div className="flex flex-wrap gap-1.5">
-											{catalogue.doorStyles.map((style) => (
-												<button
-													key={style.id}
-													type="button"
-													onClick={() =>
-														setLayoutAction((prev) =>
-															setDoors(prev, [selected.placed.id], style.id),
-														)
-													}
-													className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-														selected.placed.doorStyleId === style.id
-															? "bg-neutral-900 font-medium text-white"
-															: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-													}`}
-												>
-													{style.label}
-												</button>
-											))}
-											{selected.placed.doorStyleId && (
-												<button
-													type="button"
-													onClick={() =>
-														setLayoutAction((prev) =>
-															setDoors(prev, [selected.placed.id], null),
-														)
-													}
-													className="rounded-md px-2.5 py-1 text-[12px] text-neutral-500 underline hover:text-neutral-900"
-												>
-													{t.planner.selection.noDoor}
-												</button>
-											)}
-										</div>
-									</div>
-
-									{selected.placed.doorStyleId && (
-										<div>
-											<p className="mb-1.5 font-medium text-[11px] text-neutral-600">
-												{t.planner.selection.swing}
-											</p>
-											<div className="flex flex-wrap gap-1.5">
-												<button
-													type="button"
-													onClick={() =>
-														setOpenIds((prev) => {
-															const next = new Set(prev);
-															if (!next.delete(selected.placed.id)) {
-																next.add(selected.placed.id);
-															}
-															return next;
-														})
-													}
-													aria-pressed={openIds.has(selected.placed.id)}
-													className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-														openIds.has(selected.placed.id)
-															? "bg-neutral-900 font-medium text-white"
-															: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-													}`}
-												>
-													{openIds.has(selected.placed.id)
-														? t.planner.selection.closeDoor
-														: t.planner.selection.openDoor}
-												</button>
-
-												{/* Only a lone leaf gets a choice: a pair always hinges
-											    outward from the middle, which is the only way a pair
-											    is hung. */}
-												{leavesOn(selected, construction) === 1 &&
-													hingeSides(t).map((option) => (
-														<button
-															key={option.side}
-															type="button"
-															onClick={() =>
-																setLayoutAction((prev) =>
-																	setHinge(
-																		prev,
-																		selected.placed.id,
-																		option.side,
-																	),
-																)
-															}
-															aria-pressed={
-																selected.placed.hinge === option.side
-															}
-															className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-																selected.placed.hinge === option.side
-																	? "bg-neutral-900 font-medium text-white"
-																	: "bg-white text-neutral-700 shadow-[inset_0_0_0_1px_#d4d4d4] hover:shadow-[inset_0_0_0_1px_#a3a3a3]"
-															}`}
-														>
-															{option.label}
-														</button>
-													))}
-											</div>
-										</div>
-									)}
-									<div className="flex items-center justify-between">
-										<span className="tabular-nums text-[13px]">
-											{formatRm(
-												price.cabinets.find((l) => l.id === selected.placed.id)
-													?.amountRm ?? 0,
-												{ minimumFractionDigits: 2, maximumFractionDigits: 2 },
-											)}
-										</span>
-										<span className="flex gap-3">
-											<button
-												type="button"
-												onClick={() =>
-													setLayoutAction((prev) =>
-														duplicateModule(prev, selected.placed.id),
-													)
-												}
-												className="text-[12px] text-neutral-500 underline hover:text-neutral-900"
-											>
-												{t.planner.selection.duplicate}
-											</button>
-											<button
-												type="button"
-												onClick={removeSelected}
-												className="text-[12px] text-[#b45309] underline hover:text-[#92400e]"
-											>
-												{t.planner.selection.remove}
-											</button>
-										</span>
-									</div>
-								</div>
-							</>
+							<SelectionPanel
+								catalogue={catalogue}
+								layout={layout}
+								selected={selected}
+								verb={verb}
+								onVerbAction={setVerb}
+								widthOptions={widthOptionsFor(layout, selected.placed.id)}
+								replaceOptions={replaceOptionsFor(selected)}
+								doorsOpen={openIds.has(selected.placed.id)}
+								hingeOptions={hingeSides(t)}
+								leaves={leavesOn(selected, construction)}
+								priceLabel={formatRm(
+									price.cabinets.find((l) => l.id === selected.placed.id)
+										?.amountRm ?? 0,
+									{ maximumFractionDigits: 0 },
+								)}
+								onWidthAction={(widthMm) =>
+									setLayoutAction((prev) =>
+										setWidth(prev, selected.placed.id, widthMm),
+									)
+								}
+								onReplaceAction={(familyId) =>
+									setLayoutAction((prev) =>
+										replaceFamily(prev, selected.placed.id, familyId),
+									)
+								}
+								onOffsetAction={(xMm) =>
+									setLayoutAction((prev) =>
+										moveModule(prev, selected.placed.id, xMm),
+									)
+								}
+								onToggleDoorAction={() =>
+									setOpenIds((prev) => {
+										const next = new Set(prev);
+										if (!next.delete(selected.placed.id)) {
+											next.add(selected.placed.id);
+										}
+										return next;
+									})
+								}
+								onHingeAction={(side) =>
+									setLayoutAction((prev) =>
+										setHinge(prev, selected.placed.id, side),
+									)
+								}
+								onDoorStyleAction={(doorStyleId) =>
+									setLayoutAction((prev) =>
+										setDoors(prev, [selected.placed.id], doorStyleId),
+									)
+								}
+								onDuplicateAction={() =>
+									setLayoutAction((prev) =>
+										duplicateModule(prev, selected.placed.id),
+									)
+								}
+								onRemoveAction={removeSelected}
+							/>
 						) : (
 							<>
 								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
