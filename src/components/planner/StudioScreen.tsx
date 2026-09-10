@@ -43,6 +43,8 @@ import { DimensionField } from "./DimensionField";
 import { AdminLink, PlannerHeader } from "./PlannerHeader";
 import type { PlannerView } from "./PlannerScene";
 import { priceLineDetail, priceLineLabel } from "./priceLineCopy";
+import { DesignRecap } from "./studio/DesignRecap";
+import { PriceFooter } from "./studio/PriceFooter";
 import { RoomPanel } from "./studio/RoomPanel";
 import { SelectionPanel, type SelectionVerb } from "./studio/SelectionPanel";
 import { PanelOption, PanelToggle, StudioPanel } from "./studio/StudioPanel";
@@ -781,16 +783,53 @@ export function StudioScreen({
 				</div>
 
 				<aside className="flex w-full shrink-0 flex-col border-neutral-200 border-t bg-white lg:h-full lg:w-[312px] lg:border-t-0 lg:border-l">
-					<div className="border-neutral-200 border-b bg-[#f2f6fb] p-3.5">
+					<div className="min-h-0 flex-1 overflow-y-auto">
 						{selection.length === 0 ? (
-							<>
-								<p className="font-semibold text-[11px] text-[#2b6cb0] uppercase tracking-wide">
-									{t.planner.selection.heading}
-								</p>
-								<p className="mt-1 text-[13px] text-neutral-500">
-									{t.planner.selection.emptyHint}
-								</p>
-							</>
+							<DesignRecap
+								rows={[
+									{ label: t.planner.design.room, value: room.label },
+									{
+										label: t.planner.design.wall,
+										value: `${(layout.wallWidthMm / 1000).toFixed(2)} m · ${(
+											layout.ceilingHeightMm / 1000
+										).toFixed(2)} m`,
+									},
+									{
+										label: t.planner.design.run,
+										value: `${(runExtentMm(layout) / 1000).toFixed(2)} m · ${
+											placed.length
+										} ${placed.length === 1 ? t.planner.unit : t.planner.units}`,
+									},
+									{
+										label: t.planner.design.wallFree,
+										value:
+											freeMm < 0
+												? fill(t.planner.design.overBy, { mm: -freeMm })
+												: `${freeMm} mm`,
+									},
+									{
+										label: t.planner.design.finish,
+										value:
+											catalogue.finishes.find((f) => f.id === finish)?.label ??
+											"",
+									},
+								]}
+								placed={placed}
+								selectedIds={selectedSet}
+								gapCount={gapCount}
+								prices={Object.fromEntries(
+									price.cabinets.map((line) => [line.id, line.amountRm]),
+								)}
+								onSelectAction={select}
+								onAddAction={() => setTool("add")}
+								onCloseGapsAction={() =>
+									setLayoutAction((prev) => closeGaps(prev))
+								}
+								onResetAction={() => {
+									setLayoutAction(starterFor(roomId));
+									setSelectedIdsAction([]);
+								}}
+							/>
 						) : selected ? (
 							<SelectionPanel
 								catalogue={catalogue}
@@ -953,138 +992,26 @@ export function StudioScreen({
 						</p>
 					</div>
 
-					<div className="flex-1 overflow-y-auto p-3.5">
-						<div className="mb-2 flex items-baseline justify-between gap-2">
-							<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-wide">
-								{fill(t.planner.run.heading, {
-									count: placed.length,
-									unit: placed.length === 1 ? t.planner.unit : t.planner.units,
-								})}
-							</p>
-							<button
-								type="button"
-								onClick={() => setLayoutAction(closeGaps(layout))}
-								disabled={gapCount === 0}
-								className="text-[11px] text-neutral-500 hover:text-neutral-900 disabled:opacity-40"
-							>
-								{gapCount > 0
-									? fill(t.planner.run.closeGapsCount, { n: gapCount })
-									: t.planner.run.closeGaps}
-							</button>
-						</div>
-						<div className="flex flex-col">
-							{placed.map((position) => {
-								const isSelected = selectedSet.has(position.placed.id);
-								const line = price.cabinets.find(
-									(l) => l.id === position.placed.id,
-								);
-								return (
-									<div
-										key={position.placed.id}
-										className={`flex items-center gap-2 border-neutral-100 border-t py-1.5 text-[13px] ${
-											isSelected ? "bg-[#f2f6fb]" : ""
-										}`}
-									>
-										<input
-											type="checkbox"
-											checked={isSelected}
-											aria-label={fill(t.planner.run.selectAria, {
-												name: position.family.label,
-											})}
-											onChange={() => select(position.placed.id, true)}
-										/>
-										<button
-											type="button"
-											onClick={(e) =>
-												select(
-													position.placed.id,
-													e.shiftKey || e.metaKey || e.ctrlKey,
-												)
-											}
-											className="flex-1 text-left"
-										>
-											{position.family.label} {position.widthMm}{" "}
-											<span className="text-[11px] text-neutral-400">
-												{position.placed.doorStyleId ??
-													t.planner.run.noDoorInline}
-											</span>
-										</button>
-										<span className="tabular-nums text-[13px] text-neutral-600">
-											{line ? Math.round(line.amountRm) : 0}
-										</span>
-									</div>
-								);
-							})}
-						</div>
-						{placed.length === 0 && (
-							<p className="text-[12px] text-neutral-500">
-								{t.planner.run.emptyHint}
-							</p>
-						)}
-						<button
-							type="button"
-							onClick={() => {
-								setLayoutAction(starterFor(roomId));
-								setSelectedIdsAction([]);
-							}}
-							className="mt-2 text-[11px] text-neutral-500 underline hover:text-neutral-900"
-						>
-							{t.planner.run.reset}
-						</button>
-					</div>
-
-					<div className="flex flex-col gap-2.5 border-neutral-200 border-t p-3.5">
-						<ul className="flex flex-col gap-1">
-							{price.categories.map((line) => (
-								<li
-									key={line.id}
-									className="flex items-baseline justify-between gap-2 text-[12px]"
-								>
-									<span className="min-w-0 text-neutral-600">
-										{priceLineLabel(t, line)}{" "}
-										<span className="text-[11px] text-neutral-400">
-											{priceLineDetail(t, line)}
-										</span>
-									</span>
-									<span className="shrink-0 tabular-nums">
-										{rm(line.amountRm)}
-									</span>
-								</li>
-							))}
-						</ul>
-
-						{coverPieces.length > 0 && (
-							<p className="text-[11px] text-neutral-500 leading-4">
-								{coverPieces.join(` ${t.planner.price.and} `)}{" "}
-								{coverPieces.length === 1
-									? t.planner.price.includedAboveSingular
-									: t.planner.price.includedAbovePlural}
-							</p>
-						)}
-
-						<div className="flex items-baseline justify-between border-neutral-200 border-t pt-2.5">
-							<span className="text-[13px] text-neutral-500">
-								{t.planner.price.estimatedTotal}
-							</span>
-							<span className="font-semibold text-xl">
-								{formatRm(price.totalRm, { maximumFractionDigits: 0 })}
-							</span>
-						</div>
-						<p className="flex items-center gap-1.5 text-[#b45309] text-[11px] leading-4">
-							<span className="rounded border border-[#b45309] px-1 py-0.5 font-semibold">
-								{t.planner.price.estimateBadge}
-							</span>{" "}
-							{t.planner.price.placeholderNote}
-						</p>
-						<button
-							type="button"
-							onClick={onGoToQuoteAction}
-							disabled={placed.length === 0}
-							className="rounded-lg bg-neutral-900 px-3 py-2.5 font-medium text-[14px] text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
-						>
-							{t.planner.price.cta}
-						</button>
-					</div>
+					<PriceFooter
+						lines={price.categories.map((line) => ({
+							id: line.id,
+							label: priceLineLabel(t, line),
+							detail: priceLineDetail(t, line),
+							amount: rm(line.amountRm),
+						}))}
+						coverNote={
+							coverPieces.length > 0
+								? `${coverPieces.join(` ${t.planner.price.and} `)} ${
+										coverPieces.length === 1
+											? t.planner.price.includedAboveSingular
+											: t.planner.price.includedAbovePlural
+									}`
+								: null
+						}
+						totalLabel={formatRm(price.totalRm, { maximumFractionDigits: 0 })}
+						ctaDisabled={placed.length === 0}
+						onQuoteAction={onGoToQuoteAction}
+					/>
 				</aside>
 			</div>
 		</main>
