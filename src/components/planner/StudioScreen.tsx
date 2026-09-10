@@ -49,6 +49,7 @@ import { DesignRecap } from "./studio/DesignRecap";
 import { MoveGizmo } from "./studio/MoveGizmo";
 import { PriceFooter } from "./studio/PriceFooter";
 import { RoomPanel } from "./studio/RoomPanel";
+import { RunList } from "./studio/RunList";
 import { SelectionPanel, type SelectionVerb } from "./studio/SelectionPanel";
 import { PanelOption, PanelToggle, StudioPanel } from "./studio/StudioPanel";
 import { type StudioTool, ToolRail } from "./studio/ToolRail";
@@ -929,21 +930,7 @@ export function StudioScreen({
 											"",
 									},
 								]}
-								placed={placed}
-								selectedIds={selectedSet}
-								gapCount={gapCount}
-								prices={Object.fromEntries(
-									price.cabinets.map((line) => [line.id, line.amountRm]),
-								)}
-								onSelectAction={select}
 								onAddAction={() => setTool("add")}
-								onCloseGapsAction={() =>
-									setLayoutAction((prev) => closeGaps(prev))
-								}
-								onResetAction={() => {
-									setLayoutAction(starterFor(roomId));
-									setSelectedIdsAction([]);
-								}}
 							/>
 						) : selected ? (
 							<SelectionPanel
@@ -1004,7 +991,7 @@ export function StudioScreen({
 								onRemoveAction={removeSelected}
 							/>
 						) : (
-							<>
+							<div className="p-4">
 								<p className="font-semibold text-[11px] text-[#1f5138] uppercase tracking-[0.06em]">
 									{fill(t.planner.selection.nSelected, { n: selection.length })}
 								</p>
@@ -1061,8 +1048,25 @@ export function StudioScreen({
 										</button>
 									</div>
 								</div>
-							</>
+							</div>
 						)}
+
+						<RunList
+							placed={placed}
+							selectedIds={selectedSet}
+							gapCount={gapCount}
+							prices={Object.fromEntries(
+								price.cabinets.map((line) => [line.id, line.amountRm]),
+							)}
+							onSelectAction={select}
+							onCloseGapsAction={() =>
+								setLayoutAction((prev) => closeGaps(prev))
+							}
+							onResetAction={() => {
+								setLayoutAction(starterFor(roomId));
+								setSelectedIdsAction([]);
+							}}
+						/>
 					</div>
 
 					<div className="border-neutral-200 border-b p-3.5">
