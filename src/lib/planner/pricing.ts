@@ -8,7 +8,12 @@ import {
 	sizePriceRmIn,
 } from "./catalogue";
 import type { PlannerCatalogue } from "./catalogueSchema";
-import { type PlannerLayout, type Positioned, plannerEngine } from "./layout";
+import {
+	inRun,
+	type PlannerLayout,
+	type Positioned,
+	plannerEngine,
+} from "./layout";
 
 /**
  * Indicative planner pricing.
@@ -120,6 +125,11 @@ export function worktopFt(
 	const mm = plannerEngine(catalogue)
 		.positionsOf(layout, "floor")
 		.filter((position) => position.family.kind === "base")
+		// A cabinet lifted off the floor or turned off the wall has left the
+		// counter run, and the scene draws no slab over it. The same predicate
+		// on both sides is what keeps the drawn slab and the billed slab the
+		// same slab — see `inRun`.
+		.filter(inRun)
 		.reduce((total, position) => total + position.widthMm, 0);
 	return ftOf(mm);
 }

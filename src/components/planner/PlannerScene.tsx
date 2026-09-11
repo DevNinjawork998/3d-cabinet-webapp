@@ -42,6 +42,7 @@ import {
 } from "@/lib/planner/exposure";
 import {
 	canHangAt,
+	inRun,
 	type PlannerEngine,
 	type PlannerLayout,
 	type Positioned,
@@ -113,6 +114,36 @@ function runPointFromRay(
 		yMm: (origin.y + direction.y * t) * 1000,
 	};
 }
+
+/**
+ * The same solve turned on its side: where the pointer's ray crosses a
+ * *horizontal* plane, in world millimetres.
+ *
+ * A rotation is a bearing in plan — how far round the cabinet the finger has
+ * gone — and the run's own vertical plane cannot see that. It is the one
+ * gesture in the scene that reads the pointer's z.
+ */
+function planPointFromRay(
+	e: ThreeEvent<PointerEvent>,
+	planeY: number,
+): { xMm: number; zMm: number } {
+	const { origin, direction } = e.ray;
+	// Looking level along the floor there is no crossing to find.
+	const t =
+		Math.abs(direction.y) < 1e-6 ? 0 : (planeY - origin.y) / direction.y;
+	return {
+		xMm: (origin.x + direction.x * t) * 1000,
+		zMm: (origin.z + direction.z * t) * 1000,
+	};
+}
+
+/**
+ * The pointer's bearing about a point in plan, in degrees, in the same sense a
+ * `rotation.y` turns: a group yawed by θ sends its own +z to (sinθ, 0, cosθ),
+ * so the bearing of a direction is `atan2(x, z)`.
+ */
+const bearingDeg = (dxMm: number, dzMm: number) =>
+	(Math.atan2(dxMm, dzMm) * 180) / Math.PI;
 
 function FitCamera({
 	runWidthMm,
@@ -678,6 +709,7 @@ function Run({
 		floorHeightMmOf,
 		overhangingIds,
 		positionsOf,
+		setRotation,
 	} = engine;
 
 	/**
@@ -704,6 +736,29 @@ function Run({
 			z: e.point.z * 1000,
 		};
 		const fov = (camera as PerspectiveCamera).fov ?? 45;
+		// A turned cabinet gets no snap targets at all — the point follows the
+		// pointer instead. `cabinetBoundsMm` and every part box behind the snap
+		// describe an axis-aligned box, and a rotated cabinet is not one; landing
+		// a dimension line on that unrotated ghost would put a wrong number in
+		// front of a customer, which is worse than making them aim by hand.
+		//
+		// ponytail: rotate the corners in `worldPartBoxes` if measuring turned
+		// cabinets is ever asked for.
+		if (position.placed.rotationDeg) {
+			// "Face", "carcass": the ray did hit the cabinet, we simply cannot say
+			// which board — the same report an unsnapped surface point makes.
+			const free: SnapPoint = {
+				point: hitMm,
+				kind: "surface",
+				role: "carcass",
+			};
+			return measureAnchor
+				? {
+						...free,
+						point: constrainToAxis(measureAnchor, free.point, measureAxis),
+					}
+				: free;
+		}
 		// Snap against the drafted mesh when the scene is drawing one, so a
 		// dimension line lands on the real shelf and the real door edge rather
 		// than an idealised box behind them. Read synchronously — a handler
@@ -746,27 +801,49 @@ function Run({
 	 * has to retrace every millimetre of that overshoot before the cabinet moves
 	 * again, which reads as the cabinet sticking.
 	 */
-	const dragRef = useRef<{
-		id: string;
-		grabMm: number;
-		/**
-		 * How far above the cabinet's underside the pointer took hold. The
-		 * vertical twin of `grabMm`, and it exists for the same reason: without
-		 * it a wall unit snaps its underside to the cursor the instant you
-		 * touch it.
-		 */
-		grabYMm: number;
-		/**
-		 * Whether this grab may move the cabinet vertically. Decided once, at
-		 * the grab, because it is a property of the affordance taken hold of:
-		 * the handle offers both axes, the carcass only slides. Without it a
-		 * sideways nudge on a wall unit's door re-hangs it by whatever the
-		 * pointer wobbled.
-		 */
-		vertical: boolean;
-		/** World z of the plane this cabinet lives in — see runPointFromRay. */
-		planeZ: number;
-	} | null>(null);
+	const dragRef = useRef<
+		| {
+				/** Sliding and lifting: the pointer moves the cabinet. */
+				mode: "move";
+				id: string;
+				grabMm: number;
+				/**
+				 * How far above the cabinet's underside the pointer took hold. The
+				 * vertical twin of `grabMm`, and it exists for the same reason: without
+				 * it a wall unit snaps its underside to the cursor the instant you
+				 * touch it.
+				 */
+				grabYMm: number;
+				/**
+				 * Whether this grab may move the cabinet vertically. Decided once, at
+				 * the grab, because it is a property of the affordance taken hold of:
+				 * the handle offers both axes, the carcass only slides. Without it a
+				 * sideways nudge on a wall unit's door re-hangs it by whatever the
+				 * pointer wobbled.
+				 */
+				vertical: boolean;
+				/** World z of the plane this cabinet lives in — see runPointFromRay. */
+				planeZ: number;
+		  }
+		| {
+				/** Turning: the pointer's bearing round the cabinet is the angle. */
+				mode: "rotate";
+				id: string;
+				/** The cabinet's own centre in plan, world mm — what it turns about. */
+				centreXMm: number;
+				centreZMm: number;
+				/** World height of the plane the bearing is read on, in metres. */
+				planeY: number;
+				/**
+				 * Pointer bearing at the grab, minus the cabinet's angle at the grab.
+				 * The same trick as `grabMm` one dimension over: without it the
+				 * cabinet snaps its front round to the finger the instant you touch
+				 * the ring.
+				 */
+				grabDeg: number;
+		  }
+		| null
+	>(null);
 	const [dragging, setDragging] = useState(false);
 	// Which cabinet the measuring tool is over right now, so it can glow the
 	// same way a door-drag target does — the user needs to see which surface
@@ -788,11 +865,42 @@ function Run({
 	) => {
 		const pointer = runPointFromRay(e, planeZ, runWidthMm);
 		dragRef.current = {
+			mode: "move",
 			id: position.placed.id,
 			grabMm: pointer.xMm - position.xMm,
 			grabYMm: pointer.yMm - floorHeightMmOf(position, layout),
 			vertical,
 			planeZ,
+		};
+		setDragging(true);
+		if (controls) controls.enabled = false;
+	};
+
+	/** Take hold of the rotate ring. Its own gesture, so grabbing it never
+	 *  slides the cabinet and grabbing the disc never turns it. */
+	const beginRotate = (
+		e: ThreeEvent<PointerEvent>,
+		position: Positioned,
+		planeY: number,
+	) => {
+		// The handle's own group is drawn inside the run group and lies flat, so
+		// its local frame is not the world's. The bearing has to be read against
+		// the cabinet's world centre or the cabinet turns the wrong way from
+		// half the camera angles.
+		const centreXMm = position.xMm + position.widthMm / 2 - runWidthMm / 2;
+		const centreZMm =
+			-layout.roomDepthMm / 2 + WALL_GAP_MM + position.family.depthMm / 2;
+
+		const pointer = planPointFromRay(e, planeY);
+		dragRef.current = {
+			mode: "rotate",
+			id: position.placed.id,
+			centreXMm,
+			centreZMm,
+			planeY,
+			grabDeg:
+				bearingDeg(pointer.xMm - centreXMm, pointer.zMm - centreZMm) -
+				(position.placed.rotationDeg ?? 0),
 		};
 		setDragging(true);
 		if (controls) controls.enabled = false;
@@ -804,13 +912,24 @@ function Run({
 		dragRef.current = null;
 		setDragging(false);
 		if (controls) controls.enabled = true;
+		// A turn has nothing to settle: `setRotation` already landed it on the
+		// nearest eighth, and running the placement snap here would slide a
+		// cabinet the gesture never touched.
+		if (drag.mode === "rotate") return;
 		// Settle it: flush against a neighbour, a wall end, or the cabinet below.
 		const current = [
 			...layoutRef.current.floor,
 			...layoutRef.current.wall,
 		].find((placed) => placed.id === drag.id);
 		if (!current) return;
-		const next = dropModule(layoutRef.current, drag.id, current.xMm);
+		// Both axes: whichever edge is nearest something worth lining up with
+		// lands on it. `dropModule` drops the height if this one cannot hang.
+		const next = dropModule(
+			layoutRef.current,
+			drag.id,
+			current.xMm,
+			drag.vertical ? current.hangAtMm : undefined,
+		);
 		if (next !== layoutRef.current) onLayoutChange(next);
 	}, [controls, onLayoutChange, dropModule]);
 
@@ -893,6 +1012,20 @@ function Run({
 					if (!drag) return;
 					e.stopPropagation();
 
+					if (drag.mode === "rotate") {
+						const plan = planPointFromRay(e, drag.planeY);
+						const turned = setRotation(
+							layoutRef.current,
+							drag.id,
+							bearingDeg(plan.xMm - drag.centreXMm, plan.zMm - drag.centreZMm) -
+								drag.grabDeg,
+							// Dragged, so let it land on square when it is near it.
+							true,
+						);
+						if (turned !== layoutRef.current) onLayoutChange(turned);
+						return;
+					}
+
 					const pointer = runPointFromRay(e, drag.planeZ, runWidthMm);
 					const next = dragModule(layoutRef.current, drag.id, {
 						xMm: pointer.xMm - drag.grabMm,
@@ -952,6 +1085,7 @@ function Run({
 					xMm={position.xMm}
 					runWidthMm={runWidthMm}
 					floorHeightMm={floorHeightMmOf(position, layout)}
+					rotationDeg={position.placed.rotationDeg}
 					finishHex={finishHex}
 					finishPhoto={finishPhoto}
 					selected={selectedIds.has(position.placed.id)}
@@ -1023,6 +1157,11 @@ function Run({
 								if (measureMode) return;
 								beginDrag(e, position, planeZ, vertical);
 							}}
+							onRotate={(e, planeY) => {
+								e.stopPropagation();
+								if (measureMode) return;
+								beginRotate(e, position, planeY);
+							}}
 						/>
 					))}
 		</group>
@@ -1049,6 +1188,7 @@ function MoveHandle({
 	floorHeightMm,
 	vertical,
 	onGrab,
+	onRotate,
 }: {
 	position: Positioned;
 	runWidthMm: number;
@@ -1062,6 +1202,8 @@ function MoveHandle({
 		planeZ: number,
 		vertical: boolean,
 	) => void;
+	/** Take hold of the ring instead: the world height its bearing is read on. */
+	onRotate: (e: ThreeEvent<PointerEvent>, planeY: number) => void;
 }) {
 	const centreX = m(position.xMm + position.widthMm / 2 - runWidthMm / 2);
 	// Two different frames, and mixing them is the bug this comment exists to
@@ -1071,15 +1213,17 @@ function MoveHandle({
 	const planeZ =
 		-m(roomDepthMm) / 2 + m(WALL_GAP_MM) + m(position.family.depthMm) / 2;
 	const localZ = m(position.family.depthMm) + 0.16;
-	// What kind of cabinet it is, not how high it happens to sit:
-	// `floorHeightMm` is catalogue data an admin can set on a base family, and
-	// a floor unit raised that way would get the hung cabinet's upright handle
-	// while `vertical` stayed false — a handle that stands up and cannot move up.
-	const hangs = position.family.kind === "wall";
+	// How high it actually sits, not what kind it is. A base unit the customer
+	// has lifted needs the hung cabinet's treatment — a handle left on the floor
+	// under a cabinet two feet above it belongs to neither.
+	const hangs = floorHeightMm > 0;
 	// A cabinet on the floor gets its handle on the floor in front of it; one
-	// that hangs gets it just below its own underside, where it reads as
+	// off the floor gets it just below its own underside, where it reads as
 	// belonging to that cabinet rather than to whatever stands beneath it.
 	const y = hangs ? m(floorHeightMm) - 0.14 : 0.012;
+	// The plane the ring's bearing is solved against. The handle's own y in
+	// world terms — the group is only ever translated, never lifted by a parent.
+	const planeY = y;
 
 	return (
 		<group
@@ -1089,6 +1233,29 @@ function MoveHandle({
 			rotation={hangs ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
 			onPointerDown={(e) => onGrab(e, planeZ, vertical)}
 		>
+			{/* The rotate ring, outside the move disc so the two gestures never
+			    share a pixel. Drawn first and pressed on its own, so taking hold
+			    of it turns the cabinet and never slides it. */}
+			<mesh
+				position={[0, 0, -0.001]}
+				onPointerDown={(e) => onRotate(e, planeY)}
+			>
+				<ringGeometry args={[0.145, 0.185, 40]} />
+				<meshBasicMaterial color="#1f5138" transparent opacity={0.5} />
+			</mesh>
+			{/* Two heads chasing each other round it: the ↻ that says "turn me". */}
+			{[Math.PI / 2, -Math.PI / 2].map((angle) => (
+				<mesh
+					key={angle}
+					position={[Math.cos(angle) * 0.165, Math.sin(angle) * 0.165, 0.001]}
+					rotation={[0, 0, angle]}
+					onPointerDown={(e) => onRotate(e, planeY)}
+				>
+					<circleGeometry args={[0.03, 3]} />
+					<meshBasicMaterial color="#1f5138" />
+				</mesh>
+			))}
+
 			<mesh>
 				<circleGeometry args={[0.115, 32]} />
 				<meshBasicMaterial color="#ffffff" transparent opacity={0.95} />
@@ -1194,24 +1361,29 @@ function ContactShadows({
 	const { positionsOf, floorHeightMmOf } = engine;
 	return (
 		<>
-			{positionsOf(layout, "floor").map((position) => (
-				<Shadow
-					key={position.placed.id}
-					position={[
-						m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
-						0.004,
-						m(position.family.depthMm * 0.62),
-					]}
-					rotation={[-Math.PI / 2, 0, 0]}
-					scale={[
-						m(position.widthMm) * 1.15,
-						m(position.family.depthMm) * 1.7,
-						1,
-					]}
-					opacity={0.5}
-					color="#151311"
-				/>
-			))}
+			{/* Only for a cabinet that is actually standing on the floor. A pool
+			    under one the customer has lifted grounds nothing — it is a shadow
+			    with no contact to fake. */}
+			{positionsOf(layout, "floor")
+				.filter((position) => position.placed.hangAtMm === undefined)
+				.map((position) => (
+					<Shadow
+						key={position.placed.id}
+						position={[
+							m(position.xMm + position.widthMm / 2 - runWidthMm / 2),
+							0.004,
+							m(position.family.depthMm * 0.62),
+						]}
+						rotation={[-Math.PI / 2, 0, 0]}
+						scale={[
+							m(position.widthMm) * 1.15,
+							m(position.family.depthMm) * 1.7,
+							1,
+						]}
+						opacity={0.5}
+						color="#151311"
+					/>
+				))}
 
 			{/* Wall units get a soft patch on the wall itself, offset down so it
 			    peeks out below the carcass — the cue that says "hung on that wall"
@@ -1264,6 +1436,10 @@ function Worktop({
 	}> = [];
 	for (const position of positionsOf(layout, "floor")) {
 		if (position.family.kind !== "base") continue;
+		// A cabinet lifted off the floor or turned off the wall has left the
+		// counter run — see `inRun`. Skipping it also breaks the span either side,
+		// which is right: a slab does not bridge over a hole in the run.
+		if (!inRun(position)) continue;
 		const topMm = position.family.floorHeightMm + position.family.heightMm;
 		const previous = spans[spans.length - 1];
 		if (

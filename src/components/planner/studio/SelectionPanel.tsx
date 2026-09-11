@@ -36,6 +36,7 @@ export function SelectionPanel({
 	onSwapAction,
 	canSwap,
 	onHangAtAction,
+	onRotationAction,
 	onToggleDoorAction,
 	onHingeAction,
 	onDoorStyleAction,
@@ -64,9 +65,11 @@ export function SelectionPanel({
 	onReplaceAction: (familyId: string) => void;
 	onOffsetAction: (xMm: number) => void;
 	onSwapAction: (direction: 1 | -1) => void;
-	/** Wall cabinets only — the row hangs at one height and this one may sit
-	 * off it. */
+	/** Any cabinet — the row it belongs to has a height and this one may sit
+	 * off it, on the floor as readily as on the wall. */
 	onHangAtAction: (mm: number) => void;
+	/** Turn it on the spot, in degrees. */
+	onRotationAction: (deg: number) => void;
 	/** Whether there is a cabinet on that side to trade places with. */
 	canSwap: { left: boolean; right: boolean };
 	onToggleDoorAction: () => void;
@@ -77,7 +80,9 @@ export function SelectionPanel({
 }) {
 	const t = useCopy();
 	const isWall = selected.family.kind === "wall";
-	const hangAtMm = selected.placed.hangAtMm ?? layout.hangingHeightMm;
+	const hangAtMm =
+		selected.placed.hangAtMm ??
+		(isWall ? layout.hangingHeightMm : selected.family.floorHeightMm);
 
 	const verbs = [
 		{
@@ -137,8 +142,13 @@ export function SelectionPanel({
 				<p className="mt-0.5 text-[12px] text-neutral-500">
 					{selected.widthMm} × {selected.family.heightMm} ×{" "}
 					{selected.family.depthMm} mm · {priceLabel}
-					{isWall
+					{/* The height only when it is worth saying: a hung cabinet always
+					    has one, and a floor unit only once it has been lifted. */}
+					{isWall || selected.placed.hangAtMm !== undefined
 						? ` · ${fill(t.planner.selection.hangsAt, { mm: hangAtMm })}`
+						: ""}
+					{selected.placed.rotationDeg
+						? ` · ${selected.placed.rotationDeg}°`
 						: ""}
 				</p>
 			</div>
@@ -260,27 +270,47 @@ export function SelectionPanel({
 							<span className="text-[11px] text-[#8a857c]">mm</span>
 						</span>
 					</div>
-					{isWall && (
-						<div className="flex items-center justify-between gap-2">
-							<label
-								htmlFor="hangatmm"
-								className="text-[12px] text-neutral-500"
-							>
-								{t.planner.selection.hangAtThis}
-							</label>
-							<span className="flex items-center gap-1">
-								<input
-									id="hangatmm"
-									type="number"
-									step={10}
-									value={hangAtMm}
-									onChange={(e) => onHangAtAction(Number(e.target.value))}
-									className="w-[70px] rounded-[7px] border border-neutral-300 px-2 py-1.5 text-right text-[12px]"
-								/>
-								<span className="text-[11px] text-[#8a857c]">mm</span>
-							</span>
-						</div>
-					)}
+					<div className="flex items-center justify-between gap-2">
+						<label htmlFor="hangatmm" className="text-[12px] text-neutral-500">
+							{isWall
+								? t.planner.selection.hangAtThis
+								: t.planner.selection.standsAt}
+						</label>
+						<span className="flex items-center gap-1">
+							<input
+								id="hangatmm"
+								type="number"
+								step={10}
+								value={hangAtMm}
+								onChange={(e) => onHangAtAction(Number(e.target.value))}
+								className="w-[70px] rounded-[7px] border border-neutral-300 px-2 py-1.5 text-right text-[12px]"
+							/>
+							<span className="text-[11px] text-[#8a857c]">mm</span>
+						</span>
+					</div>
+
+					{/* The angle in figures as well as on the ring. A turn is a drag
+					    round a gizmo, which is exactly the gesture a thumb on a phone
+					    is worst at — so the number is typeable too. */}
+					<div className="flex items-center justify-between gap-2">
+						<label
+							htmlFor="rotationdeg"
+							className="text-[12px] text-neutral-500"
+						>
+							{t.planner.selection.turnedBy}
+						</label>
+						<span className="flex items-center gap-1">
+							<input
+								id="rotationdeg"
+								type="number"
+								step={15}
+								value={selected.placed.rotationDeg ?? 0}
+								onChange={(e) => onRotationAction(Number(e.target.value))}
+								className="w-[70px] rounded-[7px] border border-neutral-300 px-2 py-1.5 text-right text-[12px]"
+							/>
+							<span className="text-[11px] text-[#8a857c]">°</span>
+						</span>
+					</div>
 
 					<p className="text-[11px] text-[#8a857c] leading-[15px]">
 						{t.planner.selection.swapHint}

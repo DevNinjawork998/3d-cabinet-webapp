@@ -250,9 +250,11 @@ export const zh: Dictionary = {
 			fromLeftWall: "距左墙",
 			widthHint:
 				"相邻柜子不会移动——放不下的尺寸会变灰。{name} 提供 {n} 种宽度。",
-			moveHintFloor: "方向键让它沿墙滑动。落地柜无法上下移动。",
-			moveHintWall: "方向键让它沿墙滑动，并设定悬挂高度。",
+			moveHintFloor: "方向键让它沿墙滑动，也可把它抬离地面。圆环可旋转它。",
+			moveHintWall: "方向键让它沿墙滑动，并设定悬挂高度。圆环可旋转它。",
 			hangsAt: "悬挂于 {mm} 毫米",
+			standsAt: "此柜离地",
+			turnedBy: "旋转",
 			sizeRangeMeta: "{min}–{max} 毫米",
 			heading: "已选橱柜",
 			emptyHint: "点击房间中的橱柜以调整尺寸或更换门板。",

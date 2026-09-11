@@ -265,10 +265,12 @@ export const en = {
 			widthHint:
 				"Neighbours stay put — a size with no room for it is greyed out. {name} comes in {n} widths.",
 			moveHintFloor:
-				"The arrows slide it along the wall. Vertical is locked for floor units.",
+				"The arrows slide it along the wall and lift it off the floor. The ring turns it.",
 			moveHintWall:
-				"The arrows slide it along the wall and set its hang height.",
+				"The arrows slide it along the wall and set its hang height. The ring turns it.",
 			hangsAt: "hangs at {mm} mm",
+			standsAt: "This one stands at",
+			turnedBy: "Turned by",
 			sizeRangeMeta: "{min}–{max} mm",
 			heading: "Selected cabinet",
 			emptyHint: "Click a cabinet in the room to size it or change its front.",

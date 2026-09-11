@@ -16,6 +16,7 @@ import {
 	setDoor,
 	setDoors,
 	setHinge,
+	spreadMm,
 	WALL_LIMITS,
 } from "../layout";
 import { standOf } from "../parts";
@@ -36,6 +37,7 @@ const {
 	flushWallToTallTops,
 	freeSpans,
 	hangingHeightMmOf,
+	hangTargets,
 	minWallWidthMm,
 	moveModule,
 	occupiedSpans,
@@ -51,6 +53,7 @@ const {
 	setHangAt,
 	setHangingHeight,
 	setRoomDepth,
+	setRotation,
 	setWallToCeiling,
 	setWallToWall,
 	setWallWidth,
@@ -429,11 +432,11 @@ describe("dragModule", () => {
 		expect(next.wall.find((m) => m.id === "w")?.hangAtMm).toBe(1650);
 	});
 
-	it("ignores a hang height given for a floor cabinet", () => {
+	it("lifts a floor cabinet off the floor as readily as it slides it", () => {
 		const placed = addModule(layout, "base-cabinet", 0, "a", 600);
-		const next = dragModule(placed, "a", { xMm: 300, hangAtMm: 1650 });
+		const next = dragModule(placed, "a", { xMm: 300, hangAtMm: 400 });
 		expect(at(next, "a")).toBe(300);
-		expect(next.floor.find((m) => m.id === "a")).not.toHaveProperty("hangAtMm");
+		expect(next.floor.find((m) => m.id === "a")?.hangAtMm).toBe(400);
 	});
 
 	it("clamps the hang height to the slider's own range", () => {
@@ -769,6 +772,28 @@ describe("skirtingSpans", () => {
 
 		expect(spans).toHaveLength(2);
 		expect(spans.map((span) => span.endMm - span.startMm)).toEqual([900, 900]);
+	});
+
+	it("runs no board under a cabinet lifted off the floor, and does not span it", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "base-cabinet", 900, "b2", 900);
+		next = addModule(next, "base-cabinet", 1800, "b3", 900);
+		expect(skirtingSpans(next)).toHaveLength(1);
+
+		const lifted = setHangAt(next, "b2", 400);
+		const spans = skirtingSpans(lifted);
+
+		expect(spans).toHaveLength(2);
+		expect(spans.map((span) => span.startMm)).toEqual([0, 1800]);
+	});
+
+	it("runs no board under a cabinet turned off the wall", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b1", 900);
+		next = addModule(next, "base-cabinet", 900, "b2", 900);
+		const spans = skirtingSpans(setRotation(next, "b2", 90));
+
+		expect(spans).toHaveLength(1);
+		expect(spans[0].endMm).toBe(900);
 	});
 
 	it("takes the tallest stand in the stretch, so no leg is left showing", () => {
@@ -1179,9 +1204,49 @@ describe("setHangAt", () => {
 		);
 	});
 
-	it("ignores a floor unit — only the hung row moves vertically", () => {
+	it("raises a floor unit too, and reports it back through the same reader", () => {
+		const placed = setHangAt(
+			addModule(layout, "base-cabinet", 0, "b", 600),
+			"b",
+			400,
+		);
+		const [only] = positionsOf(placed, "floor");
+		expect(placed.floor.find((m) => m.id === "b")?.hangAtMm).toBe(400);
+		expect(floorHeightMmOf(only, placed)).toBe(400);
+	});
+
+	it("clamps a floor unit to the floor and to the ceiling above it", () => {
 		const placed = addModule(layout, "base-cabinet", 0, "b", 600);
-		expect(setHangAt(placed, "b", 1600)).toBe(placed);
+		const [only] = positionsOf(placed, "floor");
+		const headroomMm = placed.ceilingHeightMm - only.family.heightMm;
+
+		const [down] = positionsOf(setHangAt(placed, "b", -500), "floor");
+		const up = setHangAt(placed, "b", 9000);
+		expect(floorHeightMmOf(down, placed)).toBe(0);
+		expect(up.floor[0]?.hangAtMm).toBe(headroomMm);
+	});
+
+	it("keeps a hung cabinet under the ceiling, not just under the slider", () => {
+		// The slider alone would allow 1800, which a 720-tall unit cannot take in
+		// a 2200 ceiling without going through it.
+		const low = setCeilingHeight(hung(), 2200);
+		const [only] = positionsOf(low, "wall");
+		const headroomMm = 2200 - only.family.heightMm;
+
+		expect(setHangAt(low, "w", 1800).wall[0]?.hangAtMm).toBe(
+			Math.min(WALL_HANG_LIMITS.maxMm, headroomMm),
+		);
+	});
+
+	it("puts a raised cabinet back when handed null", () => {
+		const raised = setHangAt(
+			addModule(layout, "base-cabinet", 0, "b", 600),
+			"b",
+			400,
+		);
+		expect(setHangAt(raised, "b", null).floor[0]).not.toHaveProperty(
+			"hangAtMm",
+		);
 	});
 
 	it("is overridden by ceiling mode, which lines every top up", () => {
@@ -1195,6 +1260,192 @@ describe("setHangAt", () => {
 		const [only] = positionsOf(reset, "wall");
 		expect(reset.wall[0].hangAtMm).toBeUndefined();
 		expect(floorHeightMmOf(only, reset)).toBe(reset.hangingHeightMm);
+	});
+});
+
+describe("setRotation", () => {
+	const turned = (deg: number, snap = false) =>
+		setRotation(addModule(layout, "base-cabinet", 0, "b", 600), "b", deg, snap);
+
+	it("stores a turn the drag could not have landed by hand", () => {
+		expect(turned(37).floor[0].rotationDeg).toBe(37);
+	});
+
+	it("normalises a turn the other way into the same circle", () => {
+		expect(turned(-90).floor[0].rotationDeg).toBe(270);
+		expect(turned(450).floor[0].rotationDeg).toBe(90);
+	});
+
+	it("lands a dragged turn on the eighth it was reaching for", () => {
+		expect(turned(87, true).floor[0].rotationDeg).toBe(90);
+		expect(turned(43, true).floor[0].rotationDeg).toBe(45);
+		// Far enough out to be meant.
+		expect(turned(78, true).floor[0].rotationDeg).toBe(78);
+	});
+
+	it("leaves a typed angle exactly where it was typed", () => {
+		// The magnet belongs to the drag. On a typed figure it would pull every
+		// small angle back to zero as the first digit landed.
+		expect(turned(3).floor[0].rotationDeg).toBe(3);
+		expect(turned(87).floor[0].rotationDeg).toBe(87);
+	});
+
+	it("drops the field at zero, so square is square however it got there", () => {
+		expect(turned(0).floor[0]).not.toHaveProperty("rotationDeg");
+		// 358 snaps to 360, which is 0, which is not stored.
+		expect(turned(358, true).floor[0]).not.toHaveProperty("rotationDeg");
+	});
+
+	it("returns the same layout when the turn changes nothing", () => {
+		const placed = turned(90);
+		expect(setRotation(placed, "b", 90)).toBe(placed);
+		expect(setRotation(placed, "nobody", 90)).toBe(placed);
+	});
+
+	it("turns a hung cabinet as readily as one on the floor", () => {
+		const placed = addModule(layout, "wall-cabinet", 0, "w", 600);
+		expect(setRotation(placed, "w", 90).wall[0].rotationDeg).toBe(90);
+	});
+});
+
+describe("a turned cabinet occupies its footprint, not its width", () => {
+	/** One 600-wide base unit hard against the left wall. */
+	const flush = () => addModule(layout, "base-cabinet", 0, "b", 600);
+
+	it("reports what a turn adds either side", () => {
+		const square = positionsOf(flush(), "floor")[0];
+		expect(spreadMm(square)).toBe(0);
+
+		const side = positionsOf(setRotation(flush(), "b", 90), "floor")[0];
+		// Square on, it is 600 along the wall; side on, it is its own depth.
+		expect(spreadMm(side)).toBeCloseTo(
+			(side.family.depthMm - side.widthMm) / 2,
+			6,
+		);
+	});
+
+	it("comes back off the wall when it is turned into it", () => {
+		// The reported bug: flush at 0, turned, and its corner swung through the
+		// wall — nothing had moved, so nothing re-checked.
+		const turned = setRotation(flush(), "b", 90);
+		const [only] = positionsOf(turned, "floor");
+
+		expect(only.xMm).toBeCloseTo(spreadMm(only), 6);
+		expect(only.xMm - spreadMm(only)).toBeGreaterThanOrEqual(0);
+	});
+
+	it("stops a turned cabinet at the far wall too", () => {
+		let placed = addModule(layout, "base-cabinet", WALL_MM - 600, "b", 600);
+		placed = setRotation(placed, "b", 90);
+		const [only] = positionsOf(placed, "floor");
+
+		expect(only.xMm + only.widthMm + spreadMm(only)).toBeCloseTo(WALL_MM, 6);
+	});
+
+	it("keeps its corner out of a neighbour", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 900);
+		placed = addModule(placed, "base-cabinet", 900, "b", 600);
+		placed = setRotation(placed, "b", 90);
+
+		const b = positionsOf(placed, "floor").find((p) => p.placed.id === "b");
+		if (!b) throw new Error("no b");
+		// Its left corner clears the 900 beside it, not its left *edge*.
+		expect(b.xMm - spreadMm(b)).toBeGreaterThanOrEqual(900 - 1e-6);
+		expectNoOverlaps(placed);
+	});
+
+	it("a dragged turned cabinet stops on its corner, not its edge", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 900);
+		placed = addModule(placed, "base-cabinet", 2000, "b", 600);
+		placed = setRotation(placed, "b", 90);
+		placed = moveModule(placed, "b", 500);
+
+		const b = positionsOf(placed, "floor").find((p) => p.placed.id === "b");
+		if (!b) throw new Error("no b");
+		expect(b.xMm - spreadMm(b)).toBeCloseTo(900, 6);
+	});
+});
+
+describe("the vertical snap", () => {
+	/** Two wall units side by side, the right one dragged out of the row. */
+	const pair = () => {
+		let next = addModule(layout, "wall-cabinet", 0, "left", 900);
+		next = addModule(next, "wall-cabinet", 900, "right", 900);
+		return next;
+	};
+
+	it("offers every other cabinet's underside and its top, from both rows", () => {
+		let next = addModule(layout, "base-cabinet", 0, "b", 600);
+		next = addModule(next, "wall-cabinet", 0, "w", 600);
+		const [base] = positionsOf(next, "floor");
+
+		const targets = hangTargets(next, "w");
+		expect(targets).toContain(floorHeightMmOf(base, next));
+		expect(targets).toContain(
+			floorHeightMmOf(base, next) + base.family.heightMm,
+		);
+	});
+
+	it("leaves the cabinet being dragged out of its own target list", () => {
+		const placed = setHangAt(pair(), "right", 1333);
+		expect(hangTargets(placed, "right")).not.toContain(1333);
+	});
+
+	it("lands a top flush with a top, across rows and across heights", () => {
+		// The alignment a customer asks for by name: the wall unit's top level
+		// with the tall unit's, which is two different heights meeting.
+		let placed = addModule(layout, "tall-cabinet", 0, "t", 600);
+		placed = addModule(placed, "wall-cabinet", 1000, "w", 600);
+
+		const [tall] = positionsOf(placed, "floor");
+		const [hungOne] = positionsOf(placed, "wall");
+		const flushMm =
+			floorHeightMmOf(tall, placed) +
+			tall.family.heightMm -
+			hungOne.family.heightMm;
+
+		const dropped = dropModule(placed, "w", 1000, flushMm - 40);
+		const [landed] = positionsOf(dropped, "wall");
+		expect(floorHeightMmOf(landed, dropped)).toBe(flushMm);
+	});
+
+	it("lands an underside flush from within the snap", () => {
+		// Dragged off the row and released just short of it: the cabinet rejoins
+		// its neighbours rather than hanging 40mm proud of them.
+		const placed = setHangAt(pair(), "right", 1700);
+		const [left] = positionsOf(placed, "wall");
+		const rowMm = floorHeightMmOf(left, placed);
+
+		const dropped = dropModule(placed, "right", 900, rowMm - 40);
+		const landed = positionsOf(dropped, "wall").find(
+			(p) => p.placed.id === "right",
+		);
+		expect(landed && floorHeightMmOf(landed, dropped)).toBe(rowMm);
+	});
+
+	it("leaves a height nowhere near a target alone", () => {
+		const placed = pair();
+		const [left] = positionsOf(placed, "wall");
+		const wantedMm = floorHeightMmOf(left, placed) - 120;
+
+		const dropped = dropModule(placed, "right", 900, wantedMm);
+		expect(dropped.wall.find((m) => m.id === "right")?.hangAtMm).toBe(wantedMm);
+	});
+
+	it("clamps a snap that would land outside the range", () => {
+		// The floor is a target, but a wall unit's range starts at the slider's
+		// own minimum — the snap is a preference, not a way past the limits.
+		const placed = pair();
+		const dropped = dropModule(placed, "right", 900, 30);
+		expect(dropped.wall.find((m) => m.id === "right")?.hangAtMm).toBe(
+			WALL_HANG_LIMITS.minMm,
+		);
+	});
+
+	it("still snaps sideways when no height is handed in", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "a", 900);
+		placed = addModule(placed, "base-cabinet", 2000, "b", 900);
+		expect(at(dropModule(placed, "b", 940), "b")).toBe(900);
 	});
 });
 

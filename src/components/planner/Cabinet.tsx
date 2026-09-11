@@ -91,6 +91,7 @@ export function Cabinet({
 	xMm,
 	runWidthMm,
 	floorHeightMm,
+	rotationDeg = 0,
 	finishHex,
 	finishPhoto,
 	selected,
@@ -127,6 +128,9 @@ export function Cabinet({
 	runWidthMm: number;
 	/** Underside above the floor, so a whole wall row can be raised together. */
 	floorHeightMm: number;
+	/** Turned on the spot, in degrees. Zero — square to the wall — for every
+	 * cabinet that has not been deliberately spun. */
+	rotationDeg?: number;
 	finishHex: string;
 	/** The uploaded decor photo for this finish. When present it *is* the
 	 * front's surface — the real scan of the board — and `finishHex` only
@@ -261,6 +265,11 @@ export function Cabinet({
 	return (
 		<group
 			position={[centreX, base, backToCentre]}
+			// The group's origin is already the cabinet's own centre in x and z —
+			// that is what `backToCentre` buys — so a yaw here spins it on the spot
+			// with no pivot correction. Everything below is drawn in the cabinet's
+			// own frame, the drafted mesh included, so it all turns together.
+			rotation={[0, (rotationDeg * Math.PI) / 180, 0]}
 			userData={{ moduleId }}
 			onPointerDown={onPointerDown}
 			onPointerMove={onPointerMove}

@@ -268,10 +268,12 @@ export const ms: Dictionary = {
 			widthHint:
 				"Kabinet sebelah kekal di tempatnya — saiz yang tidak muat dikelabukan. {name} ada {n} lebar.",
 			moveHintFloor:
-				"Anak panah menggerakkannya di sepanjang dinding. Unit lantai tidak boleh naik turun.",
+				"Anak panah menggerakkannya di sepanjang dinding dan mengangkatnya dari lantai. Gelang memusingkannya.",
 			moveHintWall:
-				"Anak panah menggerakkannya di sepanjang dinding dan menetapkan ketinggian gantungnya.",
+				"Anak panah menggerakkannya di sepanjang dinding dan menetapkan ketinggian gantungnya. Gelang memusingkannya.",
 			hangsAt: "digantung pada {mm} mm",
+			standsAt: "Yang ini berdiri pada",
+			turnedBy: "Dipusing",
 			sizeRangeMeta: "lebar {min}–{max} mm",
 			heading: "Kabinet dipilih",
 			emptyHint:

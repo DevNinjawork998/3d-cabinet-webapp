@@ -71,6 +71,16 @@ type PlacedModule = {
 	 * mode, and it wins.
 	 */
 	hangAtMm?: number;
+	/**
+	 * Yaw about the cabinet's own vertical centre axis, in whole degrees,
+	 * counter-clockwise seen from above. Absent means zero — square to the wall,
+	 * facing the room, which is how every cabinet has ever been placed.
+	 *
+	 * Absent rather than defaulted to `0` for the same reason `hangAtMm` is:
+	 * a turned cabinet leaves the counter run (see `inRun`), and a stored zero
+	 * would be an override that changes nothing yet reads as one.
+	 */
+	rotationDeg?: number;
 };
 
 /** The stile a door hangs on. Left is what the scene has always drawn — a lone
@@ -132,6 +142,11 @@ export type Offsets = {
 /** Land exactly on an edge within this of it, when a drag is released. */
 export const SNAP_MM = 60;
 
+/** Land exactly on an eighth-turn within this of it. Generous, because a
+ *  rotation is dragged with a thumb and almost every one is reaching for
+ *  square — the angles in between are the rare case, not the target. */
+export const ROTATION_SNAP_DEG = 6;
+
 /** Tall units stand floor-to-ceiling, so they live in the floor row. */
 export const rowFor = (kind: ModuleKind): Row =>
 	kind === "wall" ? "wall" : "floor";
@@ -162,6 +177,50 @@ export type Positioned = {
 
 const isPositioned = (p: Positioned | null): p is Positioned => p !== null;
 
+/**
+ * Whether a floor cabinet is still part of the counter run.
+ *
+ * One that has been lifted off the floor or turned off the wall is a thing
+ * standing on its own: no worktop crosses it, no kick board runs under it, and
+ * nothing on the floor grounds it. It has to be one predicate rather than a
+ * test repeated per consumer, because the slab that is drawn and the slab that
+ * is billed have to be the same slab — `skirtingSpans` reads it here and
+ * `Worktop` reads it in the scene.
+ *
+ * A cabinet whose *family* stands off the floor is not what this asks about:
+ * a raised catalogue `floorHeightMm` is how that family is always fitted, kick
+ * board included, so only the customer's own override counts.
+ */
+export const inRun = (position: Positioned): boolean =>
+	position.placed.hangAtMm === undefined && !position.placed.rotationDeg;
+
+/**
+ * How far a turn pushes a cabinet past its own width, on each side.
+ *
+ * Square to the wall, a cabinet occupies exactly its width along it. Turn it
+ * and its *depth* starts to count: a box yawed by θ has a footprint spanning
+ * `|w·cosθ| + |d·sinθ|`, and because it turns about its own centre the extra
+ * is shared equally either side.
+ *
+ * This is what stops a turned cabinet eating into a side wall. `clampToWall`
+ * is the only thing standing between the run and the room, and it was written
+ * in widths — so at the end of the run a turned carcass swung its corner
+ * straight through the wall, since by its width it was still inside.
+ *
+ * Zero for every cabinet that has not been turned, which is why the rest of
+ * the placement arithmetic can stay written in widths.
+ */
+export function spreadMm(position: Positioned): number {
+	const deg = position.placed.rotationDeg;
+	if (!deg) return 0;
+
+	const rad = (deg * Math.PI) / 180;
+	const spanMm =
+		Math.abs(position.widthMm * Math.cos(rad)) +
+		Math.abs(position.family.depthMm * Math.sin(rad));
+	return (spanMm - position.widthMm) / 2;
+}
+
 const clampToWall = (xMm: number, widthMm: number, wallWidthMm: number) =>
 	Math.min(Math.max(0, xMm), Math.max(0, wallWidthMm - widthMm));
 
@@ -190,14 +249,26 @@ const find = (
 };
 
 /**
- * Whether this cabinet has a hang height of its own to drag.
+ * Whether this cabinet has a height of its own to drag.
+ *
+ * Every cabinet does. A base unit lifted off the floor is a valid thing to
+ * want — a floating vanity, a raised oven housing, a run stepped over a skirting
+ * board — and the customer expects to be able to ask for it, so the vertical
+ * axis is granted to both rows.
+ *
+ * The one refusal is ceiling mode: it aligns the wall row's *tops*, so a
+ * per-cabinet underside has nothing to say there and `floorHeightMmOf` would
+ * overrule it anyway.
  *
  * The scene needs the same answer `dragModule` acts on — a handle that stands
  * up and offers an axis the engine has stopped granting is worse than no
  * handle — so the rule lives here once and both read it.
  */
-export const canHangAt = (layout: PlannerLayout, id: string): boolean =>
-	!layout.wallToCeiling && find(layout, id)?.row === "wall";
+export const canHangAt = (layout: PlannerLayout, id: string): boolean => {
+	const found = find(layout, id);
+	if (!found) return false;
+	return found.row === "wall" ? !layout.wallToCeiling : true;
+};
 
 const withX = (
 	layout: PlannerLayout,
@@ -373,10 +444,15 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 
 		return [...own, ...crossRow]
 			.filter((position) => position.placed.id !== ignoreId)
-			.map((position) => ({
-				startMm: position.xMm,
-				endMm: position.xMm + position.widthMm,
-			}))
+			.map((position) => {
+				// What it actually occupies along the wall, not what it is wide —
+				// the two differ the moment somebody turns it. See `spreadMm`.
+				const spread = spreadMm(position);
+				return {
+					startMm: position.xMm - spread,
+					endMm: position.xMm + position.widthMm + spread,
+				};
+			})
 			.sort((a, b) => a.startMm - b.startMm);
 	}
 
@@ -427,8 +503,12 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		);
 		if (!position) return null;
 
-		const leftEdgeMm = position.xMm;
-		const rightEdgeMm = position.xMm + position.widthMm;
+		// Its own footprint, for the same reason the neighbours' is: a gap
+		// measured to a turned cabinet's width rather than to its corner is a gap
+		// the customer cannot actually move into.
+		const spread = spreadMm(position);
+		const leftEdgeMm = position.xMm - spread;
+		const rightEdgeMm = position.xMm + position.widthMm + spread;
 		const neighbours = occupiedSpans(layout, row, id);
 
 		const leftAnchorMm = neighbours
@@ -462,6 +542,12 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * is what decides *which side* of an obstacle it stops on — without it, a
 	 * cabinet dragged fast enough to jump clean over a neighbour in one frame
 	 * would pop out on the far side.
+	 *
+	 * `spread` is what a turn adds either side of the cabinet's own width. The
+	 * whole settle is done in **footprint** terms — the box that is really in
+	 * the way — and shifted back to the stored left edge on the way out, so
+	 * every caller keeps handing in and getting back an `xMm` that means the
+	 * same thing it always has.
 	 */
 	function clampX(
 		layout: PlannerLayout,
@@ -470,10 +556,12 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		xMm: number,
 		ignoreId?: string,
 		fromMm?: number,
+		spread = 0,
 	): number {
-		const wanted = clampToWall(xMm, widthMm, layout.wallWidthMm);
+		const footprintMm = widthMm + spread * 2;
+		const wanted = clampToWall(xMm - spread, footprintMm, layout.wallWidthMm);
 		const spans = occupiedSpans(layout, row, ignoreId);
-		const origin = fromMm ?? wanted;
+		const origin = fromMm === undefined ? wanted : fromMm - spread;
 
 		let settled = wanted;
 		// One pass per obstacle, repeated until nothing moves: stopping against one
@@ -483,13 +571,13 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 
 			for (const span of spans) {
 				const left = settled;
-				const right = settled + widthMm;
+				const right = settled + footprintMm;
 				if (right <= span.startMm || left >= span.endMm) continue;
 
 				// Approaching from the left means stopping before the obstacle.
-				const approachingFromLeft = origin + widthMm / 2 < span.startMm;
-				settled = approachingFromLeft ? span.startMm - widthMm : span.endMm;
-				settled = clampToWall(settled, widthMm, layout.wallWidthMm);
+				const approachingFromLeft = origin + footprintMm / 2 < span.startMm;
+				settled = approachingFromLeft ? span.startMm - footprintMm : span.endMm;
+				settled = clampToWall(settled, footprintMm, layout.wallWidthMm);
 				moved = true;
 			}
 
@@ -497,9 +585,12 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		}
 
 		// If it still overlaps, every direction is blocked — leave it where it was.
-		return overlapsAnything(settled, widthMm, spans)
-			? clampToWall(origin, widthMm, layout.wallWidthMm)
-			: settled;
+		// Back to the stored left edge on the way out.
+		return (
+			(overlapsAnything(settled, footprintMm, spans)
+				? clampToWall(origin, footprintMm, layout.wallWidthMm)
+				: settled) + spread
+		);
 	}
 
 	/**
@@ -519,11 +610,81 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		for (const r of [row, other]) {
 			for (const position of positionsOf(layout, r)) {
 				if (position.placed.id === ignoreId) continue;
-				edges.push(position.xMm, position.xMm + position.widthMm);
+				// Footprint edges, like everything else on this axis: flush against a
+				// turned cabinet means flush against its corner.
+				const spread = spreadMm(position);
+				edges.push(
+					position.xMm - spread,
+					position.xMm + position.widthMm + spread,
+				);
 			}
 		}
 
 		return edges;
+	}
+
+	/**
+	 * The same idea one axis over: the heights worth landing on.
+	 *
+	 * Every other cabinet contributes **two** — its underside and its top —
+	 * from **both** rows, which is what makes the alignments a customer actually
+	 * asks for fall out of one rule. "Top flush with the wall unit beside it" is
+	 * a top meeting a top. "Underside flush with the worktop" is an underside
+	 * meeting a base unit's top. "Level with the tall unit" is the same again.
+	 * None of them needs its own case.
+	 *
+	 * The row's own hanging height is in the list too, so a cabinet dragged out
+	 * of the row has something to drop back onto — without it, rejoining the row
+	 * by hand is the one alignment the gizmo could not do.
+	 *
+	 * The floor and the ceiling round it off.
+	 */
+	function hangTargets(layout: PlannerLayout, ignoreId?: string): number[] {
+		const heights = [0, layout.ceilingHeightMm, hangingHeightMmOf(layout)];
+
+		for (const row of ["floor", "wall"] as const) {
+			for (const position of positionsOf(layout, row)) {
+				if (position.placed.id === ignoreId) continue;
+				const floorMm = floorHeightMmOf(position, layout);
+				heights.push(floorMm, floorMm + position.family.heightMm);
+			}
+		}
+
+		return heights;
+	}
+
+	/**
+	 * Tidy up the vertical half of a released drag, the way `snapX` tidies the
+	 * horizontal: either the cabinet's underside or its top lands on a target
+	 * within `SNAP_MM`, nearest wins, and anything further away is left where the
+	 * pointer put it.
+	 *
+	 * Returns a height rather than a layout, so `setHangAt` still applies the
+	 * range in `hangRangeMm` afterwards — the snap is a preference and never a
+	 * way past the limits.
+	 */
+	function snapHangAt(
+		position: Positioned,
+		layout: PlannerLayout,
+		hangAtMm: number,
+	): number {
+		const heightMm = position.family.heightMm;
+
+		let best = hangAtMm;
+		let bestDistance = SNAP_MM;
+
+		for (const target of hangTargets(layout, position.placed.id)) {
+			// Either the underside or the top can be the edge that lands.
+			for (const candidate of [target, target - heightMm]) {
+				const distance = Math.abs(candidate - hangAtMm);
+				if (distance < bestDistance) {
+					best = candidate;
+					bestDistance = distance;
+				}
+			}
+		}
+
+		return best;
 	}
 
 	/**
@@ -537,16 +698,20 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		widthMm: number,
 		xMm: number,
 		ignoreId?: string,
+		spread = 0,
 	): number {
 		const targets = snapTargets(layout, row, ignoreId);
+		const footprintMm = widthMm + spread * 2;
+		// In footprint terms, as `clampX` is, and shifted back at the end.
+		const leftMm = xMm - spread;
 
-		let best = xMm;
+		let best = leftMm;
 		let bestDistance = SNAP_MM;
 
 		for (const target of targets) {
 			// Either the left edge or the right edge can be the one that lands.
-			for (const candidate of [target, target - widthMm]) {
-				const distance = Math.abs(candidate - xMm);
+			for (const candidate of [target, target - footprintMm]) {
+				const distance = Math.abs(candidate - leftMm);
 				if (distance < bestDistance) {
 					best = candidate;
 					bestDistance = distance;
@@ -554,7 +719,13 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 			}
 		}
 
-		return clampX(layout, row, widthMm, best, ignoreId, xMm);
+		return clampX(layout, row, widthMm, best + spread, ignoreId, xMm, spread);
+	}
+
+	/** What this one cabinet's own turn adds either side of its width. */
+	function spreadOf(placed: PlacedModule): number {
+		const position = positioned(placed);
+		return position ? spreadMm(position) : 0;
 	}
 
 	/** Mid-drag: follow the pointer as far as the neighbours allow. */
@@ -573,21 +744,31 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 			xMm,
 			id,
 			found.placed.xMm,
+			spreadOf(found.placed),
 		);
 		return settled === found.placed.xMm
 			? layout
 			: withX(layout, found.row, id, settled);
 	}
 
-	/** Drag released: settle, then snap flush if it is close to an edge. */
+	/**
+	 * Drag released: settle, then snap flush if it is close to an edge.
+	 *
+	 * Both axes, when a height is handed in — a drag moves in two dimensions and
+	 * "what happens when you let go" should not be split across two call sites.
+	 * A height for a cabinet that may not hang is dropped rather than refused,
+	 * the same way `dragModule` drops one.
+	 */
 	function dropModule(
 		layout: PlannerLayout,
 		id: string,
 		xMm: number,
+		hangAtMm?: number,
 	): PlannerLayout {
 		const found = find(layout, id);
 		if (!found) return layout;
 
+		const spread = spreadOf(found.placed);
 		const settled = clampX(
 			layout,
 			found.row,
@@ -595,11 +776,25 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 			xMm,
 			id,
 			found.placed.xMm,
+			spread,
 		);
-		const snapped = snapX(layout, found.row, found.placed.widthMm, settled, id);
-		return snapped === found.placed.xMm
-			? layout
-			: withX(layout, found.row, id, snapped);
+		const snapped = snapX(
+			layout,
+			found.row,
+			found.placed.widthMm,
+			settled,
+			id,
+			spread,
+		);
+		const moved =
+			snapped === found.placed.xMm
+				? layout
+				: withX(layout, found.row, id, snapped);
+
+		if (hangAtMm === undefined || !canHangAt(moved, id)) return moved;
+		const position = positioned(found.placed);
+		if (!position) return moved;
+		return setHangAt(moved, id, snapHangAt(position, moved, hangAtMm));
 	}
 
 	/** The leftmost clear position a cabinet of this width could take. */
@@ -783,11 +978,39 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	}
 
 	/**
-	 * Raise or lower one wall cabinet out of the row. `null` puts it back.
+	 * The range a cabinet's underside may be dragged through.
 	 *
-	 * Clamped to the same range the hang slider allows, so a cabinet can never
-	 * be nudged somewhere the slider could not have put the whole row — the
-	 * gizmo is a shortcut, not a second set of rules.
+	 * A hung cabinet keeps the hang slider's range, so the gizmo stays a
+	 * shortcut rather than a second set of rules. A cabinet on the floor has no
+	 * slider to agree with, so its range is the room: the floor, up to wherever
+	 * its own top would meet the ceiling.
+	 *
+	 * The ceiling caps both. A 900-tall wall unit hung at the slider's 1800 in a
+	 * 2200 ceiling pokes through it, which the slider's fixed range could never
+	 * see and this does.
+	 */
+	function hangRangeMm(
+		position: Positioned,
+		layout: PlannerLayout,
+		row: Row,
+	): { minMm: number; maxMm: number } {
+		const headroomMm = Math.max(
+			0,
+			layout.ceilingHeightMm - position.family.heightMm,
+		);
+		if (row !== "wall") return { minMm: 0, maxMm: headroomMm };
+		return {
+			minMm: Math.min(WALL_HANG_LIMITS.minMm, headroomMm),
+			maxMm: Math.min(WALL_HANG_LIMITS.maxMm, headroomMm),
+		};
+	}
+
+	/**
+	 * Raise or lower one cabinet out of its row. `null` puts it back.
+	 *
+	 * Both rows, since `canHangAt` grants both — see there for why. Which array
+	 * gets written comes off `find`, so a floor unit's override lands on the
+	 * floor unit rather than on nothing.
 	 */
 	function setHangAt(
 		layout: PlannerLayout,
@@ -795,22 +1018,93 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		hangAtMm: number | null,
 	): PlannerLayout {
 		const found = find(layout, id);
-		if (found?.row !== "wall") return layout;
+		if (!found) return layout;
+		const position = positioned(found.placed);
+		if (!position) return layout;
 
 		const next = { ...found.placed };
 		if (hangAtMm === null) {
 			delete next.hangAtMm;
 		} else {
-			next.hangAtMm = Math.max(
-				WALL_HANG_LIMITS.minMm,
-				Math.min(WALL_HANG_LIMITS.maxMm, Math.round(hangAtMm)),
+			const range = hangRangeMm(position, layout, found.row);
+			const settled = Math.max(
+				range.minMm,
+				Math.min(range.maxMm, Math.round(hangAtMm)),
 			);
+			// Dragged back to where it would sit anyway, this is not an override —
+			// and it must not be recorded as one. `inRun` reads the difference, so
+			// a base unit lowered onto the floor would otherwise stay off the
+			// counter run for good: no kick board, no worktop, nothing to say why.
+			const restingMm =
+				found.row === "wall"
+					? layout.hangingHeightMm
+					: position.family.floorHeightMm;
+			if (settled === restingMm) delete next.hangAtMm;
+			else next.hangAtMm = settled;
 		}
 
 		return {
 			...layout,
-			wall: layout.wall.map((module) => (module.id === id ? next : module)),
+			[found.row]: layout[found.row].map((module) =>
+				module.id === id ? next : module,
+			),
 		};
+	}
+
+	/**
+	 * Turn one cabinet on the spot.
+	 *
+	 * Normalised into `[0, 360)` and rounded to whole degrees. Zero deletes the
+	 * field rather than storing it, so a cabinet turned back is
+	 * indistinguishable from one never turned; `inRun` reads that difference.
+	 *
+	 * `snap` lands it on the nearest eighth-turn within `ROTATION_SNAP_DEG`.
+	 * That belongs to the *gesture*, not to the angle — square is what almost
+	 * every dragged turn is reaching for and not something a thumb can hit by
+	 * hand, but a figure somebody typed is already exactly what they meant, and
+	 * a magnet there would drag every small angle back to zero as they typed
+	 * the first digit.
+	 *
+	 * ponytail: rotation is visual and spec only — `occupiedSpans` still reserves
+	 * the unrotated width, so a cabinet turned side-on in a packed run overlaps
+	 * its neighbours. Reserve |w·cosθ| + |d·sinθ| there instead when that becomes
+	 * a complaint. `exposure.ts` is 1-D along x for the same reason and would
+	 * need the same treatment.
+	 */
+	function setRotation(
+		layout: PlannerLayout,
+		id: string,
+		deg: number,
+		snap = false,
+	): PlannerLayout {
+		const found = find(layout, id);
+		if (!found) return layout;
+
+		const wrapped = ((Math.round(deg) % 360) + 360) % 360;
+		const eighth = Math.round(wrapped / 45) * 45;
+		const settled =
+			snap && Math.abs(eighth - wrapped) <= ROTATION_SNAP_DEG
+				? eighth % 360
+				: wrapped;
+
+		if ((found.placed.rotationDeg ?? 0) === settled) return layout;
+
+		const next = { ...found.placed };
+		if (settled === 0) delete next.rotationDeg;
+		else next.rotationDeg = settled;
+
+		const turned = {
+			...layout,
+			[found.row]: layout[found.row].map((module) =>
+				module.id === id ? next : module,
+			),
+		};
+
+		// A turn changes what the cabinet occupies along the wall, so it has to
+		// settle again at its own position. Without this, turning one that is
+		// already flush swings its corner straight through the wall beside it —
+		// nothing moved, so nothing re-checked.
+		return moveModule(turned, id, next.xMm);
 	}
 
 	/**
@@ -946,6 +1240,7 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		const spans: SkirtingSpan[] = [];
 
 		for (const position of positionsOf(layout, "floor")) {
+			if (!inRun(position)) continue;
 			const stand = standOf(position.family, construction);
 			if (stand.heightMm <= 0) continue;
 
@@ -975,16 +1270,18 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * Underside of any placed cabinet above the floor.
 	 *
 	 * A wall unit's height comes from the layout, everything else's from its own
-	 * family. That rule used to be written out separately in the scene, in the
-	 * contact shadows and in the measuring tool, which meant a change to how the
-	 * wall row is positioned had three places to reach and the measuring tool
-	 * could end up reporting a number the scene disagreed with. One function now.
+	 * family — and either can be overridden by a drag on this one cabinet. That
+	 * rule used to be written out separately in the scene, in the contact shadows
+	 * and in the measuring tool, which meant a change to how the wall row is
+	 * positioned had three places to reach and the measuring tool could end up
+	 * reporting a number the scene disagreed with. One function now.
 	 */
 	function floorHeightMmOf(
 		position: Positioned,
 		layout: PlannerLayout,
 	): number {
-		if (position.family.kind !== "wall") return position.family.floorHeightMm;
+		if (position.family.kind !== "wall")
+			return position.placed.hangAtMm ?? position.family.floorHeightMm;
 		// Ceiling mode aligns the tops, so a per-cabinet figure has nothing to
 		// say there.
 		if (layout.wallToCeiling) return hangingHeightMmOf(layout);
@@ -1333,11 +1630,11 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * Put a cabinet where a drag has taken it.
 	 *
 	 * Which axes a cabinet may move on is a layout rule, not a scene detail,
-	 * so it is decided here: everything slides along the wall, and only a hung
-	 * cabinet has a height of its own to change. A hang height handed in for a
-	 * floor unit is dropped rather than refused — the pointer moves in two
-	 * dimensions whatever is being dragged, and the caller should not have to
-	 * ask what it is holding.
+	 * so it is decided here: everything slides along the wall, and everything
+	 * has a height of its own to change — see `canHangAt`. A hang height handed
+	 * in for a cabinet that cannot take one is dropped rather than refused; the
+	 * pointer moves in two dimensions whatever is being dragged, and the caller
+	 * should not have to ask what it is holding.
 	 *
 	 * Ceiling mode ignores the vertical too: lining the tops up is the whole
 	 * point of that mode, and `floorHeightMmOf` would overrule the stored
@@ -1403,6 +1700,9 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		setRoomDepth,
 		setCeilingHeight,
 		setHangAt,
+		hangRangeMm,
+		hangTargets,
+		setRotation,
 		overhangMm,
 		overhangingIds,
 		closeGaps,

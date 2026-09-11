@@ -240,6 +240,7 @@ export function StudioScreen({
 		setHangAt,
 		setHangingHeight,
 		setRoomDepth,
+		setRotation,
 		setWallToCeiling,
 		setWallToWall,
 		setWallWidth,
@@ -937,6 +938,11 @@ export function StudioScreen({
 								onHangAtAction={(mm) =>
 									setLayoutAction((prev) =>
 										setHangAt(prev, selected.placed.id, mm),
+									)
+								}
+								onRotationAction={(deg) =>
+									setLayoutAction((prev) =>
+										setRotation(prev, selected.placed.id, deg),
 									)
 								}
 								onToggleDoorAction={() =>

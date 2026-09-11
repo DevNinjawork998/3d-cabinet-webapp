@@ -17,6 +17,8 @@ const {
 	addModule,
 	removeModule,
 	setBaseSkirting,
+	setHangAt,
+	setRotation,
 	setWallToCeiling,
 	setWallToWall,
 	setWallWidth,
@@ -161,6 +163,15 @@ describe("worktop", () => {
 		const tall = addModule(empty(), "tall-cabinet", 0, "t1", 600);
 
 		expect(worktopFt(tall, PLANNER_CATALOGUE)).toBe(0);
+	});
+
+	it("bills nothing over a cabinet lifted off the floor or turned", () => {
+		// The scene draws no slab over either, and the billed slab has to be the
+		// drawn slab.
+		const floor = addModule(empty(), "base-cabinet", 0, "b1", 900);
+
+		expect(worktopFt(setHangAt(floor, "b1", 400), PLANNER_CATALOGUE)).toBe(0);
+		expect(worktopFt(setRotation(floor, "b1", 90), PLANNER_CATALOGUE)).toBe(0);
 	});
 });
 
@@ -313,6 +324,16 @@ describe("skirting", () => {
 			6,
 		);
 		expect(result.categories.some((c) => c.id === "skirting")).toBe(true);
+	});
+
+	it("runs no board under a cabinet lifted off the floor", () => {
+		let run = empty();
+		run = addModule(run, "base-cabinet", 0, "b1", 900);
+		run = addModule(run, "base-cabinet", 900, "b2", 900);
+
+		expect(
+			skirtingFt(setHangAt(run, "b2", 400), PLANNER_CATALOGUE),
+		).toBeCloseTo(900 / MM_PER_FT, 6);
 	});
 
 	it("does not charge across a gap the board is not cut for", () => {
