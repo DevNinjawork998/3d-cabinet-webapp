@@ -16,7 +16,7 @@ export function RunList({
 	placed,
 	selectedIds,
 	gapCount,
-	prices,
+	priceLabels,
 	onSelectAction,
 	onCloseGapsAction,
 	onResetAction,
@@ -24,10 +24,12 @@ export function RunList({
 	placed: Positioned[];
 	selectedIds: ReadonlySet<string>;
 	gapCount: number;
-	/** Cabinet id → its line on the price, already computed by the caller. A
-	 * map rather than a lookup function: a "use client" boundary only takes
-	 * serialisable props. */
-	prices: Record<string, number>;
+	/** Cabinet id → its line on the price, formatted by the caller. A map
+	 * rather than a lookup function: a "use client" boundary only takes
+	 * serialisable props. Formatted, not raw, because the caller owns the
+	 * locale — and because a bare `1026` next to a bare `900` is two numbers
+	 * in two different units with nothing on the row saying which is which. */
+	priceLabels: Record<string, string>;
 	onSelectAction: (id: string, additive: boolean) => void;
 	onCloseGapsAction: () => void;
 	onResetAction: () => void;
@@ -35,9 +37,9 @@ export function RunList({
 	const t = useCopy();
 
 	return (
-		<div className="border-[#f0efec] border-t px-4 py-3.5">
-			<div className="mb-1.5 flex items-baseline justify-between gap-2">
-				<p className="font-semibold text-[11px] text-neutral-600 uppercase tracking-[0.06em]">
+		<div className="border-[#eeece8] border-t px-4 py-4">
+			<div className="mb-2 flex items-baseline justify-between gap-2">
+				<p className="font-semibold text-[12px] text-neutral-600 uppercase tracking-[0.06em]">
 					{fill(t.planner.run.heading, {
 						count: placed.length,
 						unit: placed.length === 1 ? t.planner.unit : t.planner.units,
@@ -47,7 +49,7 @@ export function RunList({
 					type="button"
 					onClick={onCloseGapsAction}
 					disabled={gapCount === 0}
-					className="text-[11px] text-neutral-500 hover:text-neutral-900 disabled:opacity-40"
+					className="text-[12px] text-neutral-500 hover:text-neutral-900 disabled:opacity-40"
 				>
 					{gapCount > 0
 						? fill(t.planner.run.closeGapsCount, { n: gapCount })
@@ -56,7 +58,7 @@ export function RunList({
 			</div>
 
 			{placed.length === 0 ? (
-				<p className="text-[12px] text-neutral-500">
+				<p className="text-[13px] text-neutral-500">
 					{t.planner.run.emptyHint}
 				</p>
 			) : (
@@ -64,7 +66,7 @@ export function RunList({
 					{placed.map((position) => (
 						<div
 							key={position.placed.id}
-							className={`flex items-center gap-2 border-neutral-100 border-t py-1.5 text-[13px] ${
+							className={`flex items-center gap-2.5 border-[#eeece8] border-t py-2.5 ${
 								selectedIds.has(position.placed.id) ? "bg-[#f2f7f4]" : ""
 							}`}
 						>
@@ -84,15 +86,25 @@ export function RunList({
 										e.shiftKey || e.metaKey || e.ctrlKey,
 									)
 								}
-								className="flex-1 text-left"
+								className="min-w-0 flex-1 truncate text-left text-[13px]"
 							>
-								{position.family.label} {position.widthMm}{" "}
-								<span className="text-[11px] text-neutral-400">
+								{/* The row used to read "Base cabinet 900 shaker 1026" — a
+								    width and a price side by side, neither labelled, in two
+								    different units. Both wear their unit now.
+
+								    One line, not two. Stacking the front onto its own line
+								    read better per row and showed two and a half of seven
+								    units before the finish section cut it off, which is
+								    worse at the job this list actually does. */}
+								<span className="font-medium text-neutral-900">
+									{position.family.label} · {position.widthMm} mm
+								</span>{" "}
+								<span className="text-[12px] text-neutral-500">
 									{position.placed.doorStyleId ?? t.planner.run.noDoorInline}
 								</span>
 							</button>
-							<span className="tabular-nums text-[13px] text-neutral-600">
-								{Math.round(prices[position.placed.id] ?? 0)}
+							<span className="shrink-0 text-right text-[13px] text-neutral-700 tabular-nums">
+								{priceLabels[position.placed.id] ?? ""}
 							</span>
 						</div>
 					))}
@@ -102,7 +114,7 @@ export function RunList({
 			<button
 				type="button"
 				onClick={onResetAction}
-				className="mt-2 text-[11px] text-neutral-500 underline hover:text-neutral-900"
+				className="mt-3 text-[12px] text-neutral-500 underline hover:text-neutral-900"
 			>
 				{t.planner.run.reset}
 			</button>

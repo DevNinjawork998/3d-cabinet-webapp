@@ -2,10 +2,11 @@
 
 import { useCopy } from "../CopyContext";
 
-/** The six things the rail can put you in. `select` is the resting state. */
+/** The seven things the rail can put you in. `select` is the resting state. */
 export type StudioTool =
 	| "select"
 	| "add"
+	| "room"
 	| "measure"
 	| "view"
 	| "doors"
@@ -14,12 +15,13 @@ export type StudioTool =
 /**
  * The glyphs are typed characters, not an icon set.
  *
- * Six glyphs is not worth a dependency on the mobile budget — the same
+ * Seven glyphs is not worth a dependency on the mobile budget — the same
  * reasoning as the hand-drawn play triangle in the planner header.
  */
 const GLYPH: Record<StudioTool, string> = {
 	select: "⌖",
 	add: "＋",
+	room: "⌂",
 	measure: "⟺",
 	view: "◱",
 	doors: "◫",
@@ -29,6 +31,7 @@ const GLYPH: Record<StudioTool, string> = {
 const ORDER: StudioTool[] = [
 	"select",
 	"add",
+	"room",
 	"measure",
 	"view",
 	"doors",
@@ -46,6 +49,7 @@ export function ToolRail({
 	const label: Record<StudioTool, string> = {
 		select: t.planner.tools.select,
 		add: t.planner.tools.add,
+		room: t.planner.tools.room,
 		measure: t.planner.tools.measure,
 		view: t.planner.tools.view,
 		doors: t.planner.tools.doors,
@@ -54,6 +58,7 @@ export function ToolRail({
 	const title: Record<StudioTool, string> = {
 		select: t.planner.tools.selectTitle,
 		add: t.planner.tools.addTitle,
+		room: t.planner.tools.roomTitle,
 		measure: t.planner.tools.measureTitle,
 		view: t.planner.tools.viewTitle,
 		doors: t.planner.tools.doorsTitle,

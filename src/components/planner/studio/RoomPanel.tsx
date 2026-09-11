@@ -13,11 +13,18 @@ import { DimensionField } from "../DimensionField";
 import { chip } from "./chrome";
 
 /**
- * The room column: which room, how big, and whether the run fits in it.
+ * The Room panel body: which room, how big, and whether the run fits in it.
  *
  * Everything else that used to live here — the base, run, wall-unit and door
  * modes — is behind the Defaults panel now. What is left is the one question
- * this column exists to answer, which is what the cabinets have to fit inside.
+ * this panel exists to answer, which is what the cabinets have to fit inside.
+ *
+ * It was a permanent 236px column until the rail grew a Room tool. Three
+ * sliders you set once at the start do not earn a fifth of the window for the
+ * whole session, and the right-hand recap prints the same wall, run and
+ * wall-free figures anyway — so what was lost by moving it here is the sliders
+ * being in reach, never the numbers being in view. `StudioPanel` supplies the
+ * heading, the hint and the scroll container this used to carry itself.
  */
 export function RoomPanel({
 	catalogue,
@@ -49,19 +56,7 @@ export function RoomPanel({
 	const t = useCopy();
 
 	return (
-		<aside
-			aria-label={t.planner.room.heading}
-			className="flex w-full shrink-0 flex-col gap-3.5 overflow-y-auto border-neutral-200 border-b bg-white p-4 lg:h-full lg:w-[236px] lg:border-r lg:border-b-0"
-		>
-			<div>
-				<h2 className="font-semibold text-[11px] text-neutral-600 uppercase tracking-[0.06em]">
-					{t.planner.room.heading}
-				</h2>
-				<p className="mt-[3px] text-[12px] text-neutral-500 leading-4">
-					{t.planner.room.subtitle}
-				</p>
-			</div>
-
+		<div className="flex flex-col gap-4">
 			<div className="flex flex-wrap gap-1">
 				{catalogue.roomTypes.map((option) => (
 					<button
@@ -138,6 +133,6 @@ export function RoomPanel({
 					{t.planner.room.moreSettings}
 				</button>
 			</div>
-		</aside>
+		</div>
 	);
 }

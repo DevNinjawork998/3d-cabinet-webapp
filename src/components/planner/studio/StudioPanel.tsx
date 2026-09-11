@@ -4,17 +4,25 @@ import { useCopy } from "../CopyContext";
 import { chip, listBtn } from "./chrome";
 import type { StudioTool } from "./ToolRail";
 
-/** The four tools that open a panel. `select` and `measure` open nothing. */
+/** The five tools that open a panel. `select` and `measure` open nothing. */
 export type PanelKind = Exclude<StudioTool, "select" | "measure">;
 
 /**
- * The drawer that slides over the left of the canvas.
+ * The card that floats over the top-left of the canvas.
  *
  * It sits *over* the scene rather than beside it because everything in it is
- * a decision you make and then stop thinking about — what to add, how to
- * look at the run, whether there is a kick board. Keeping four panels' worth
- * of controls permanently on screen is what made the old left rail a column
- * of toggles you had to read past to reach the two you wanted.
+ * a decision you make and then stop thinking about — what room you are in,
+ * what to add, how to look at the run, whether there is a kick board. Keeping
+ * five panels' worth of controls permanently on screen is what made the old
+ * left rail a column of toggles you had to read past to reach the two you
+ * wanted.
+ *
+ * A card, not a column. It used to be `inset-y-0`, stretched floor to ceiling
+ * whatever it held — and none of these panels hold a screenful. Doors is three
+ * options and Room is three sliders, so on a 900px laptop two thirds of a
+ * full-height column was white space taken from the one thing on this page
+ * worth looking at. Height now fits the content and is capped at the canvas,
+ * so the scene shows through underneath.
  */
 export function StudioPanel({
 	kind,
@@ -26,13 +34,18 @@ export function StudioPanel({
 	children: React.ReactNode;
 }) {
 	const t = useCopy();
+	// Room reuses `planner.room`: the panel header now says what the column
+	// heading used to, so a second copy of the same two strings would only be
+	// somewhere for them to drift apart.
 	const title = {
+		room: t.planner.room.heading,
 		add: t.planner.panel.addTitle,
 		view: t.planner.panel.viewTitle,
 		doors: t.planner.panel.doorsTitle,
 		defaults: t.planner.panel.defaultsTitle,
 	}[kind];
 	const hint = {
+		room: t.planner.room.subtitle,
 		add: t.planner.panel.addHint,
 		view: t.planner.panel.viewHint,
 		doors: t.planner.panel.doorsHint,
@@ -40,11 +53,11 @@ export function StudioPanel({
 	}[kind];
 
 	return (
-		<div className="absolute inset-y-0 left-0 z-10 flex w-[296px] max-w-full flex-col border-neutral-200 border-r bg-white shadow-[6px_0_24px_rgba(0,0,0,.06)]">
-			<div className="flex items-start justify-between gap-2.5 border-[#f0efec] border-b px-3.5 pt-3.5 pb-2.5">
+		<div className="absolute top-3 left-3 z-10 flex max-h-[calc(100%-1.5rem)] w-[300px] max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-[0_8px_28px_rgba(0,0,0,.10)]">
+			<div className="flex items-start justify-between gap-2.5 border-[#eeece8] border-b px-4 pt-3.5 pb-3">
 				<div>
-					<p className="font-semibold text-[13px]">{title}</p>
-					<p className="mt-0.5 text-[12px] text-neutral-500 leading-4">
+					<p className="font-semibold text-[14px]">{title}</p>
+					<p className="mt-0.5 text-[12px] text-neutral-500 leading-[17px]">
 						{hint}
 					</p>
 				</div>
@@ -57,7 +70,7 @@ export function StudioPanel({
 					✕
 				</button>
 			</div>
-			<div className="flex-1 overflow-y-auto p-3.5">{children}</div>
+			<div className="min-h-0 overflow-y-auto p-4">{children}</div>
 		</div>
 	);
 }

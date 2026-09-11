@@ -410,6 +410,26 @@ export function StudioScreen({
 
 	const canFlush = placed.some((position) => position.family.kind === "tall");
 
+	const roomBody = (
+		<RoomPanel
+			catalogue={catalogue}
+			roomId={roomId}
+			layout={layout}
+			minWallMm={minWallMm}
+			freeMm={freeMm}
+			overhangMm={overhang}
+			onChangeRoomAction={onChangeRoomAction}
+			onWallWidthAction={(mm) =>
+				setLayoutAction((prev) => setWallWidth(prev, mm))
+			}
+			onCeilingAction={(mm) =>
+				setLayoutAction((prev) => setCeilingHeight(prev, mm))
+			}
+			onDepthAction={(mm) => setLayoutAction((prev) => setRoomDepth(prev, mm))}
+			onOpenDefaultsAction={() => setTool("defaults")}
+		/>
+	);
+
 	const addBody = (
 		<div className="grid grid-cols-2 gap-2">
 			{room.familyIds.map((familyId) => {
@@ -648,31 +668,16 @@ export function StudioScreen({
 			<div className="flex min-h-0 flex-1 flex-col lg:flex-row">
 				<ToolRail active={tool} onPressAction={pressTool} />
 
-				<RoomPanel
-					catalogue={catalogue}
-					roomId={roomId}
-					layout={layout}
-					minWallMm={minWallMm}
-					freeMm={freeMm}
-					overhangMm={overhang}
-					onChangeRoomAction={onChangeRoomAction}
-					onWallWidthAction={(mm) =>
-						setLayoutAction((prev) => setWallWidth(prev, mm))
-					}
-					onCeilingAction={(mm) =>
-						setLayoutAction((prev) => setCeilingHeight(prev, mm))
-					}
-					onDepthAction={(mm) =>
-						setLayoutAction((prev) => setRoomDepth(prev, mm))
-					}
-					onOpenDefaultsAction={() => setTool("defaults")}
-				/>
-
 				{/* biome-ignore lint/a11y/noStaticElementInteractions: the drop
 				    target is the 3D canvas; the palette buttons are the keyboard
 				    path. */}
 				<div
-					className="relative min-h-[45vh] flex-1 bg-[#faf9f7]"
+					// `min-w-0`, or this column never shrinks: a flex item defaults to
+					// min-width:auto, and the item's content is a <canvas> three.js
+					// sizes in pixels. Narrowing the window left the canvas at its old
+					// width, the row stayed that wide, and the right panel was pushed
+					// off the screen edge rather than the scene giving ground.
+					className="relative min-h-[45vh] min-w-0 flex-1 bg-[#faf9f7]"
 					onDragOver={(e) => {
 						e.preventDefault();
 						e.dataTransfer.dropEffect = "copy";
@@ -697,6 +702,7 @@ export function StudioScreen({
 				>
 					{panel && (
 						<StudioPanel kind={panel} onCloseAction={() => setTool("select")}>
+							{panel === "room" && roomBody}
 							{panel === "add" && addBody}
 							{panel === "view" && viewBody}
 							{panel === "doors" && doorsBody}
@@ -888,12 +894,11 @@ export function StudioScreen({
 												? fill(t.planner.design.overBy, { mm: -freeMm })
 												: `${freeMm} mm`,
 									},
-									{
-										label: t.planner.design.finish,
-										value:
-											catalogue.finishes.find((f) => f.id === finish)?.label ??
-											"",
-									},
+									// No Finish row: the swatches directly beneath this block
+									// already show it, name it, and let you change it. Two
+									// copies of one fact, forty pixels apart, in a column
+									// where a 900px laptop could only show one of seven
+									// cabinets in the run below.
 								]}
 								onAddAction={() => setTool("add")}
 							/>
@@ -1036,8 +1041,11 @@ export function StudioScreen({
 							placed={placed}
 							selectedIds={selectedSet}
 							gapCount={gapCount}
-							prices={Object.fromEntries(
-								price.cabinets.map((line) => [line.id, line.amountRm]),
+							priceLabels={Object.fromEntries(
+								price.cabinets.map((line) => [
+									line.id,
+									formatRm(line.amountRm, { maximumFractionDigits: 0 }),
+								]),
 							)}
 							onSelectAction={select}
 							onCloseGapsAction={() =>
