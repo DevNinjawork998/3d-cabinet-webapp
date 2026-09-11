@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	CEILING_LIMITS,
+	CONSTRUCTION,
 	familyIn,
 	PLANNER_CATALOGUE,
 	ROOM_DEPTH_LIMITS,
 	WALL_HANG_LIMITS,
 } from "../catalogue";
 import {
+	depthSpreadMm,
 	emptyLayout,
 	type PlannerLayout,
 	plannerEngine,
@@ -1204,6 +1206,70 @@ describe("setHangAt", () => {
 		);
 	});
 
+	// A cabinet cannot pass through the one above it any more than through the
+	// one beside it. Nothing had to say so while the floor row could not move
+	// vertically; the first thing a lifted base unit did was drive itself into
+	// the wall cabinet over it.
+	it("stops a rising floor unit under the wall unit above it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		placed = addModule(placed, "wall-cabinet", 0, "w", 600);
+		const [wall] = positionsOf(placed, "wall");
+		const [base] = positionsOf(placed, "floor");
+
+		const lifted = setHangAt(placed, "b", 9000);
+		expect(lifted.floor[0].hangAtMm).toBe(
+			floorHeightMmOf(wall, placed) - base.family.heightMm,
+		);
+	});
+
+	// Downward, the slider's own floor is what a wall unit meets first: it sits
+	// above a resting base unit's worktop, so the cabinet below never becomes
+	// the binding constraint. The block is still computed — it is what refuses
+	// the *rising* unit above — but this is the end that does not bite.
+	it("stops a descending wall unit at the slider's floor", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		placed = addModule(placed, "wall-cabinet", 0, "w", 600);
+		const [base] = positionsOf(placed, "floor");
+
+		const restingTopMm =
+			base.family.floorHeightMm +
+			base.family.heightMm +
+			CONSTRUCTION.worktopThicknessMm;
+		expect(restingTopMm).toBeLessThan(WALL_HANG_LIMITS.minMm);
+		expect(setHangAt(placed, "w", 0).wall[0].hangAtMm).toBe(
+			WALL_HANG_LIMITS.minMm,
+		);
+	});
+
+	// The refusal runs the other way too: a base unit cannot climb into the
+	// wall unit, so it never reaches a height where the two interpenetrate.
+	it("will not let a floor unit climb past the wall unit above it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		placed = addModule(placed, "wall-cabinet", 0, "w", 600);
+		const [wall] = positionsOf(placed, "wall");
+		const [base] = positionsOf(placed, "floor");
+
+		const lifted = setHangAt(placed, "b", WALL_HANG_LIMITS.maxMm);
+		const [raised] = positionsOf(lifted, "floor");
+		expect(
+			floorHeightMmOf(raised, lifted) + raised.family.heightMm,
+		).toBeLessThanOrEqual(floorHeightMmOf(wall, placed));
+		expect(base.family.heightMm).toBeGreaterThan(0);
+	});
+
+	// Only what is actually overhead counts: a wall unit further along the wall
+	// is not in the way, however high the base unit goes.
+	it("ignores a wall unit that does not sit over it", () => {
+		let placed = addModule(layout, "base-cabinet", 0, "b", 600);
+		placed = addModule(placed, "wall-cabinet", 2000, "w", 600);
+		const [base] = positionsOf(placed, "floor");
+
+		const lifted = setHangAt(placed, "b", 9000);
+		expect(lifted.floor[0].hangAtMm).toBe(
+			placed.ceilingHeightMm - base.family.heightMm,
+		);
+	});
+
 	it("raises a floor unit too, and reports it back through the same reader", () => {
 		const placed = setHangAt(
 			addModule(layout, "base-cabinet", 0, "b", 600),
@@ -1498,5 +1564,51 @@ describe("swapWithNeighbour", () => {
 		// A tall unit under w2's stretch: w1 cannot take that place.
 		placed = addModule(placed, "tall-cabinet", 800, "t", 600);
 		expect(swapWithNeighbour(placed, "w1", 1)).toBe(placed);
+	});
+});
+
+describe("depthSpreadMm", () => {
+	it("is nothing at all for a cabinet square to the wall", () => {
+		expect(depthSpreadMm(900, 607, undefined)).toBe(0);
+		expect(depthSpreadMm(900, 607, 0)).toBe(0);
+	});
+
+	// Turned square, width and depth trade places: a 900-wide carcass occupies
+	// 900 of depth about a centre only 303.5 out, so 146.5 of it would be
+	// behind the wall. That is exactly how far forward it has to step.
+	it("steps a square turn forward by half the difference", () => {
+		expect(depthSpreadMm(900, 607, 90)).toBeCloseTo((900 - 607) / 2, 6);
+		expect(depthSpreadMm(900, 607, 270)).toBeCloseTo((900 - 607) / 2, 6);
+	});
+
+	// Deeper than it is wide, a square turn costs it depth rather than gaining
+	// any, and the step goes the other way — back toward the wall, which is
+	// right: cabinets hang by their backs, and leaving a hundred millimetres of
+	// daylight behind a turned one would read as a mistake.
+	it("steps a narrow cabinet back, so its back stays on the wall", () => {
+		expect(depthSpreadMm(400, 607, 90)).toBeCloseTo((400 - 607) / 2, 6);
+	});
+
+	// Whatever the angle, the cabinet's back lands on the wall and never
+	// through it — which is the whole job.
+	it("keeps the turned back on the wall at every angle", () => {
+		const depthMm = 607;
+		for (let deg = 0; deg <= 360; deg += 15) {
+			const centreMm = depthMm / 2 + depthSpreadMm(900, depthMm, deg);
+			const halfSpanMm =
+				(Math.abs(depthMm * Math.cos((deg * Math.PI) / 180)) +
+					Math.abs(900 * Math.sin((deg * Math.PI) / 180))) /
+				2;
+			expect(centreMm - halfSpanMm).toBeCloseTo(0, 6);
+		}
+	});
+
+	it("is symmetric across the quadrants, like the turn itself", () => {
+		for (const deg of [30, 150, 210, 330]) {
+			expect(depthSpreadMm(900, 607, deg)).toBeCloseTo(
+				depthSpreadMm(900, 607, 30),
+				6,
+			);
+		}
 	});
 });

@@ -17,7 +17,7 @@ import {
 	type SideGaps,
 	UNBOUNDED_GAPS,
 } from "@/lib/planner/exposure";
-import type { HingeSide } from "@/lib/planner/layout";
+import { depthSpreadMm, type HingeSide } from "@/lib/planner/layout";
 import {
 	cabinetPartsMm,
 	drawerTravelMm,
@@ -158,7 +158,16 @@ export function Cabinet({
 	// Cabinets hang by their backs. The parent group sits on the wall plane and
 	// each steps forward by half its own depth, so a 397-deep wall unit and a
 	// 607-deep base unit share a back rather than a centre line.
-	const backToCentre = m(family.depthMm) / 2;
+	//
+	// A turned one steps further. It spins about this very point, so half of
+	// whatever depth the turn gives it lands behind the wall — and `clampToWall`
+	// could not catch that, being written in x, where the cabinet was still
+	// inside. Adding the spread slides it forward until its turned corner just
+	// clears the plane, which is where a real one ends up: you cannot push a
+	// corner into brick. Both rows, because both spin about their own centres.
+	const backToCentre =
+		m(family.depthMm) / 2 +
+		m(depthSpreadMm(widthMm, family.depthMm, rotationDeg));
 
 	const w = m(widthMm);
 	const d = m(family.depthMm);

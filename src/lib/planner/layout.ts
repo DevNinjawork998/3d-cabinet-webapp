@@ -221,6 +221,36 @@ export function spreadMm(position: Positioned): number {
 	return (spanMm - position.widthMm) / 2;
 }
 
+/**
+ * How far a turn pushes a cabinet back past its own depth.
+ *
+ * `spreadMm`'s other half. That one answers what a turn costs *along* the
+ * wall; this one answers what it costs *into* it, and the cabinet needs both
+ * because it spins about its own centre — which sits only half its depth off
+ * the wall. A 900-wide, 607-deep carcass turned square occupies 900mm of
+ * depth about a centre 303mm out, so 147mm of it ends up behind the wall
+ * plane. Nothing was stopping that: `clampToWall` is written in x, and in x
+ * the cabinet was still inside.
+ *
+ * The scene adds this to the back-to-centre offset, which slides the carcass
+ * forward until its turned corner just clears the wall — which is where a real
+ * one would end up, because you cannot push a corner into brick.
+ *
+ * Zero for every cabinet that has not been turned, so an untouched run sits
+ * exactly where it always did.
+ */
+export function depthSpreadMm(
+	widthMm: number,
+	depthMm: number,
+	rotationDeg: number | undefined,
+): number {
+	if (!rotationDeg) return 0;
+	const rad = (rotationDeg * Math.PI) / 180;
+	const spanMm =
+		Math.abs(depthMm * Math.cos(rad)) + Math.abs(widthMm * Math.sin(rad));
+	return (spanMm - depthMm) / 2;
+}
+
 const clampToWall = (xMm: number, widthMm: number, wallWidthMm: number) =>
 	Math.min(Math.max(0, xMm), Math.max(0, wallWidthMm - widthMm));
 
@@ -989,6 +1019,25 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * 2200 ceiling pokes through it, which the slider's fixed range could never
 	 * see and this does.
 	 */
+	/**
+	 * How much vertical room a cabinet takes up where it stands.
+	 *
+	 * Not its carcass height. A base unit still in the counter run wears a
+	 * worktop, and the slab sits *on top* of the carcass rather than inside it,
+	 * so a cabinet clamped to the carcass alone stops flush and drives forty
+	 * millimetres of worktop through whatever it stopped against — which is the
+	 * part you see. One that has left the run has no slab to count, which is
+	 * why this reads `inRun` rather than the kind alone.
+	 */
+	function occupiedHeightMm(position: Positioned): number {
+		return (
+			position.family.heightMm +
+			(position.family.kind === "base" && inRun(position)
+				? construction.worktopThicknessMm
+				: 0)
+		);
+	}
+
 	function hangRangeMm(
 		position: Positioned,
 		layout: PlannerLayout,
@@ -998,11 +1047,51 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 			0,
 			layout.ceilingHeightMm - position.family.heightMm,
 		);
-		if (row !== "wall") return { minMm: 0, maxMm: headroomMm };
-		return {
-			minMm: Math.min(WALL_HANG_LIMITS.minMm, headroomMm),
-			maxMm: Math.min(WALL_HANG_LIMITS.maxMm, headroomMm),
-		};
+		const rowMinMm =
+			row === "wall" ? Math.min(WALL_HANG_LIMITS.minMm, headroomMm) : 0;
+		const rowMaxMm =
+			row === "wall"
+				? Math.min(WALL_HANG_LIMITS.maxMm, headroomMm)
+				: headroomMm;
+
+		// Then whatever is actually in the way. A cabinet cannot pass through the
+		// one above or below it any more than through the one beside it, and
+		// while the floor row could not move vertically nothing had to say so —
+		// the first thing a lifted base unit did was drive itself into the wall
+		// cabinet over it. This is `clampX`'s rule turned ninety degrees.
+		//
+		// Where it is now decides which side of an obstacle it stops on, the same
+		// reason `clampX` takes a `fromMm`. Anything it already overlaps is
+		// neither above nor below and is left out, so a cabinet the catalogue has
+		// wedged is held where it is rather than shoved to one end of a gap it
+		// does not fit. Its own height counts without a worktop: any raised
+		// position has taken it out of the run, so there is no slab up there.
+		const fromMm = floorHeightMmOf(position, layout);
+		const leftMm = position.xMm;
+		const rightMm = position.xMm + position.widthMm;
+		let ceilingMm = layout.ceilingHeightMm;
+		let floorMm = 0;
+		for (const other of positionsOf(
+			layout,
+			row === "wall" ? "floor" : "wall",
+		)) {
+			// Touching end to end is not overlapping, so a cabinet passes a
+			// neighbour that merely abuts its x span.
+			if (other.xMm + other.widthMm <= leftMm || other.xMm >= rightMm) continue;
+			const bottomMm = floorHeightMmOf(other, layout);
+			if (bottomMm >= fromMm + position.family.heightMm) {
+				ceilingMm = Math.min(ceilingMm, bottomMm);
+			} else if (bottomMm + occupiedHeightMm(other) <= fromMm) {
+				floorMm = Math.max(floorMm, bottomMm + occupiedHeightMm(other));
+			}
+		}
+
+		const minMm = Math.max(rowMinMm, floorMm);
+		const maxMm = Math.min(rowMaxMm, ceilingMm - position.family.heightMm);
+		// Boxed in with no room at all: hold it where it is, rather than let an
+		// inverted range snap it to one end of a gap it does not fit.
+		if (maxMm < minMm) return { minMm: fromMm, maxMm: fromMm };
+		return { minMm, maxMm };
 	}
 
 	/**
