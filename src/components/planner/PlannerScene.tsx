@@ -213,20 +213,25 @@ function panAnchor(target: Vector3Type, view: PlannerView, out: Vector3) {
 }
 
 /**
- * Which axes the puck is allowed to move the camera in, per view.
+ * Which axes the puck moves the camera in, per view: the two axes of the
+ * surface it is sliding on.
  *
- * 3D is deliberately sideways-only. Depth is what zoom already does, and
- * letting the puck have it put the camera *behind the run*, looking at carcass
- * backs: the clamp bounds the target inside the room, but the camera trails the
- * target by a whole viewing distance, so a target against the back wall is a
- * camera well through it. Sideways reach was the thing that was missing.
+ * On the floor that is across the run and into the room — the puck goes
+ * anywhere on the floor, which is the whole point of it being a thing lying on
+ * the floor. In elevation it is across the wall and up it.
  *
- * The flat views get the two axes of the drawing they are — the floor is the
- * page in plan, the wall is the page in elevation — and neither can put the
- * camera anywhere awkward, because neither has anything behind it.
+ * The height of a floor drag, and the depth of an elevation drag, are the
+ * target's own. That is what keeps a floor drag a drag *across the floor*
+ * rather than a camera that dives at it.
+ *
+ * This was briefly restricted to one axis in 3D, on the theory that depth put
+ * the camera behind the run looking at carcass backs. That did happen, but the
+ * cause was a stuck drag piling up pans, not the axis: with the target clamped
+ * inside the room, panning in depth cannot reach anywhere orbit does not
+ * already go, because orbit's azimuth is unrestricted.
  */
 const PAN_AXES: Record<PlannerView, { x: boolean; y: boolean; z: boolean }> = {
-	"3d": { x: true, y: false, z: false },
+	"3d": { x: true, y: false, z: true },
 	elevation: { x: true, y: true, z: false },
 	plan: { x: true, y: false, z: true },
 };
@@ -1649,6 +1654,11 @@ export default function PlannerScene({
 					runWidthMm: Math.max(runWidthMm, engine.rowEndMm(layout, "floor")),
 					roomDepthMm: layout.roomDepthMm,
 					ceilingHeightMm: layout.ceilingHeightMm,
+					// The floor units only. A wall unit hangs over floor a person
+					// can stand on, and so can the puck.
+					runDepthMm: engine
+						.positionsOf(layout, "floor")
+						.reduce((deepest, p) => Math.max(deepest, p.family.depthMm), 0),
 				}}
 				view={view}
 				refitKey={refitKey}
