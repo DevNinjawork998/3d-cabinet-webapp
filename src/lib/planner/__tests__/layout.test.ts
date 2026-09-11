@@ -1337,6 +1337,62 @@ describe("setRotation", () => {
 		expect(turned(37).floor[0].rotationDeg).toBe(37);
 	});
 
+	// A turn grows what a cabinet occupies along the wall, and a packed run has
+	// nowhere to put the extra. Sliding is all `clampX` can do, so without a
+	// refusal the cabinet settles overlapping and is drawn through its
+	// neighbour.
+	it("refuses a turn that will not fit between its neighbours", () => {
+		let packed = addModule(layout, "base-cabinet", 0, "a", 600);
+		packed = addModule(packed, "base-cabinet", 600, "b", 600);
+		packed = addModule(packed, "base-cabinet", 1200, "c", 600);
+		// Flush on both sides, so there is no gap to grow into.
+		const [, middle] = positionsOf(packed, "floor");
+		expect(middle.placed.id).toBe("b");
+
+		expect(setRotation(packed, "b", 30)).toBe(packed);
+		expect(packed.floor.find((m) => m.id === "b")?.rotationDeg).toBeUndefined();
+	});
+
+	// Not eased down to the largest angle that fits, because there is no such
+	// thing: the footprint grows to 45° and shrinks again past it. A cabinet
+	// deeper than it is wide is *narrower* turned square than left alone.
+	it("allows a square turn the shallower angles could not fit", () => {
+		let packed = addModule(layout, "base-cabinet", 0, "a", 600);
+		packed = addModule(packed, "base-cabinet", 600, "b", 600);
+		packed = addModule(packed, "base-cabinet", 1200, "c", 600);
+		const [, middle] = positionsOf(packed, "floor");
+
+		// 607 deep against 600 wide: square on, it wants 7mm more than it has.
+		expect(middle.family.depthMm).toBeGreaterThan(middle.widthMm);
+		expect(setRotation(packed, "b", 90)).toBe(packed);
+
+		// Give it those 7mm and the square turn goes through, while 45° — which
+		// wants far more — still does not.
+		let roomy = addModule(layout, "base-cabinet", 0, "a", 600);
+		roomy = addModule(roomy, "base-cabinet", 600, "b", 600);
+		roomy = addModule(roomy, "base-cabinet", 1400, "c", 600);
+		expect(setRotation(roomy, "b", 90).floor[1].rotationDeg).toBe(90);
+		expect(setRotation(roomy, "b", 45)).toBe(roomy);
+	});
+
+	it("allows a turn with room beside it, and stops it flush", () => {
+		let roomy = addModule(layout, "base-cabinet", 0, "a", 600);
+		roomy = addModule(roomy, "base-cabinet", 2000, "b", 600);
+		const next = setRotation(roomy, "b", 30);
+		expect(next.floor.find((m) => m.id === "b")?.rotationDeg).toBe(30);
+
+		// Whatever it settled on, it is not inside anything.
+		const after = positionsOf(next, "floor").find((p) => p.placed.id === "b");
+		if (!after) throw new Error("the turned cabinet went missing");
+		const spread = spreadMm(after);
+		for (const other of positionsOf(next, "floor")) {
+			if (other.placed.id === "b") continue;
+			expect(after.xMm - spread).toBeGreaterThanOrEqual(
+				other.xMm + other.widthMm - 0.5,
+			);
+		}
+	});
+
 	it("normalises a turn the other way into the same circle", () => {
 		expect(turned(-90).floor[0].rotationDeg).toBe(270);
 		expect(turned(450).floor[0].rotationDeg).toBe(90);
