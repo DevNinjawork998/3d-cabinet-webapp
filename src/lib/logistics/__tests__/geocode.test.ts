@@ -595,3 +595,97 @@ describe("a pin pasted where the address goes", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });
+
+/**
+ * The 2026-09-11 failure: an invalid key turned every save into a delete. The
+ * rows were fine, the addresses were fine, and the lookup was what broke.
+ */
+describe("a save made while the geocoder itself is broken", () => {
+	const stored = {
+		lat: 3.1509,
+		lng: 101.5931,
+		geocodedFor: "Jalan PJU 5/20",
+		postcode: "47810",
+		city: "Petaling Jaya",
+		state: "MY-10",
+	};
+	/** Google refusing us — the shape an invalid key comes back as. */
+	const refusal = {
+		status: "REQUEST_DENIED",
+		error_message: "The provided API key is invalid. ",
+		results: [],
+	};
+
+	it("keeps the pin and the place when the key is refused", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "bad-key");
+		stubFetch(refusal);
+
+		expect(
+			await resolveCoordinates("Jalan PJU 5/20", stored, null),
+		).toEqual(stored);
+	});
+
+	it("keeps them behind an admin-typed pin too", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "bad-key");
+		stubFetch(refusal);
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{ ...stored, postcode: null, city: null, state: null },
+				{ lat: 3.2, lng: 101.6 },
+			),
+		).toEqual({
+			lat: 3.2,
+			lng: 101.6,
+			geocodedFor: "Jalan PJU 5/20",
+			postcode: null,
+			city: null,
+			state: null,
+		});
+	});
+
+	it("keeps a pin on a row that never had a postcode, rather than deleting it", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "bad-key");
+		stubFetch(refusal);
+		const partial = { ...stored, postcode: null, city: null, state: null };
+
+		expect(await resolveCoordinates("Jalan PJU 5/20", partial, null)).toEqual(
+			partial,
+		);
+	});
+
+	it("still clears when the address changed — that pin is for somewhere else", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "bad-key");
+		stubFetch(refusal);
+
+		expect(await resolveCoordinates("Jalan Kerinchi", stored, null)).toEqual({
+			lat: null,
+			lng: null,
+			geocodedFor: null,
+			postcode: null,
+			city: null,
+			state: null,
+		});
+	});
+
+	it("still clears when a working geocoder simply does not know the address", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch({ status: "ZERO_RESULTS", results: [] });
+
+		expect(
+			await resolveCoordinates(
+				"Jalan PJU 5/20",
+				{ ...stored, postcode: null, city: null, state: null },
+				null,
+			),
+		).toEqual({
+			lat: null,
+			lng: null,
+			geocodedFor: null,
+			postcode: null,
+			city: null,
+			state: null,
+		});
+	});
+});

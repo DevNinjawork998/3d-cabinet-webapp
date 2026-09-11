@@ -364,6 +364,29 @@ export type StoredPin = {
 };
 
 /**
+ * Whether a failed lookup was *our* failure, on an address we have already
+ * resolved once — in which case the row keeps what it has.
+ *
+ * `geocodeAddress` returns null for two very different reasons and the row used
+ * to pay the same price for both: Google saying it does not know this address,
+ * and this deployment being unable to ask at all — no key, a key Google
+ * refuses, a geocoder that did not answer. The second turned every save into a
+ * delete. On 2026-09-11 an invalid key did exactly that: rows that had a pin, a
+ * postcode and a state kept none of them, every partner refused them, and the
+ * sentence on screen asked the admin to fix an address that had never been
+ * wrong. Nothing about the address changed — our lookup broke.
+ *
+ * A *changed* address still clears, however broken the geocoder is: that pin
+ * was resolved for somewhere else, and nothing on screen would say so.
+ */
+function ourFailure(address: string, current: StoredPin): boolean {
+	return current.geocodedFor === address && !geocoderHealth().ok;
+}
+
+/** Nothing known about the place. Not a guess — an absence. */
+const NO_PLACE: Place = { postcode: null, city: null, state: null };
+
+/**
  * A pin we have, with the postcode Google will only give us for the pin.
  *
  * Costs a second call and only on the saves that would otherwise store an
@@ -392,6 +415,9 @@ async function withPlace(pin: StoredPin): Promise<StoredPin> {
  * 3. Otherwise geocode, and store null when that fails — a stale pin belonging
  *    to the previous address is worse than no pin, because nothing on screen
  *    would say it is wrong.
+ * 4. Unless the failure was ours. `ourFailure` outranks rule 3 for the address
+ *    the row was already resolved for: an unreachable or refused geocoder is
+ *    not a reason to delete a pin and a postcode that were right this morning.
  */
 export async function resolveCoordinates(
 	address: string,
@@ -415,11 +441,8 @@ export async function resolveCoordinates(
 		const place =
 			current.geocodedFor === address && current.postcode !== null
 				? current
-				: ((await geocodeAddress(address)) ?? {
-						postcode: null,
-						city: null,
-						state: null,
-					});
+				: ((await geocodeAddress(address)) ??
+					(ourFailure(address, current) ? current : NO_PLACE));
 		return withPlace({
 			lat: override.lat,
 			lng: override.lng,
@@ -444,23 +467,26 @@ export async function resolveCoordinates(
 		return current;
 	}
 	const found = await geocodeAddress(address);
-	return withPlace(
-		found
-			? {
-					lat: found.lat,
-					lng: found.lng,
-					geocodedFor: address,
-					postcode: found.postcode,
-					city: found.city,
-					state: found.state,
-				}
-			: {
-					lat: null,
-					lng: null,
-					geocodedFor: null,
-					postcode: null,
-					city: null,
-					state: null,
-				},
-	);
+	if (found) {
+		return withPlace({
+			lat: found.lat,
+			lng: found.lng,
+			geocodedFor: address,
+			postcode: found.postcode,
+			city: found.city,
+			state: found.state,
+		});
+	}
+	// Rule 4, and it outranks rule 3: rule 3 clears because a stale pin is worse
+	// than none, which is true of a pin for the *previous* address and false of
+	// the one this address already has.
+	if (ourFailure(address, current)) return current;
+	return {
+		lat: null,
+		lng: null,
+		geocodedFor: null,
+		postcode: null,
+		city: null,
+		state: null,
+	};
 }
