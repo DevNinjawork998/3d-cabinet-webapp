@@ -1154,11 +1154,16 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * a magnet there would drag every small angle back to zero as they typed
 	 * the first digit.
 	 *
-	 * ponytail: rotation is visual and spec only — `occupiedSpans` still reserves
-	 * the unrotated width, so a cabinet turned side-on in a packed run overlaps
-	 * its neighbours. Reserve |w·cosθ| + |d·sinθ| there instead when that becomes
-	 * a complaint. `exposure.ts` is 1-D along x for the same reason and would
-	 * need the same treatment.
+	 * A turn that will not fit is refused outright, and the cabinet keeps the
+	 * last angle that did — the same answer `swapWithNeighbour` gives when a
+	 * destination is blocked. Not eased down to the largest angle that fits,
+	 * because there is no such thing: the footprint grows to 45° and shrinks
+	 * again past it, so a cabinet that cannot take 30° may well take 90°.
+	 * Stopping at the binding angle and going again beyond it is what dragging
+	 * the ring actually feels like.
+	 *
+	 * ponytail: `exposure.ts` is still 1-D along x, so which sides of a turned
+	 * cabinet count as exposed is read off its unrotated width.
 	 */
 	function setRotation(
 		layout: PlannerLayout,
@@ -1193,7 +1198,29 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		// settle again at its own position. Without this, turning one that is
 		// already flush swings its corner straight through the wall beside it —
 		// nothing moved, so nothing re-checked.
-		return moveModule(turned, id, next.xMm);
+		const slid = moveModule(turned, id, next.xMm);
+
+		// Sliding is all `clampX` can do, and a packed run has nowhere to slide
+		// to: with every neighbour flush there is no gap wide enough, so it
+		// settles still overlapping and the cabinet is drawn through the one
+		// beside it. Refuse the turn rather than draw that. See above for why it
+		// is refused instead of eased.
+		const after = positionsOf(slid, found.row).find((p) => p.placed.id === id);
+		if (!after) return slid;
+		const spread = spreadMm(after);
+		const startMm = after.xMm - spread;
+		const footprintMm = after.widthMm + spread * 2;
+		// A hair of tolerance: these are floats off a cosine, and a cabinet
+		// refused for a thousandth of a millimetre would read as a dead control.
+		const slackMm = 0.5;
+		if (
+			startMm < -slackMm ||
+			startMm + footprintMm > layout.wallWidthMm + slackMm ||
+			overlapsAnything(startMm, footprintMm, occupiedSpans(slid, found.row, id))
+		) {
+			return layout;
+		}
+		return slid;
 	}
 
 	/**
