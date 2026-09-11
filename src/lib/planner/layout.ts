@@ -424,8 +424,12 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 
 	/** How far along the wall the run reaches — its rightmost edge. */
 	function rowEndMm(layout: PlannerLayout, row: Row): number {
+		// Footprint, not width. A turned cabinet reaches past its own width, and
+		// this figure is what `minWallWidthMm` lets the wall shrink to — so in
+		// widths the wall could be pulled in through a turned carcass's corner.
 		return positionsOf(layout, row).reduce(
-			(end, position) => Math.max(end, position.xMm + position.widthMm),
+			(end, position) =>
+				Math.max(end, position.xMm + position.widthMm + spreadMm(position)),
 			0,
 		);
 	}
@@ -1199,28 +1203,159 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		// already flush swings its corner straight through the wall beside it —
 		// nothing moved, so nothing re-checked.
 		const slid = moveModule(turned, id, next.xMm);
+		if (isClear(slid)) return slid;
 
 		// Sliding is all `clampX` can do, and a packed run has nowhere to slide
-		// to: with every neighbour flush there is no gap wide enough, so it
-		// settles still overlapping and the cabinet is drawn through the one
-		// beside it. Refuse the turn rather than draw that. See above for why it
-		// is refused instead of eased.
-		const after = positionsOf(slid, found.row).find((p) => p.placed.id === id);
-		if (!after) return slid;
+		// to. The run gives way instead — see `openRoomFor`. What it has to open
+		// is the shortfall between the turned footprint and the free stretch the
+		// cabinet is sitting in, not the whole growth, so a run with a gap
+		// already beside it barely moves.
+		const after = positionsOf(slid, found.row).find(
+			(position) => position.placed.id === id,
+		);
+		if (!after) return layout;
 		const spread = spreadMm(after);
-		const startMm = after.xMm - spread;
 		const footprintMm = after.widthMm + spread * 2;
-		// A hair of tolerance: these are floats off a cosine, and a cabinet
-		// refused for a thousandth of a millimetre would read as a dead control.
-		const slackMm = 0.5;
-		if (
-			startMm < -slackMm ||
-			startMm + footprintMm > layout.wallWidthMm + slackMm ||
-			overlapsAnything(startMm, footprintMm, occupiedSpans(slid, found.row, id))
-		) {
-			return layout;
+		const centreMm = after.xMm + after.widthMm / 2;
+		const gap = freeSpans(slid, found.row, id).find(
+			(span) => span.startMm <= centreMm && span.endMm >= centreMm,
+		);
+		const needMm = footprintMm - (gap ? gap.endMm - gap.startMm : 0);
+
+		const roomy = moveModule(
+			openRoomFor(turned, found.row, id, needMm),
+			id,
+			next.xMm,
+		);
+		// Still nowhere to put it — the wall itself is full. Keep the angle the
+		// cabinet had, which is the same answer `swapWithNeighbour` gives when a
+		// destination is blocked.
+		return isClear(roomy) ? roomy : layout;
+	}
+
+	/**
+	 * A hair of tolerance on every edge comparison.
+	 *
+	 * A footprint is `|w·cosθ| + |d·sinθ|` once cabinets can be turned, so an
+	 * edge is a cosine rather than an integer, and one settled flush against its
+	 * neighbour lands on the boundary by construction — where the two figures
+	 * disagree in the thirteenth decimal place. A move refused for a thousandth
+	 * of a millimetre reads as a dead control.
+	 */
+	const SLACK_MM = 0.5;
+
+	/**
+	 * Whether the layout is physically possible: every cabinet inside the wall
+	 * and clear of everything that shares its row.
+	 *
+	 * Checking what has to be true, rather than asking each edit to enumerate
+	 * the obstacles it might have disturbed. Two bugs came from that enumeration
+	 * being incomplete, and neither was where the edit was looking: a turn that
+	 * pushed its neighbours slid the last wall cabinet into a tall unit's span,
+	 * and `swapWithNeighbour` — which validated only the cabinet it was asked
+	 * about, never the neighbour that also moved — buried a tall unit under the
+	 * wall cabinets by swapping it down the run.
+	 *
+	 * `occupiedSpans` already knows a tall unit stands in both rows, so asking
+	 * it once per cabinet is the whole check.
+	 */
+	function isClear(layout: PlannerLayout): boolean {
+		for (const row of ["floor", "wall"] as const) {
+			for (const position of positionsOf(layout, row)) {
+				const spread = spreadMm(position);
+				const startMm = position.xMm - spread;
+				const footprintMm = position.widthMm + spread * 2;
+				if (
+					startMm < -SLACK_MM ||
+					startMm + footprintMm > layout.wallWidthMm + SLACK_MM ||
+					overlapsAnything(
+						startMm + SLACK_MM,
+						Math.max(0, footprintMm - SLACK_MM * 2),
+						occupiedSpans(layout, row, position.placed.id),
+					)
+				) {
+					return false;
+				}
+			}
 		}
-		return slid;
+		return true;
+	}
+
+	/**
+	 * Slide a cabinet's neighbours along the wall to open room beside it.
+	 *
+	 * A turn grows what a cabinet occupies, and `clampX` can only slide the
+	 * cabinet itself — so in a packed run it had nowhere to go and the turn was
+	 * refused, while metres of bare wall sat at the end of the run. Refusing was
+	 * right and useless: on the kitchen starter it left the drawer base able to
+	 * take two angles out of twenty-four.
+	 *
+	 * So the run gives way instead. Everything past the cabinet moves away from
+	 * it, into whatever free wall that side has, and the cabinet re-settles in
+	 * the gap that opens. The far side is tried for the remainder, so a cabinet
+	 * near the right-hand end pushes left. Only when neither side has the wall
+	 * to spare is the turn refused.
+	 *
+	 * The row keeps its own order and its own gaps: every module on a side
+	 * shifts by the same amount in the same direction, so none of them can meet
+	 * another, and neither push exceeds the free wall on that side.
+	 */
+	function openRoomFor(
+		layout: PlannerLayout,
+		row: Row,
+		id: string,
+		needMm: number,
+	): PlannerLayout {
+		if (needMm <= 0) return layout;
+
+		const positions = positionsOf(layout, row);
+		const me = positions.find((position) => position.placed.id === id);
+		if (!me) return layout;
+
+		const centreMm = me.xMm + me.widthMm / 2;
+		const sides = positions
+			.filter((position) => position.placed.id !== id)
+			.map((position) => {
+				const spread = spreadMm(position);
+				return {
+					id: position.placed.id,
+					startMm: position.xMm - spread,
+					endMm: position.xMm + position.widthMm + spread,
+				};
+			});
+
+		const right = sides.filter((side) => side.startMm >= centreMm);
+		const left = sides.filter((side) => side.endMm <= centreMm);
+
+		const rightEdgeMm = right.reduce(
+			(edge, side) => Math.max(edge, side.endMm),
+			me.xMm + me.widthMm,
+		);
+		const leftEdgeMm = left.reduce(
+			(edge, side) => Math.min(edge, side.startMm),
+			me.xMm,
+		);
+
+		const pushRightMm = Math.min(
+			needMm,
+			Math.max(0, layout.wallWidthMm - rightEdgeMm),
+		);
+		const pushLeftMm = Math.min(needMm - pushRightMm, Math.max(0, leftEdgeMm));
+		// Not enough wall on either side: the caller refuses the turn.
+		if (pushRightMm + pushLeftMm < needMm) return layout;
+
+		const rightIds = new Set(right.map((side) => side.id));
+		const leftIds = new Set(left.map((side) => side.id));
+		return {
+			...layout,
+			[row]: layout[row].map((placed) => {
+				if (rightIds.has(placed.id))
+					return { ...placed, xMm: placed.xMm + pushRightMm };
+				if (leftIds.has(placed.id))
+					return { ...placed, xMm: placed.xMm - pushLeftMm };
+				return placed;
+			}),
+		};
 	}
 
 	/**
@@ -1549,41 +1684,48 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 	 * customer arranges freely and tidies up when they want a clean elevation.
 	 */
 	function closeGaps(layout: PlannerLayout): PlannerLayout {
+		// The cursor walks **footprints**, not widths. Packing by width slid the
+		// next cabinet under a turned one's corner — the run came out flush on
+		// paper and superimposed on screen.
 		const floor: PlacedModule[] = [];
 		let cursor = 0;
 		for (const position of positionsOf(layout, "floor")) {
-			floor.push({ ...position.placed, xMm: cursor });
-			cursor += position.widthMm;
+			const spread = spreadMm(position);
+			floor.push({ ...position.placed, xMm: cursor + spread });
+			cursor += position.widthMm + spread * 2;
 		}
 
 		const packed: PlannerLayout = { ...layout, floor, wall: [] };
-		const talls = floor
-			.map((placed) => ({
-				placed,
-				family: familyIn(catalogue, placed.familyId),
-			}))
-			.filter((entry) => entry.family?.kind === "tall");
+		const talls = positionsOf(packed, "floor")
+			.filter((position) => position.family.kind === "tall")
+			.map((position) => {
+				const spread = spreadMm(position);
+				return {
+					startMm: position.xMm - spread,
+					endMm: position.xMm + position.widthMm + spread,
+				};
+			});
 
 		const wall: PlacedModule[] = [];
 		cursor = 0;
 		for (const position of positionsOf(layout, "wall")) {
+			const spread = spreadMm(position);
+			const footprintMm = position.widthMm + spread * 2;
+
 			// Step past any tall unit, which owns the full height of its span.
 			let moved = true;
 			while (moved) {
 				moved = false;
-				for (const { placed, family: tall } of talls) {
-					if (!tall) continue;
-					const start = placed.xMm;
-					const end = placed.xMm + placed.widthMm;
-					if (cursor < end && cursor + position.widthMm > start) {
-						cursor = end;
+				for (const tall of talls) {
+					if (cursor < tall.endMm && cursor + footprintMm > tall.startMm) {
+						cursor = tall.endMm;
 						moved = true;
 					}
 				}
 			}
 
-			wall.push({ ...position.placed, xMm: cursor });
-			cursor += position.widthMm;
+			wall.push({ ...position.placed, xMm: cursor + spread });
+			cursor += footprintMm;
 		}
 
 		return { ...packed, wall };
@@ -1713,33 +1855,38 @@ export function plannerEngine(catalogue: PlannerCatalogue) {
 		const self = row[index];
 		const left = direction === 1 ? self : neighbour;
 		const right = direction === 1 ? neighbour : self;
-		const gapMm = right.xMm - (left.xMm + left.widthMm);
+
+		// Footprints throughout, because either one of the pair may be turned and
+		// a turned cabinet reaches past its own width. Swapping by width put the
+		// wider footprint where only the narrower one fitted.
+		const leftSpread = spreadMm(left);
+		const rightSpread = spreadMm(right);
+		const leftFootMm = left.widthMm + leftSpread * 2;
+		const rightFootMm = right.widthMm + rightSpread * 2;
+		const leftStartMm = left.xMm - leftSpread;
+		const rightStartMm = right.xMm - rightSpread;
+		const gapMm = rightStartMm - (leftStartMm + leftFootMm);
 
 		// Each takes the other's place against the pair's outer edges, so the
 		// gap between them survives and nothing outside the pair moves.
-		const leftToMm = left.xMm + right.widthMm + gapMm;
-		const rightToMm = left.xMm;
+		const leftToStartMm = leftStartMm + rightFootMm + gapMm;
+		const rightToStartMm = leftStartMm;
+		const leftToMm = leftToStartMm + leftSpread;
+		const rightToMm = rightToStartMm + rightSpread;
 
-		const spans = occupiedSpans(layout, found.row, id).filter(
-			(span) =>
-				!(
-					span.startMm === neighbour.xMm &&
-					span.endMm === neighbour.xMm + neighbour.widthMm
-				),
-		);
-		if (
-			overlapsAnything(leftToMm, left.widthMm, spans) ||
-			overlapsAnything(rightToMm, right.widthMm, spans)
-		) {
-			return layout;
-		}
-
-		return withX(
+		// Both halves move, so both have to be checked — and a tall unit standing
+		// in the wall row has to be checked against that row too. Enumerating the
+		// obstacles here got it wrong in exactly that case: swapping a base
+		// cabinet with the tall beside it buried the tall under the wall
+		// cabinets, because only the cabinet named in the call was ever tested.
+		// Build the swap and ask whether the result is possible.
+		const swapped = withX(
 			withX(layout, found.row, left.placed.id, leftToMm),
 			found.row,
 			right.placed.id,
 			rightToMm,
 		);
+		return isClear(swapped) ? swapped : layout;
 	}
 
 	/**

@@ -82,17 +82,36 @@ const at = (l: PlannerLayout, id: string) => {
 	return all.xMm;
 };
 
-/** The invariant the whole engine exists to protect. */
+/**
+ * The invariant the whole engine exists to protect.
+ *
+ * A nanometre of tolerance on the flush case. Since cabinets can be turned,
+ * an edge is `|w·cosθ| + |d·sinθ|` rather than an integer, and one settled
+ * flush against its neighbour lands on the boundary by construction — where
+ * the two figures disagree in the thirteenth decimal place. A millionth of a
+ * millimetre is far below anything this engine means and far above float dust.
+ */
+const FLUSH_TOLERANCE_MM = 1e-6;
+
 function expectNoOverlaps(l: PlannerLayout) {
 	for (const row of ["floor", "wall"] as const) {
 		const spans = occupiedSpans(l, row);
 		for (let i = 1; i < spans.length; i++) {
-			expect(spans[i].startMm).toBeGreaterThanOrEqual(spans[i - 1].endMm);
+			expect(spans[i].startMm).toBeGreaterThanOrEqual(
+				spans[i - 1].endMm - FLUSH_TOLERANCE_MM,
+			);
 		}
+		// Footprints, not `xMm`. `xMm` is the *unrotated* left edge, and a turned
+		// cabinet's footprint is centred on the same middle — so a 900-wide,
+		// 397-deep wall cabinet turned square occupies less wall than it is wide
+		// and its stored x legitimately lands outside its own footprint, negative
+		// when it is packed against the left wall. What has to stay on the wall
+		// is the box you can see.
 		for (const position of positionsOf(l, row)) {
-			expect(position.xMm).toBeGreaterThanOrEqual(0);
-			expect(position.xMm + position.widthMm).toBeLessThanOrEqual(
-				l.wallWidthMm,
+			const spread = spreadMm(position);
+			expect(position.xMm - spread).toBeGreaterThanOrEqual(-FLUSH_TOLERANCE_MM);
+			expect(position.xMm + position.widthMm + spread).toBeLessThanOrEqual(
+				l.wallWidthMm + FLUSH_TOLERANCE_MM,
 			);
 		}
 	}
@@ -1337,42 +1356,86 @@ describe("setRotation", () => {
 		expect(turned(37).floor[0].rotationDeg).toBe(37);
 	});
 
-	// A turn grows what a cabinet occupies along the wall, and a packed run has
-	// nowhere to put the extra. Sliding is all `clampX` can do, so without a
-	// refusal the cabinet settles overlapping and is drawn through its
-	// neighbour.
-	it("refuses a turn that will not fit between its neighbours", () => {
+	// A turn grows what a cabinet occupies along the wall, and a cabinet flush
+	// on both sides has nowhere to put the extra. Sliding is all `clampX` can
+	// do, so without either a refusal or somewhere to put the growth the
+	// cabinet settles overlapping and is drawn through its neighbour.
+	it("never settles a turn on top of a neighbour", () => {
 		let packed = addModule(layout, "base-cabinet", 0, "a", 600);
 		packed = addModule(packed, "base-cabinet", 600, "b", 600);
 		packed = addModule(packed, "base-cabinet", 1200, "c", 600);
-		// Flush on both sides, so there is no gap to grow into.
 		const [, middle] = positionsOf(packed, "floor");
 		expect(middle.placed.id).toBe("b");
 
-		expect(setRotation(packed, "b", 30)).toBe(packed);
-		expect(packed.floor.find((m) => m.id === "b")?.rotationDeg).toBeUndefined();
+		// Every angle, whether it is taken or refused, leaves a legal run.
+		for (let deg = 0; deg < 360; deg += 5) {
+			expectNoOverlaps(setRotation(packed, "b", deg));
+		}
 	});
 
 	// Not eased down to the largest angle that fits, because there is no such
 	// thing: the footprint grows to 45° and shrinks again past it. A cabinet
-	// deeper than it is wide is *narrower* turned square than left alone.
-	it("allows a square turn the shallower angles could not fit", () => {
+	// deeper than it is wide is *narrower* turned square than left alone, so
+	// how far the run has to give way is not monotonic in the angle.
+	it("moves the run least for the angle that costs least", () => {
+		const packed = () => {
+			let l = addModule(layout, "base-cabinet", 0, "a", 600);
+			l = addModule(l, "base-cabinet", 600, "b", 600);
+			return addModule(l, "base-cabinet", 1200, "c", 600);
+		};
+		const [, middle] = positionsOf(packed(), "floor");
+		// 607 deep against 600 wide: square on it wants 7mm more than it has,
+		// where 45° wants over two hundred.
+		expect(middle.family.depthMm).toBeGreaterThan(middle.widthMm);
+
+		const pushedBy = (deg: number) =>
+			at(setRotation(packed(), "b", deg), "c") - 1200;
+
+		expect(pushedBy(90)).toBeCloseTo(7, 0);
+		expect(pushedBy(45)).toBeGreaterThan(200);
+		expect(pushedBy(0)).toBe(0);
+	});
+
+	// The refusal above was right and still unhelpful: it left a packed run
+	// unturnable while 2.2 m of bare wall sat at the end of it. The cabinet
+	// cannot slide, but the run can.
+	it("pushes the run along to make room for a turn", () => {
 		let packed = addModule(layout, "base-cabinet", 0, "a", 600);
 		packed = addModule(packed, "base-cabinet", 600, "b", 600);
 		packed = addModule(packed, "base-cabinet", 1200, "c", 600);
-		const [, middle] = positionsOf(packed, "floor");
 
-		// 607 deep against 600 wide: square on, it wants 7mm more than it has.
-		expect(middle.family.depthMm).toBeGreaterThan(middle.widthMm);
-		expect(setRotation(packed, "b", 90)).toBe(packed);
+		const next = setRotation(packed, "b", 30);
+		expect(next.floor.find((m) => m.id === "b")?.rotationDeg).toBe(30);
 
-		// Give it those 7mm and the square turn goes through, while 45° — which
-		// wants far more — still does not.
-		let roomy = addModule(layout, "base-cabinet", 0, "a", 600);
-		roomy = addModule(roomy, "base-cabinet", 600, "b", 600);
-		roomy = addModule(roomy, "base-cabinet", 1400, "c", 600);
-		expect(setRotation(roomy, "b", 90).floor[1].rotationDeg).toBe(90);
-		expect(setRotation(roomy, "b", 45)).toBe(roomy);
+		// "a" held its ground at the wall and "c" gave way, because the free
+		// wall is on the right.
+		expect(at(next, "a")).toBe(0);
+		expect(at(next, "c")).toBeGreaterThan(1200);
+		expectNoOverlaps(next);
+	});
+
+	it("pushes the other way when the free wall is on the left", () => {
+		let packed = addModule(layout, "base-cabinet", 2200, "a", 600);
+		packed = addModule(packed, "base-cabinet", 2800, "b", 600);
+		packed = addModule(packed, "base-cabinet", 3400, "c", 600);
+
+		const next = setRotation(packed, "b", 30);
+		expect(next.floor.find((m) => m.id === "b")?.rotationDeg).toBe(30);
+		expect(at(next, "a")).toBeLessThan(2200);
+		expect(at(next, "c")).toBe(3400);
+		expectNoOverlaps(next);
+	});
+
+	it("still refuses when the wall is full and there is no run to push", () => {
+		// Three 600s on an 1800 wall: flush at both ends, nothing spare.
+		let full = addModule(layout, "base-cabinet", 0, "a", 600);
+		full = addModule(full, "base-cabinet", 600, "b", 600);
+		full = addModule(full, "base-cabinet", 1200, "c", 600);
+		full = setWallWidth(full, 1800);
+		expect(full.wallWidthMm).toBe(1800);
+
+		expect(setRotation(full, "b", 30)).toBe(full);
+		expect(full.floor.find((m) => m.id === "b")?.rotationDeg).toBeUndefined();
 	});
 
 	it("allows a turn with room beside it, and stops it flush", () => {
@@ -1390,6 +1453,38 @@ describe("setRotation", () => {
 			expect(after.xMm - spread).toBeGreaterThanOrEqual(
 				other.xMm + other.widthMm - 0.5,
 			);
+		}
+	});
+
+	// The whole point of the feature, stated as one rule: a turn must never put
+	// one cabinet inside another, whatever is done to the run afterwards. Every
+	// mutation below used to be written in widths, and a turned cabinet is
+	// wider than its width — `closeGaps` packed the next one under its corner,
+	// `swapWithNeighbour` dropped the wider footprint into the narrower slot,
+	// and `rowEndMm` let `setWallWidth` pull the wall in through it.
+	it("keeps every cabinet clear of every other, whatever follows a turn", () => {
+		for (const room of ["kitchen", "living", "bedroom", "foyer"] as const) {
+			const base = starterFor(room);
+			for (const row of ["floor", "wall"] as const) {
+				for (const target of positionsOf(base, row)) {
+					for (const deg of [15, 45, 90, 135, 210, 315]) {
+						const turned = setRotation(base, target.placed.id, deg);
+						expectNoOverlaps(turned);
+						expectNoOverlaps(closeGaps(turned));
+						expectNoOverlaps(setWallWidth(turned, minWallWidthMm(turned)));
+
+						for (const other of positionsOf(turned, row)) {
+							expectNoOverlaps(moveModule(turned, other.placed.id, 0));
+							expectNoOverlaps(
+								dropModule(turned, other.placed.id, other.xMm + 250),
+							);
+							expectNoOverlaps(swapWithNeighbour(turned, other.placed.id, 1));
+							expectNoOverlaps(swapWithNeighbour(turned, other.placed.id, -1));
+							expectNoOverlaps(duplicateModule(turned, other.placed.id));
+						}
+					}
+				}
+			}
 		}
 	});
 
