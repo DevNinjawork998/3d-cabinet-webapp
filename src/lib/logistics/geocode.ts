@@ -287,6 +287,72 @@ export async function geocodeAddress(
 	}
 }
 
+/** The three fields a parcel partner prices against. */
+export type Place = Pick<GeocodeResult, "postcode" | "city" | "state">;
+
+/**
+ * The place a pin sits in, asked of the pin rather than of an address string.
+ *
+ * The forward lookup can only answer an address, and an admin who pastes a
+ * Maps link or a coordinate pair where the address goes has not given it one —
+ * `pinFor` in `coords.ts` reads that paste as the pin on purpose, and it is the
+ * common paste, because a phone's clipboard from Google Maps is a URL. Google
+ * then returns nothing usable for the URL, the row stores a perfect pin beside
+ * a null postcode, and the job quotes on Lalamove and is refused by GDEX and
+ * EasyParcel with a sentence telling the admin to edit an address that says
+ * exactly what they meant. Delivery 14 is that row.
+ *
+ * So when there is a pin and no postcode, ask about the pin. Reverse results
+ * come back at several granularities and not all of them carry a postcode; the
+ * first that does wins, and null when none do.
+ */
+export async function reverseGeocode(
+	lat: number,
+	lng: number,
+): Promise<Place | null> {
+	const key = process.env.GOOGLE_GEOCODING_API_KEY ?? "";
+	if (key === "") return null;
+
+	const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+	url.searchParams.set("latlng", `${lat},${lng}`);
+	url.searchParams.set("key", key);
+
+	try {
+		const body = await carrierFetch<unknown>(url.toString(), {
+			carrierId: "geocode",
+			idempotent: true,
+		});
+		const parsed = responseSchema.safeParse(body);
+		if (!parsed.success) return null;
+		if (parsed.data.status !== "OK") {
+			// Same split as the forward call: Google saying it knows nothing about
+			// this pin is not this deployment being misconfigured.
+			if (parsed.data.status !== "ZERO_RESULTS") {
+				noteHealth({
+					ok: false,
+					why: "rejected",
+					detail: parsed.data.error_message ?? parsed.data.status,
+				});
+			}
+			return null;
+		}
+		noteHealth(HEALTHY);
+
+		for (const result of parsed.data.results) {
+			const place = readPlace(result.address_components);
+			if (place.postcode !== null) return place;
+		}
+		return null;
+	} catch (error) {
+		noteHealth({
+			ok: false,
+			why: "unreachable",
+			detail: error instanceof Error ? error.message : null,
+		});
+		return null;
+	}
+}
+
 export type StoredPin = {
 	lat: number | null;
 	lng: number | null;
@@ -296,6 +362,19 @@ export type StoredPin = {
 	city: string | null;
 	state: string | null;
 };
+
+/**
+ * A pin we have, with the postcode Google will only give us for the pin.
+ *
+ * Costs a second call and only on the saves that would otherwise store an
+ * unquotable row — a pin with no postcode is precisely the state that refuses
+ * every parcel partner, so there is nothing to lose by asking.
+ */
+async function withPlace(pin: StoredPin): Promise<StoredPin> {
+	if (pin.postcode !== null || pin.lat === null || pin.lng === null) return pin;
+	const place = await reverseGeocode(pin.lat, pin.lng);
+	return place === null ? pin : { ...pin, ...place };
+}
 
 /**
  * The pin a delivery row should carry after a save.
@@ -341,14 +420,14 @@ export async function resolveCoordinates(
 						city: null,
 						state: null,
 					});
-		return {
+		return withPlace({
 			lat: override.lat,
 			lng: override.lng,
 			geocodedFor: address,
 			postcode: place.postcode,
 			city: place.city,
 			state: place.state,
-		};
+		});
 	}
 	// The postcode has to be part of this test, not just the pin: a row saved
 	// before the `20260905181525_delivery_place_and_label` migration has a pin
@@ -365,21 +444,23 @@ export async function resolveCoordinates(
 		return current;
 	}
 	const found = await geocodeAddress(address);
-	return found
-		? {
-				lat: found.lat,
-				lng: found.lng,
-				geocodedFor: address,
-				postcode: found.postcode,
-				city: found.city,
-				state: found.state,
-			}
-		: {
-				lat: null,
-				lng: null,
-				geocodedFor: null,
-				postcode: null,
-				city: null,
-				state: null,
-			};
+	return withPlace(
+		found
+			? {
+					lat: found.lat,
+					lng: found.lng,
+					geocodedFor: address,
+					postcode: found.postcode,
+					city: found.city,
+					state: found.state,
+				}
+			: {
+					lat: null,
+					lng: null,
+					geocodedFor: null,
+					postcode: null,
+					city: null,
+					state: null,
+				},
+	);
 }

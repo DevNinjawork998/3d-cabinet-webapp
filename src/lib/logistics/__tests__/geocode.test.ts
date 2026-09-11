@@ -7,6 +7,7 @@ import {
 	refreshGeocoderHealth,
 	resetGeocoderHealth,
 	resolveCoordinates,
+	reverseGeocode,
 } from "../geocode";
 
 /** One Google Geocoding response, trimmed to the fields the module reads. */
@@ -456,5 +457,141 @@ describe("geocodeAddress address components", () => {
 		expect(found?.postcode).toBeNull();
 		expect(found?.city).toBeNull();
 		expect(found?.state).toBeNull();
+	});
+});
+
+/**
+ * Google's reverse reply: the coarse rows it puts first carry no postcode, and
+ * the street-level one does. Shaped this way on purpose — taking `results[0]`
+ * blindly is what would silently keep the postcode null.
+ */
+const reverseResponse = {
+	status: "OK",
+	results: [
+		{
+			formatted_address: "Selangor, Malaysia",
+			geometry: {
+				location: { lat: 2.9442869, lng: 101.5427859 },
+				location_type: "APPROXIMATE",
+			},
+			address_components: [
+				{
+					long_name: "Selangor",
+					short_name: "Selangor",
+					types: ["administrative_area_level_1", "political"],
+				},
+			],
+		},
+		{
+			formatted_address:
+				"3, Persiaran Eco Sanctuary, 42500 Telok Panglima Garang, Selangor",
+			geometry: {
+				location: { lat: 2.9442869, lng: 101.5427859 },
+				location_type: "ROOFTOP",
+			},
+			address_components: [
+				{ long_name: "42500", short_name: "42500", types: ["postal_code"] },
+				{
+					long_name: "Telok Panglima Garang",
+					short_name: "Telok Panglima Garang",
+					types: ["locality"],
+				},
+				{
+					long_name: "Selangor",
+					short_name: "Selangor",
+					types: ["administrative_area_level_1", "political"],
+				},
+			],
+		},
+	],
+};
+
+describe("reverseGeocode", () => {
+	it("takes the first result that actually carries a postcode", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch(reverseResponse);
+
+		expect(await reverseGeocode(2.9442869, 101.5427859)).toEqual({
+			postcode: "42500",
+			city: "Telok Panglima Garang",
+			state: "MY-10",
+		});
+	});
+
+	it("is null when no result carries one", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		stubFetch({ status: "ZERO_RESULTS", results: [] });
+
+		expect(await reverseGeocode(2.9442869, 101.5427859)).toBeNull();
+	});
+});
+
+describe("a pin pasted where the address goes", () => {
+	// Delivery 14: the address field holds a Google Maps url, so `pinFor` reads
+	// the pin out of it and the forward lookup has no address to answer. Before
+	// the reverse fallback the row stored a perfect pin and a null postcode, and
+	// GDEX and EasyParcel both refused a job Lalamove quoted at RM 85.
+	const mapsUrl =
+		"https://www.google.com/maps/place/Sanctuary+Mall/@2.9268368,101.5816541,15z/data=!3d2.9442869!4d101.5427859";
+
+	it("takes its postcode from the pin when the address yields none", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = vi.fn(
+			async (input: unknown) =>
+				new Response(
+					JSON.stringify(
+						String(input).includes("latlng=")
+							? reverseResponse
+							: { status: "ZERO_RESULTS", results: [] },
+					),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		expect(
+			await resolveCoordinates(
+				mapsUrl,
+				{
+					lat: null,
+					lng: null,
+					geocodedFor: null,
+					postcode: null,
+					city: null,
+					state: null,
+				},
+				{ lat: 2.9442869, lng: 101.5427859 },
+			),
+		).toEqual({
+			lat: 2.9442869,
+			lng: 101.5427859,
+			geocodedFor: mapsUrl,
+			postcode: "42500",
+			city: "Telok Panglima Garang",
+			state: "MY-10",
+		});
+	});
+
+	it("does not ask a second time when there is no pin to ask about", async () => {
+		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "test-key");
+		const fetchMock = stubFetch({ status: "ZERO_RESULTS", results: [] });
+
+		expect(
+			(
+				await resolveCoordinates(
+					"nowhere at all",
+					{
+						lat: null,
+						lng: null,
+						geocodedFor: null,
+						postcode: null,
+						city: null,
+						state: null,
+					},
+					null,
+				)
+			).lat,
+		).toBeNull();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });

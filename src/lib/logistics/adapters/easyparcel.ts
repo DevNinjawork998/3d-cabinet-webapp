@@ -436,13 +436,24 @@ const quotationSchema = z.object({
 							service_name: z.string().nullish(),
 							courier_id: z.string().nullish(),
 							courier_name: z.string().nullish(),
-							delivery_duration: z.string().nullish(),
+							// Prose in their documentation ("1-3 working days"), a JSON
+							// *string* in the live reply (`{"type":"days","value":"3"}`).
+							// Unknown rather than either, and read by `durationText`: this
+							// field is a label nobody prices against, so a third shape must
+							// cost a blank duration and not the whole EasyParcel row.
+							delivery_duration: z.unknown(),
 							is_pickup: z.boolean().nullish(),
 							is_dropoff: z.boolean().nullish(),
 						}),
 						pricing: z.object({
 							currency: z.string().nullish(),
-							total_amount: z.string().nullish(),
+							// Live replies send this as a JSON number (`18.26`); the
+							// documented examples and the recorded fixtures send the
+							// string `"18.26"`. Both are accepted because the reply that
+							// pays the bills is the live one, and pinning either shape
+							// alone takes the whole EasyParcel row off the comparison
+							// screen with a parse error the admin cannot act on.
+							total_amount: z.union([z.string(), z.number()]).nullish(),
 						}),
 					}),
 				)
@@ -456,8 +467,35 @@ export type Quotation = z.infer<
 	typeof quotationSchema
 >["data"][number]["quotations"][number];
 
-/** `"9.80"` -> `9.8`; anything unreadable -> null rather than NaN. */
-function num(value: string | null | undefined): number | null {
+/**
+ * `delivery_duration` as something an admin can read.
+ *
+ * "1-3 working days" is their documented shape and passes through. The live
+ * service sends the JSON string `{"type":"days","value":"3"}`, which went onto
+ * the comparison row verbatim, braces and all. Anything else is null — a blank
+ * duration next to a real price beats punctuation next to one.
+ */
+export function durationText(raw: unknown): string | null {
+	if (typeof raw === "string") {
+		const text = raw.trim();
+		if (text === "") return null;
+		if (!text.startsWith("{")) return text;
+		try {
+			return durationText(JSON.parse(text));
+		} catch {
+			return null;
+		}
+	}
+	if (typeof raw !== "object" || raw === null) return null;
+	const { type, value } = raw as { type?: unknown; value?: unknown };
+	const amount = String(value ?? "").trim();
+	if (amount === "") return null;
+	const unit = String(type ?? "").trim();
+	return unit === "" ? amount : `${amount} ${unit}`;
+}
+
+/** `"9.80"` or `9.8` -> `9.8`; anything unreadable -> null rather than NaN. */
+function num(value: string | number | null | undefined): number | null {
 	if (value === null || value === undefined || value === "") return null;
 	const n = Number(value);
 	return Number.isFinite(n) ? n : null;
@@ -569,6 +607,8 @@ export const easyparcelAdapter: CarrierAdapter = {
 			);
 		}
 
+		const duration = durationText(best.courier.delivery_duration);
+
 		return {
 			carrierId: "easyparcel",
 			priceRm: num(best.pricing.total_amount),
@@ -577,9 +617,7 @@ export const easyparcelAdapter: CarrierAdapter = {
 			etaMinutes: null,
 			quoteRef: best.courier.service_id,
 			notes: `${best.courier.courier_name ?? "Courier"} — ${best.courier.service_name ?? best.courier.service_id}${
-				best.courier.delivery_duration
-					? `, ${best.courier.delivery_duration}`
-					: ""
+				duration === null ? "" : `, ${duration}`
 			}`,
 		};
 	},

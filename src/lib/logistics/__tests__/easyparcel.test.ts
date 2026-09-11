@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cheapest,
+	durationText,
 	collectionDate,
 	EasyParcelNotDeliverable,
 	easyparcelAdapter,
@@ -16,6 +17,7 @@ import {
 	cancelRefusal,
 	cancelReply,
 	detailsReply,
+	liveQuotationReply,
 	quotationRefusal,
 	quotationReply,
 	submitRefusal,
@@ -282,6 +284,15 @@ describe("easyparcelAdapter.quote", () => {
 		expect(quote.quoteRef).toBe("EP-CS09C");
 		expect(quote.notes).toContain("City-Link");
 		expect(quote.etaMinutes).toBeNull();
+	});
+
+	it("reads their live reply, whose prices are numbers and not strings", async () => {
+		stubResponses(liveQuotationReply);
+
+		const quote = await easyparcelAdapter.quote(job());
+
+		expect(quote.priceRm).toBe(12.4);
+		expect(quote.quoteRef).toBe("EP-CS09C");
 	});
 
 	it("treats a 200 carrying an error as a refusal — this is not an HTTP failure", async () => {
@@ -703,5 +714,21 @@ describe("endpoint's refusal message", () => {
 		expect(() =>
 			quotationBody(job({ sitePostcode: null, siteState: "MY-10" })),
 		).toThrow(/no postcode we could read/);
+	});
+});
+
+describe("durationText", () => {
+	it("passes their documented prose through", () => {
+		expect(durationText("1-3 working days")).toBe("1-3 working days");
+	});
+
+	it("reads the live reply's JSON string into words", () => {
+		expect(durationText('{"type":"days","value":"3"}')).toBe("3 days");
+	});
+
+	it("is null for a shape it cannot read, rather than braces on the row", () => {
+		expect(durationText("{not json")).toBeNull();
+		expect(durationText(null)).toBeNull();
+		expect(durationText({ type: "days" })).toBeNull();
 	});
 });

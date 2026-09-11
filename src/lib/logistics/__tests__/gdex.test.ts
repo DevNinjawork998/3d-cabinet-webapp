@@ -25,6 +25,25 @@ import {
 } from "../types";
 import { pickupCancelledRefusal, pickupReferenceReply } from "./fixtures/gdex";
 
+/**
+ * The clock, pinned to the day these fixtures were captured against the GDEX
+ * sandbox.
+ *
+ * `job()` is scheduled for 2026-09-10, which was inside the five days GDEX
+ * would collect within *on the 6th* and outside them a week later — so twenty
+ * tests in this file went red on 2026-09-11 on a calendar page turning rather
+ * than on anything anyone changed. `shouldAdvanceTime` keeps the fetch mocks'
+ * timeouts and retries working against a frozen `Date`.
+ */
+beforeEach(() => {
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	vi.setSystemTime(new Date("2026-09-06T02:00:00.000Z"));
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 const carton: DeliveryItem = {
 	label: "Handle set",
 	qty: 2,

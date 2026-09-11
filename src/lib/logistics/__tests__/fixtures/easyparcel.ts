@@ -82,6 +82,69 @@ export const quotationReply = {
 	],
 };
 
+/**
+ * The same call against the **live** API, 2026-09-11, trimmed the same way.
+ *
+ * Kept next to `quotationReply` because they disagree: the documentation prints
+ * every price as a string and the live service sends JSON numbers. The
+ * documented sample alone let `total_amount: z.string()` ship, and the
+ * EasyParcel row on the comparison screen then read "EasyParcel's quotation
+ * reply was not the shape we expect" on every real job while the recorded
+ * fixtures passed — the exact blind spot `pnpm easyparcel:ping` exists for.
+ */
+export const liveQuotationReply = {
+	status_code: 200,
+	request_id: "1789089907792.2e65020d-d1fe-4344-8556-b995da20b991",
+	message: "1 request success, 0 request error.",
+	data: [
+		{
+			status: "success",
+			input: {
+				sender: { postcode: "43300", subdivision_code: "MY-10", country: "MY" },
+				receiver: {
+					postcode: "42500",
+					subdivision_code: "MY-10",
+					country: "MY",
+				},
+				weight: 5,
+			},
+			quotations: [
+				{
+					courier: {
+						service_id: "EP-CS096",
+						service_name: "Aramex (Pick Up) (From Door to Door)",
+						courier_id: "EP-CR0AP",
+						courier_name: "Aramex",
+						delivery_duration: null,
+						is_pickup: true,
+						is_dropoff: false,
+					},
+					pricing: {
+						currency: "MYR",
+						total_amount: 18.26,
+						shipment_price: 16.8,
+						shipment_tax: 1.01,
+					},
+					features: [],
+				},
+				{
+					courier: {
+						service_id: "EP-CS09C",
+						service_name: "City-Link (Drop Off)",
+						courier_id: "EP-CR0CL",
+						courier_name: "City-Link Express",
+						delivery_duration: "1-3 working days",
+						is_pickup: false,
+						is_dropoff: true,
+					},
+					pricing: { currency: "MYR", total_amount: 12.4 },
+					features: [],
+				},
+			],
+		},
+	],
+};
+
 /** Their documented failure shape — HTTP 200, and the error is inside `data`. */
 export const quotationRefusal = {
 	status_code: 200,
