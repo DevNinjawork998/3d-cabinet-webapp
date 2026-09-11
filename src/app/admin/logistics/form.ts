@@ -1,4 +1,3 @@
-import { parseCoords } from "@/lib/logistics/coords";
 import type { DeliveryItem, DeliveryStatusName } from "@/lib/logistics/types";
 
 /**
@@ -87,9 +86,6 @@ export const emptyItem = (): FormItem => ({
 	weightKg: null,
 });
 
-/** What the pin input shows when the admin has not typed anything into it. */
-export const NO_PIN_PLACEHOLDER = "Found from the address";
-
 export const blankForm = (workshopAddress: string) => ({
 	id: null as string | null,
 	customerName: "",
@@ -97,10 +93,6 @@ export const blankForm = (workshopAddress: string) => ({
 	siteAddress: "",
 	addressNotes: "",
 	pickupAddress: workshopAddress,
-	siteCoords: "",
-	pickupCoords: "",
-	sitePinPlaceholder: NO_PIN_PLACEHOLDER,
-	pickupPinPlaceholder: NO_PIN_PLACEHOLDER,
 	scheduledAt: "",
 	items: [emptyItem()],
 });
@@ -116,20 +108,7 @@ export function localDateTime(iso: string | null): string {
 		.slice(0, 16);
 }
 
-const pinPlaceholder = (lat: number | null, lng: number | null) =>
-	lat !== null && lng !== null ? `${lat}, ${lng}` : NO_PIN_PLACEHOLDER;
-
-/**
- * An existing job back into the same form.
- *
- * The coords fields start blank, never prefilled with the stored pin — almost
- * every stored pin is a *geocoded* one, not a pasted override, and prefilling
- * it would resend it as an override on the next save. `resolveCoordinates`
- * treats any override as authoritative (rule 1), so a corrected address would
- * silently keep the old, wrong pin instead of being re-geocoded. The stored
- * pin still shows, as the input's placeholder, so the admin can see it without
- * it becoming part of what gets sent.
- */
+/** An existing job back into the same form. */
 export const formFrom = (row: DeliveryRow): FormState => ({
 	id: row.id,
 	customerName: row.customerName,
@@ -137,31 +116,32 @@ export const formFrom = (row: DeliveryRow): FormState => ({
 	siteAddress: row.siteAddress,
 	addressNotes: row.addressNotes ?? "",
 	pickupAddress: row.pickupAddress,
-	siteCoords: "",
-	pickupCoords: "",
-	sitePinPlaceholder: pinPlaceholder(row.siteLat, row.siteLng),
-	pickupPinPlaceholder: pinPlaceholder(row.pickupLat, row.pickupLng),
 	scheduledAt: localDateTime(row.scheduledAt),
 	items: row.items.map((item) => ({ ...item, uid: crypto.randomUUID() })),
 });
 
-/** The form as the create and edit endpoints want it. */
+/**
+ * The form as the create and edit endpoints want it.
+ *
+ * The four pin fields are always null. This form has no pin inputs — an admin
+ * types the address and the geocode finds the pin, which is what a person
+ * actually does. The endpoints still accept an override because
+ * `resolveCoordinates` rule 1 is the escape hatch for a geocode that landed on
+ * the wrong taman, and because `pinFor` still reads a coordinate pair or a Maps
+ * link typed into the *address* field as the pin — the paste that actually
+ * happens, in the field the admin was already in.
+ */
 export function toPayload(state: FormState) {
-	// A pin that failed to parse sends null, same as an empty field — the hint
-	// under the input is what tells the admin the paste was rejected rather
-	// than just not given.
-	const site = parseCoords(state.siteCoords);
-	const pickup = parseCoords(state.pickupCoords);
 	return {
 		customerName: state.customerName,
 		customerPhone: state.customerPhone,
 		siteAddress: state.siteAddress,
 		addressNotes: state.addressNotes || null,
 		pickupAddress: state.pickupAddress,
-		siteLat: site.ok ? site.lat : null,
-		siteLng: site.ok ? site.lng : null,
-		pickupLat: pickup.ok ? pickup.lat : null,
-		pickupLng: pickup.ok ? pickup.lng : null,
+		siteLat: null,
+		siteLng: null,
+		pickupLat: null,
+		pickupLng: null,
 		scheduledAt: state.scheduledAt
 			? new Date(state.scheduledAt).toISOString()
 			: null,

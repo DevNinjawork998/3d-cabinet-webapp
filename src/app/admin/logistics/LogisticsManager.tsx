@@ -4,12 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chipClass, fieldClass } from "@/components/admin/styles";
 import { CARRIERS, KIND, LABEL } from "@/lib/logistics/carriers";
-import {
-	COORDS_HINT,
-	type PinState,
-	parseCoords,
-	pinState,
-} from "@/lib/logistics/coords";
+import { type PinState, pinState } from "@/lib/logistics/coords";
 import {
 	suggestVehicle,
 	totalVolumeM3,
@@ -31,7 +26,6 @@ import {
 	type FormItem,
 	type FormState,
 	formFrom,
-	NO_PIN_PLACEHOLDER,
 	type QuoteRow,
 	toPayload,
 } from "./form";
@@ -197,8 +191,9 @@ export function LogisticsManager({
 					    of those is fixed by editing an environment variable — and the
 					    admin cannot tell which they have without being told. */}
 					{geocodingFault ?? "Addresses are not looked up here."} Until that is
-					fixed, every job needs a pin pasted into the Site pin field, and the
-					parcel partners cannot quote at all — they price by postcode.
+					fixed, no job can be quoted by anyone — the vehicle partners price by
+					coordinate and the parcel partners by postcode, and both come from the
+					lookup.
 				</p>
 			)}
 
@@ -428,36 +423,6 @@ function DeliveryForm({
 					/>
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
-					Site pin — where the customer is. Paste “3.1509, 101.5931” or a Google
-					Maps link
-					<input
-						className={fieldClass(false)}
-						placeholder={state.sitePinPlaceholder}
-						value={state.siteCoords}
-						onChange={(e) => set("siteCoords", e.target.value)}
-					/>
-					{(() => {
-						const parsed = parseCoords(state.siteCoords);
-						if (!parsed.ok && parsed.reason !== "empty") {
-							return (
-								<span className="text-[11px] text-amber-700">
-									{COORDS_HINT[parsed.reason]}
-								</span>
-							);
-						}
-						// Empty is normally fine — the address gets looked up. With
-						// lookup off it is the whole ballgame, and a job saved without
-						// it comes back unquotable with nothing said at the time.
-						const noStoredPin = state.sitePinPlaceholder === NO_PIN_PLACEHOLDER;
-						return !geocodingConfigured && noStoredPin ? (
-							<span className="text-[11px] text-amber-700">
-								Addresses are not looked up here, so without this pin no vehicle
-								partner can quote the job.
-							</span>
-						) : null;
-					})()}
-				</label>
-				<label className="flex flex-col gap-1 text-[12px] text-neutral-500 sm:col-span-2">
 					Access notes — gate codes, unit number, who to call
 					<input
 						className={fieldClass(false)}
@@ -473,23 +438,6 @@ function DeliveryForm({
 						value={state.pickupAddress}
 						onChange={(e) => set("pickupAddress", e.target.value)}
 					/>
-				</label>
-				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
-					Pickup pin — the workshop, filled in for you
-					<input
-						className={fieldClass(false)}
-						placeholder={state.pickupPinPlaceholder}
-						value={state.pickupCoords}
-						onChange={(e) => set("pickupCoords", e.target.value)}
-					/>
-					{(() => {
-						const parsed = parseCoords(state.pickupCoords);
-						return parsed.ok || parsed.reason === "empty" ? null : (
-							<span className="text-[11px] text-amber-700">
-								{COORDS_HINT[parsed.reason]}
-							</span>
-						);
-					})()}
 				</label>
 				<label className="flex flex-col gap-1 text-[12px] text-neutral-500">
 					Scheduled
@@ -596,9 +544,10 @@ function DeliveryForm({
 /**
  * Why a stop has no pin, in words an admin can act on.
  *
- * Each carries its own action tail — with the geocoder switched off, fixing
- * the address can never help, since nothing looks it up, so that case offers
- * only pasting a pin. `not-found` keeps both options.
+ * Each carries its own action tail, and only one of them is the admin's to
+ * act on: a vague address is theirs to sharpen, a geocoder that is switched off
+ * is not — no amount of editing gets looked up. Naming that difference is the
+ * whole point, because the form has no pin field to fall back on.
  */
 const PIN_TROUBLE: Record<
 	Exclude<PinState, "located">,
@@ -607,12 +556,12 @@ const PIN_TROUBLE: Record<
 	"geocoder-off": {
 		reason:
 			"was not looked up — address lookup is switched off on this deployment.",
-		action: "Paste a pin above.",
+		action: "Nothing on this job can fix that; the deployment needs a key.",
 	},
 	"not-found": {
 		reason:
 			"did not resolve to a map location — the address may be too vague to place.",
-		action: "Use Edit above to fix the address or paste a pin.",
+		action: "Use Edit above and give it a street and a postcode.",
 	},
 };
 

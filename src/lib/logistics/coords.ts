@@ -4,10 +4,11 @@
  * Pure and isomorphic — the delivery form imports this, so nothing here may
  * touch the network, the environment, or a credential.
  *
- * The field used to take one shape, `"3.15, 101.59"`, and answer every other
- * paste with null — which the form stored as "no pin given", indistinguishable
- * from an empty field. What a phone puts on the clipboard from Google Maps is
- * a URL, so the common paste was the silent one.
+ * There is no pin input on the form any more: a person types the full address
+ * and the geocode finds the pin, which is what a person actually does. What
+ * survives is the reading of a pin out of the *address* field — because what a
+ * phone puts on the clipboard from Google Maps is a URL, and somebody will
+ * paste it where the address goes.
  */
 
 export type ParsedCoords =
@@ -83,22 +84,14 @@ export function pinState(
 	return geocodingConfigured ? "not-found" : "geocoder-off";
 }
 
-export const COORDS_HINT = {
-	"short-link":
-		"That is a shortened Maps link. Open it, long-press the pin, and paste the numbers it copies.",
-	unreadable:
-		"That is not a map pin. Paste two numbers — “3.1509, 101.5931” — or a full Google Maps link.",
-} as const;
-
 /**
- * The pin to use for a stop: the one pasted in the pin field, or the address
- * itself when someone pasted coordinates where the address goes.
+ * The pin to use for a stop: an override the API was given, or the address
+ * itself when what was typed there is a coordinate pair or a Maps link.
  *
- * That second case is not a hypothetical. Three saves in a row on the first
- * real job put the pin somewhere other than the pin field — once in the pickup
- * pin, once as the pickup address — and each time the job came back
- * unquotable. A coordinate pair is never a street address, so reading one as a
- * pin costs nothing and saves the admin from the field they picked.
+ * The form no longer offers a pin field, so the second case is now the only
+ * one a person reaches. It is not a hypothetical — three saves in a row on the
+ * first real job put a pin where an address goes. A coordinate pair is never a
+ * street address, so reading one as a pin costs nothing.
  */
 export function pinFor(
 	lat: number | null,

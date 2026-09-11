@@ -49,20 +49,6 @@ describe("formFrom", () => {
 		expect(formFrom(row).id).toBe("d1");
 	});
 
-	it("leaves the coords field blank even when the row carries a stored pin", () => {
-		// Prefilling it would resend the stored pin as an override on the next
-		// save, which stops a corrected address from ever being re-geocoded.
-		expect(formFrom(row).siteCoords).toBe("");
-	});
-
-	it("shows the stored pin as the placeholder instead", () => {
-		expect(formFrom(row).sitePinPlaceholder).toBe("3.1509, 101.5931");
-	});
-
-	it("leaves the coords field empty when there is no pin", () => {
-		expect(formFrom(row).pickupCoords).toBe("");
-	});
-
 	it("gives every item a key React can keep across edits", () => {
 		const uids = formFrom({
 			...row,
@@ -87,16 +73,18 @@ describe("toPayload", () => {
 		expect(toPayload(blankForm("Workshop")).addressNotes).toBeNull();
 	});
 
-	it("sends the pasted pin as a coordinate override", () => {
-		const state = { ...blankForm("Workshop"), siteCoords: "3.15, 101.59" };
-		expect(toPayload(state)).toMatchObject({ siteLat: 3.15, siteLng: 101.59 });
-	});
-
-	it("sends no override for an edited row whose pin field was left untouched, so a changed address is re-geocoded", () => {
-		expect(toPayload(formFrom(row))).toMatchObject({
+	// The form has no pin inputs: an admin types the address and the geocode
+	// finds the pin. Sending an override would make `resolveCoordinates` rule 1
+	// authoritative and stop a corrected address from ever being re-geocoded.
+	it("never sends a coordinate override, for a new job or an edited one", () => {
+		const nulls = {
 			siteLat: null,
 			siteLng: null,
-		});
+			pickupLat: null,
+			pickupLng: null,
+		};
+		expect(toPayload(blankForm("Workshop"))).toMatchObject(nulls);
+		expect(toPayload(formFrom(row))).toMatchObject(nulls);
 	});
 
 	it("round-trips a scheduled time through the local datetime field", () => {

@@ -620,9 +620,9 @@ describe("a save made while the geocoder itself is broken", () => {
 		vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "bad-key");
 		stubFetch(refusal);
 
-		expect(
-			await resolveCoordinates("Jalan PJU 5/20", stored, null),
-		).toEqual(stored);
+		expect(await resolveCoordinates("Jalan PJU 5/20", stored, null)).toEqual(
+			stored,
+		);
 	});
 
 	it("keeps them behind an admin-typed pin too", async () => {

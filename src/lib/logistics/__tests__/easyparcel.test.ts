@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cheapest,
-	durationText,
 	collectionDate,
+	durationText,
 	EasyParcelNotDeliverable,
 	easyparcelAdapter,
 	mmToCm,
